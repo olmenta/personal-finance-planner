@@ -78,6 +78,20 @@ export interface TransactionOut {
   status: string;
 }
 
+export interface SummaryWeek {
+  start: string; // ISO date, bucket's first day clamped to the month
+  spent_cents: number;
+  income_cents: number;
+}
+
+export interface SummaryView {
+  month: string;
+  balance_cents: number; // all-time sum of confirmed transactions
+  income_cents: number;
+  expense_cents: number;
+  weeks: SummaryWeek[];
+}
+
 // ---- Fetch helpers ----------------------------------------------------------
 
 /** Machine-readable API error ({"code": "<snake_case>"} per §6.7). */
@@ -124,6 +138,9 @@ export const confirmSuggestions = (month: string, categoryIds: string[]) =>
 
 export const fetchCategories = () =>
   request<CategoryGroupOut[]>("/categories");
+
+export const fetchSummary = (month: string) =>
+  request<SummaryView>(`/summary/${month}`);
 
 export const fetchTransactions = (month?: string) =>
   request<TransactionOut[]>(

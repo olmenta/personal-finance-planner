@@ -16,6 +16,13 @@ export function euroCents(cents: number, dp = 2): string {
   return euro(cents / 100, dp);
 }
 
+/** Integer cents → BalanceCard's split parts: 87457 → ["874", ",57 €"]. */
+export function splitEuro(cents: number): [string, string] {
+  const formatted = euroCents(cents); // "874,57 €"
+  const comma = formatted.lastIndexOf(",");
+  return [formatted.slice(0, comma), formatted.slice(comma)];
+}
+
 /** Parse es-ES user input ("1.234,56", "1234,56", "1234.56", "850") → cents. */
 export function parseEuroToCents(input: string): number | null {
   const cleaned = input.replaceAll(/[€\s]/g, "");

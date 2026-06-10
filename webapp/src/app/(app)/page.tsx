@@ -1,3 +1,8 @@
+"use client";
+
+import Link from "next/link";
+import React from "react";
+import { useQuery } from "@tanstack/react-query";
 import { AddTransactionDialog } from "@/components/AddTransactionDialog";
 import { BalanceCard } from "@/components/ui/BalanceCard";
 import { Badge } from "@/components/ui/Badge";
@@ -6,12 +11,28 @@ import { Button } from "@/components/ui/Button";
 import { CoachCapsule } from "@/components/ui/CoachCapsule";
 import { Icon } from "@/components/ui/Icon";
 import { Panel } from "@/components/ui/Panel";
+import { ErrorPanel, SkeletonPanel } from "@/components/ui/QueryStates";
 import { StatCard } from "@/components/ui/StatCard";
 import { TransactionRow } from "@/components/ui/TransactionRow";
 import { TopBar } from "@/components/shell/TopBar";
-import { balance, budgets, transactions, weeks } from "@/lib/mock-data";
+import {
+  currentMonth,
+  fetchBudgetMonth,
+  fetchCategories,
+  fetchSummary,
+  fetchTransactions,
+  toneForCategory,
+  type CategoryOut,
+  type SummaryView,
+  type TransactionOut,
+} from "@/lib/api";
+import { euroCents, splitEuro } from "@/lib/format";
 
-function SpendChart() {
+function SpendChart({ summary }: Readonly<{ summary: SummaryView }>) {
+  const max = Math.max(
+    1,
+    ...summary.weeks.flatMap((w) => [w.spent_cents, w.income_cents]),
+  );
   return (
     <Panel
       title="Spending this month"
@@ -39,7 +60,7 @@ function SpendChart() {
             }}
           >
             <span style={{ width: 10, height: 10, borderRadius: 3, background: "var(--mint-400)" }} />{" "}
-            Saved
+            Income
           </span>
         </div>
       }
@@ -54,9 +75,9 @@ function SpendChart() {
           padding: "0 4px",
         }}
       >
-        {weeks.map((w) => (
+        {summary.weeks.map((w, i) => (
           <div
-            key={w.l}
+            key={w.start}
             style={{
               flex: 1,
               display: "flex",
@@ -78,7 +99,7 @@ function SpendChart() {
               <div
                 style={{
                   width: 14,
-                  height: `${w.a}%`,
+                  height: `${Math.round((w.spent_cents / max) * 100)}%`,
                   background: "var(--grad-balance)",
                   borderRadius: "6px 6px 3px 3px",
                 }}
@@ -86,14 +107,14 @@ function SpendChart() {
               <div
                 style={{
                   width: 14,
-                  height: `${w.b}%`,
+                  height: `${Math.round((w.income_cents / max) * 100)}%`,
                   background: "var(--mint-300)",
                   borderRadius: "6px 6px 3px 3px",
                 }}
               />
             </div>
             <span style={{ font: "600 12px var(--font-sans)", color: "var(--text-subtle)" }}>
-              {w.l}
+              W{i + 1}
             </span>
           </div>
         ))}
@@ -102,27 +123,146 @@ function SpendChart() {
   );
 }
 
+/* Spent share of the bar's limit; >100 reads as over even with no limit. */
+function spentPercent(spentCents: number, limitCents: number): number {
+  if (limitCents > 0) return Math.round((spentCents / limitCents) * 100);
+  return spentCents > 0 ? 101 : 0;
+}
+
+function RecentTransactions({
+  rows,
+  categories,
+}: Readonly<{ rows: TransactionOut[]; categories: Map<string, CategoryOut> }>) {
+  if (rows.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "26px 0 10px" }}>
+        <div style={{ font: "600 15px var(--font-sans)", color: "var(--text-strong)" }}>
+          Nothing here yet — add your first transaction
+        </div>
+        <div style={{ font: "500 13px var(--font-sans)", color: "var(--text-muted)", marginTop: 6 }}>
+          Every euro you track makes your budget smarter.
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      {rows.map((t, i) => {
+        const category = t.category_id ? categories.get(t.category_id) : undefined;
+        const isIncome = t.amount_cents > 0;
+        return (
+          <div
+            key={t.id}
+            style={{
+              borderBottom: i < rows.length - 1 ? "1px solid var(--border-hairline)" : "none",
+            }}
+          >
+            <TransactionRow
+              icon={isIncome ? "dollar-sign" : (category?.icon ?? "circle")}
+              tone={isIncome ? "income" : toneForCategory(category?.icon ?? "circle")}
+              title={t.description ?? category?.name ?? "Transaction"}
+              subtitle={`${category?.name ?? "Uncategorized"} · ${t.date.slice(8)}/${t.date.slice(5, 7)}`}
+              amount={euroCents(Math.abs(t.amount_cents))}
+              direction={isIncome ? "in" : "out"}
+              card={false}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function OverviewPage() {
+  const month = currentMonth();
+  const summaryQuery = useQuery({
+    queryKey: ["summary", month],
+    queryFn: () => fetchSummary(month),
+  });
+  const budgetQuery = useQuery({
+    queryKey: ["budget", month],
+    queryFn: () => fetchBudgetMonth(month),
+  });
+  const txQuery = useQuery({
+    queryKey: ["transactions", month],
+    queryFn: () => fetchTransactions(month),
+  });
+  const catQuery = useQuery({ queryKey: ["categories"], queryFn: fetchCategories });
+
+  const categories = React.useMemo(() => {
+    const map = new Map<string, CategoryOut>();
+    for (const g of catQuery.data ?? []) {
+      for (const c of g.categories) map.set(c.id, c);
+    }
+    return map;
+  }, [catQuery.data]);
+
+  /* Budgets panel: top categories by spent; limit = assigned + rollover. */
+  const topBudgets = React.useMemo(() => {
+    const cats = (budgetQuery.data?.groups ?? []).flatMap((g) => g.categories);
+    return cats
+      .filter((c) => c.spent_cents > 0 || c.assigned_cents + c.rollover_cents > 0)
+      .sort((a, b) => b.spent_cents - a.spent_cents)
+      .slice(0, 4);
+  }, [budgetQuery.data]);
+  const activeCount = (budgetQuery.data?.groups ?? [])
+    .flatMap((g) => g.categories)
+    .filter((c) => c.spent_cents > 0 || c.assigned_cents + c.rollover_cents > 0).length;
+
+  const summary = summaryQuery.data;
+  const net = summary ? summary.income_cents - summary.expense_cents : 0;
+  const [balanceAmount, balanceCents] = summary ? splitEuro(summary.balance_cents) : ["", ""];
+
+  if (summaryQuery.isError) {
+    return (
+      <>
+        <TopBar title="Overview" sub="Welcome back" />
+        <div className="app-content">
+          <ErrorPanel
+            message="We couldn't load your overview."
+            onRetry={() => summaryQuery.refetch()}
+          />
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
-      <TopBar title="Overview" sub="Welcome back, Maya" />
+      <TopBar title="Overview" sub="Welcome back" />
       <div className="app-content">
-        <div className="grid-dash-top">
-          <BalanceCard
-            label="Current balance"
-            amount={balance.amount}
-            cents={balance.cents}
-            align="left"
-            delta={
-              <>
-                <Icon name="trending-up" size={15} /> {balance.delta}
-              </>
-            }
-            style={{ borderRadius: "var(--r-xl)" }}
-          />
-          <StatCard icon="trending-up" tone="income" label="Income" value={balance.income} />
-          <StatCard icon="trending-down" tone="expense" label="Expenses" value={balance.expenses} />
-        </div>
+        {summary ? (
+          <div className="grid-dash-top">
+            <BalanceCard
+              label="Current balance"
+              amount={balanceAmount}
+              cents={balanceCents}
+              align="left"
+              delta={
+                <>
+                  <Icon name={net >= 0 ? "trending-up" : "trending-down"} size={15} />{" "}
+                  {net >= 0 ? "+" : "−"}
+                  {euroCents(Math.abs(net))} this month
+                </>
+              }
+              style={{ borderRadius: "var(--r-xl)" }}
+            />
+            <StatCard
+              icon="trending-up"
+              tone="income"
+              label="Income"
+              value={euroCents(summary.income_cents)}
+            />
+            <StatCard
+              icon="trending-down"
+              tone="expense"
+              label="Expenses"
+              value={euroCents(summary.expense_cents)}
+            />
+          </div>
+        ) : (
+          <SkeletonPanel rows={1} rowHeight={120} />
+        )}
 
         {/* The web reference keeps coach insights in the rail; the capsule
             appears only when the rail is collapsed (<1440px). */}
@@ -131,52 +271,57 @@ export default function OverviewPage() {
         </div>
 
         <div className="grid-dash-mid">
-          <SpendChart />
-          <Panel title="Budgets" action={<Badge tone="brand">4 active</Badge>}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 17 }}>
-              {budgets.map((b) => (
-                <BudgetBar key={b.label} {...b} />
-              ))}
-            </div>
-          </Panel>
+          {summary ? <SpendChart summary={summary} /> : <SkeletonPanel rows={3} rowHeight={52} />}
+          {budgetQuery.data ? (
+            <Panel
+              title="Budgets"
+              action={<Badge tone="brand">{activeCount} active</Badge>}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 17 }}>
+                {topBudgets.map((c) => {
+                  const limit = c.assigned_cents + c.rollover_cents;
+                  return (
+                    <BudgetBar
+                      key={c.id}
+                      icon={c.icon}
+                      tone={toneForCategory(c.icon)}
+                      label={c.name}
+                      spent={euroCents(c.spent_cents, 0)}
+                      limit={euroCents(limit, 0)}
+                      percent={spentPercent(c.spent_cents, limit)}
+                    />
+                  );
+                })}
+              </div>
+            </Panel>
+          ) : (
+            <SkeletonPanel rows={4} rowHeight={40} />
+          )}
         </div>
 
-        <Panel
-          title="Recent transactions"
-          action={
-            <div style={{ display: "flex", gap: 8 }}>
-              <AddTransactionDialog>
-                <Button variant="primary" size="sm" iconLeft="plus">
-                  Add transaction
-                </Button>
-              </AddTransactionDialog>
-              <Button variant="ghost" size="sm" iconRight="chevron-right">
-                View all
-              </Button>
-            </div>
-          }
-        >
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            {transactions.slice(0, 4).map((t, i) => (
-              <div
-                key={t.title}
-                style={{
-                  borderBottom: i < 3 ? "1px solid var(--border-hairline)" : "none",
-                }}
-              >
-                <TransactionRow
-                  icon={t.icon}
-                  tone={t.tone}
-                  title={t.title}
-                  subtitle={t.subtitle}
-                  amount={t.amount}
-                  direction={t.direction}
-                  card={false}
-                />
+        {txQuery.data && catQuery.data ? (
+          <Panel
+            title="Recent transactions"
+            action={
+              <div style={{ display: "flex", gap: 8 }}>
+                <AddTransactionDialog>
+                  <Button variant="primary" size="sm" iconLeft="plus">
+                    Add transaction
+                  </Button>
+                </AddTransactionDialog>
+                <Link href="/transactions">
+                  <Button variant="ghost" size="sm" iconRight="chevron-right">
+                    View all
+                  </Button>
+                </Link>
               </div>
-            ))}
-          </div>
-        </Panel>
+            }
+          >
+            <RecentTransactions rows={txQuery.data.slice(0, 4)} categories={categories} />
+          </Panel>
+        ) : (
+          <SkeletonPanel rows={4} rowHeight={48} />
+        )}
       </div>
     </>
   );

@@ -103,5 +103,22 @@ class ConfirmSuggestionsRequest(BaseModel):
     category_ids: list[str]
 
 
+# ---- Month summary (dashboard) ----------------------------------------------
+
+
+class SummaryWeek(BaseModel):
+    start: date_type  # bucket's first day, clamped to the month
+    spent_cents: int
+    income_cents: int
+
+
+class SummaryView(BaseModel):
+    month: str
+    balance_cents: int  # all-time sum of confirmed transactions
+    income_cents: int
+    expense_cents: int
+    weeks: list[SummaryWeek]
+
+
 class ErrorOut(BaseModel):
     code: str

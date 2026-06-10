@@ -52,9 +52,10 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
   const mutation = useMutation({
     mutationFn: createTransaction,
     onSuccess: () => {
-      // Spent totals changed — both the list and the budget month are stale.
+      // Spent totals changed — list, budget month, and dashboard summary are stale.
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       queryClient.invalidateQueries({ queryKey: ["budget", currentMonth()] });
+      queryClient.invalidateQueries({ queryKey: ["summary", currentMonth()] });
       setOpen(false);
       setAmount("");
       setNote("");
