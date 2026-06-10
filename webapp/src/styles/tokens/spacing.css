@@ -1,0 +1,70 @@
+/* ===========================================================================
+   OLMENTA · SPACING, RADII, SHADOWS, MOTION, Z
+   Base-4 spacing. Generous radii give Olmenta its approachable warmth.
+   Elevation is contained: soft violet-tinted shadows; one tinted glow for FAB.
+   =========================================================================== */
+:root {
+  /* ---- Spacing · base 4 ------------------------------------------------ */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 48px;
+  --space-10: 64px;
+  --space-12: 80px;
+  --space-14: 96px;
+
+  /* ---- Radii · generous ------------------------------------------------ */
+  --r-xs: 8px;     /* tiny chips, tags */
+  --r-sm: 10px;    /* inputs, small controls */
+  --r-md: 14px;    /* icon chips, list items */
+  --r-lg: 18px;    /* buttons (block), inner cards */
+  --r-xl: 24px;    /* cards */
+  --r-2xl: 30px;   /* sheets, hero cards, panels */
+  --r-3xl: 36px;   /* phone screen, large surfaces */
+  --r-full: 999px; /* pills, FAB, avatars */
+
+  /* ---- Border widths --------------------------------------------------- */
+  --bw-1: 1px;   /* @kind spacing */
+  --bw-2: 1.5px; /* @kind spacing */
+
+  /* ---- Elevation · soft, violet-tinted --------------------------------- */
+  --shadow-xs: 0 1px 2px rgba(20,19,26,.05);
+  --shadow-sm: 0 1px 2px rgba(20,19,26,.06), 0 2px 6px rgba(40,30,80,.05);
+  --shadow-md: 0 6px 18px rgba(40,30,80,.08);
+  --shadow-lg: 0 16px 40px rgba(40,30,80,.12);
+  --shadow-xl: 0 28px 64px rgba(40,30,80,.18);
+  --shadow-fab: 0 12px 28px rgba(124,92,252,.42);     /* violet glow — FAB only */
+  --shadow-mint: 0 12px 28px rgba(22,199,154,.35);    /* mint glow — accent CTA */
+  --shadow-coach: 0 18px 44px rgba(20,19,26,.28);     /* dark coach capsule */
+  --inner-well: inset 0 1px 2px rgba(20,19,26,.06); /* @kind shadow */
+
+  /* ---- Motion ---------------------------------------------------------- */
+  --ease-out: cubic-bezier(.2, .8, .2, 1);          /* @kind other */
+  --ease-in-out: cubic-bezier(.4, 0, .2, 1);        /* @kind other */
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1);   /* @kind other */
+  --dur-fast: 120ms;   /* @kind other */
+  --dur-base: 180ms;   /* @kind other */
+  --dur-slow: 280ms;   /* @kind other */
+  --dur-slower: 440ms; /* @kind other */
+  --press-scale: 0.97; /* @kind other */
+
+  /* ---- Layout / Z ------------------------------------------------------ */
+  --z-base: 0;       /* @kind other */
+  --z-sticky: 100;   /* @kind other */
+  --z-nav: 200;      /* @kind other */
+  --z-fab: 300;      /* @kind other */
+  --z-overlay: 400;  /* @kind other */
+  --z-sheet: 500;    /* @kind other */
+  --z-toast: 600;    /* @kind other */
+
+  --tap-min: 44px;          /* @kind spacing */
+  --container: 1200px;      /* @kind spacing */
+  --sidebar-w: 264px;       /* @kind spacing */
+  --phone-w: 390px;         /* @kind spacing */
+}

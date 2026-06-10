@@ -109,7 +109,13 @@ Python API — FastAPI on Google Cloud Run
 | IaC | **Terraform** | All GCP resources (Cloud Run services, Cloud Tasks, service accounts, secrets), Neon (via provider), Auth0 (via provider) |
 | Observability | Sentry (frontend + backend), Cloud Run logs/metrics | |
 | CI/CD | GitHub Actions | Lint, test, build, deploy. Terraform plan/apply via CI. |
-| Repo | Monorepo (Turborepo): `apps/web`, `apps/api`, `packages/*` | TypeScript API client auto-generated from FastAPI's OpenAPI spec — typed contract between BFF and backend |
+| Repo | **Monorepo**: `webapp/` (Next.js), `backend/` (FastAPI), `mobile/` (Ionic — future release) | TypeScript API client auto-generated from FastAPI's OpenAPI spec — typed contract between BFF and backend |
+ 
+**Toolchain conventions (mandatory):**
+ 
+- **Backend (`backend/`):** The Python version is pinned with **uv** (`.python-version`, via `uv python pin`). Use **uv** for everything: installing libraries (`uv add <pkg>`), running scripts (`uv run <script>`), and serving the API with **uvicorn** (`uv run uvicorn app.main:app --reload`). Never call `pip` or a system Python directly.
+- **Frontend (`webapp/`, later `mobile/`):** The Node version is pinned with **Volta** (`volta` field in `package.json`). Always go through Volta for installing libraries and running npm (`volta run npm install`, `volta run npm run dev`, …) — or rely on Volta's shims so `npm`/`node` resolve to the pinned version. Never use a system Node that bypasses the pin.
+- **Mobile (`mobile/`, future):** Ionic app, planned for a later release; same Volta/Node conventions as `webapp/`.
  
 ### 6.3 Transaction Ingestion — Ports & Adapters
  

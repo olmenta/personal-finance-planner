@@ -1,0 +1,129 @@
+import {
+  ArrowDownLeft,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowUpRight,
+  BarChart3,
+  Bell,
+  Building2,
+  Calendar,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  Clock,
+  Coffee,
+  CreditCard,
+  DollarSign,
+  Euro,
+  Eye,
+  EyeOff,
+  Filter,
+  Flame,
+  Home,
+  Info,
+  LayoutDashboard,
+  Lock,
+  LogOut,
+  MoreHorizontal,
+  PieChart,
+  PiggyBank,
+  Pin,
+  Plane,
+  Plus,
+  Receipt,
+  RotateCw,
+  Search,
+  Send,
+  Settings,
+  ShoppingBag,
+  Sparkles,
+  Target,
+  TrendingDown,
+  TrendingUp,
+  User,
+  Users,
+  Wallet,
+  X,
+  Zap,
+  type LucideIcon,
+} from "lucide-react";
+
+/* Olmenta icon language: Lucide, 2px stroke, round caps, currentColor.
+   The sparkle is reserved for the AI coach. */
+const OL_ICONS: Record<string, LucideIcon> = {
+  "arrow-down-left": ArrowDownLeft,
+  "arrow-left": ArrowLeft,
+  "arrow-right": ArrowRight,
+  "arrow-up": ArrowUp,
+  "arrow-up-right": ArrowUpRight,
+  "bar-chart": BarChart3,
+  bell: Bell,
+  building: Building2,
+  calendar: Calendar,
+  check: Check,
+  "chevron-down": ChevronDown,
+  "chevron-left": ChevronLeft,
+  "chevron-right": ChevronRight,
+  circle: Circle,
+  clock: Clock,
+  coffee: Coffee,
+  "credit-card": CreditCard,
+  dashboard: LayoutDashboard,
+  "dollar-sign": DollarSign,
+  euro: Euro,
+  eye: Eye,
+  "eye-off": EyeOff,
+  filter: Filter,
+  flame: Flame,
+  home: Home,
+  info: Info,
+  lock: Lock,
+  "log-out": LogOut,
+  "more-horizontal": MoreHorizontal,
+  "pie-chart": PieChart,
+  "piggy-bank": PiggyBank,
+  pin: Pin,
+  plane: Plane,
+  plus: Plus,
+  receipt: Receipt,
+  "rotate-cw": RotateCw,
+  search: Search,
+  send: Send,
+  settings: Settings,
+  "shopping-bag": ShoppingBag,
+  sparkles: Sparkles,
+  target: Target,
+  "trending-down": TrendingDown,
+  "trending-up": TrendingUp,
+  user: User,
+  users: Users,
+  wallet: Wallet,
+  x: X,
+  zap: Zap,
+};
+
+export interface IconProps {
+  name: string;
+  size?: number;
+  strokeWidth?: number;
+  color?: string;
+  style?: React.CSSProperties;
+}
+
+export function Icon({
+  name,
+  size = 20,
+  strokeWidth = 2,
+  color = "currentColor",
+  style,
+}: IconProps) {
+  const IconCmp = OL_ICONS[name] || Circle;
+  return (
+    <IconCmp size={size} strokeWidth={strokeWidth} color={color} style={style} aria-hidden />
+  );
+}
+
+export const OLMENTA_ICON_NAMES = Object.keys(OL_ICONS);

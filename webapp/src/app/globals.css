@@ -1,0 +1,141 @@
+/* ============================================================
+   Olmenta Design System — global entry point
+   ============================================================ */
+
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "../styles/tokens/colors.css";
+@import "../styles/tokens/typography.css";
+@import "../styles/tokens/spacing.css";
+@import "../styles/tokens/base.css";
+
+/* ============================================================
+   shadcn/ui theme — mapped onto Olmenta design-system tokens.
+   shadcn components (in src/components/shadcn) pick up the
+   brand automatically through these Tailwind theme variables.
+   ============================================================ */
+
+@theme inline {
+  --color-background: var(--bg-web);
+  --color-foreground: var(--text-body);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--text-body);
+  --color-popover: var(--surface);
+  --color-popover-foreground: var(--text-body);
+  --color-primary: var(--brand);
+  --color-primary-foreground: var(--text-on-brand);
+  --color-secondary: var(--brand-soft);
+  --color-secondary-foreground: var(--violet-700);
+  --color-muted: var(--gray-100);
+  --color-muted-foreground: var(--text-muted);
+  --color-accent: var(--violet-50);
+  --color-accent-foreground: var(--violet-700);
+  --color-destructive: var(--expense);
+  --color-destructive-foreground: #ffffff;
+  --color-border: var(--border-hairline);
+  --color-input: var(--gray-300);
+  --color-ring: var(--violet-400);
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+}
+
+/* ============================================================
+   App shell — responsive layout
+   Desktop: sidebar · main · coach rail. Mobile: bottom nav + FAB.
+   ============================================================ */
+
+.app-shell {
+  height: 100dvh;
+  display: flex;
+  overflow: hidden;
+  background: var(--bg-web);
+}
+
+.app-main-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-main {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.app-content {
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.app-sidebar { display: flex; }
+.app-coach-rail { display: flex; }
+.app-bottomnav { display: none; }
+.app-topbar-extras { display: flex; }
+
+/* Screen grids */
+.grid-dash-top { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 20px; }
+.grid-dash-mid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 20px; }
+.grid-goals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* Coach rail collapses first; the dashboard capsule stands in for it */
+.coach-capsule-fallback { display: none; }
+@media (max-width: 1439px) {
+  .app-coach-rail { display: none; }
+  .coach-capsule-fallback { display: block; }
+}
+
+/* Zero-based budget — Assign mode */
+.tba-sticky {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  /* bleed over the scrolled content behind the rounded card */
+  padding: 6px 0;
+  background: var(--bg-web);
+}
+.assign-edit-mobile { display: none; }
+.assign-edit-desktop { display: block; }
+
+@media (max-width: 1023px) {
+  /* Editing via numpad sheet; compact sticky hero */
+  .assign-edit-desktop { display: none; }
+  .assign-edit-mobile { display: block; }
+  .tba-hero { padding: 10px 14px !important; }
+  .tba-hero-amount { font-size: 19px !important; letter-spacing: -0.5px !important; }
+}
+
+/* Mobile: bottom nav replaces sidebar */
+@media (max-width: 1023px) {
+  .app-sidebar { display: none; }
+  .app-bottomnav {
+    display: flex;
+    position: relative;
+    align-items: center;
+    justify-content: space-around;
+    background: var(--surface);
+    border-top: 1px solid var(--border-hairline);
+    padding: 12px 14px calc(14px + env(safe-area-inset-bottom));
+    flex: none;
+  }
+  .app-content { padding: 18px 18px 24px; }
+  .app-topbar-extras { display: none; }
+  .grid-dash-top { grid-template-columns: 1fr; }
+  .grid-dash-mid { grid-template-columns: 1fr; }
+  .grid-goals { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 560px) {
+  .grid-2 { grid-template-columns: 1fr; }
+}

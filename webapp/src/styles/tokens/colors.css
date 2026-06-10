@@ -1,0 +1,103 @@
+/* ===========================================================================
+   OLMENTA · COLOR TOKENS
+   Two-color brand: Violet (intelligence / primary action) + Mint (the coach,
+   growth, money-positive). Neutrals carry the content; semantics are reserved
+   for money direction. "menta" in Olmenta = mint — the brand's fresh twist.
+   =========================================================================== */
+:root {
+  /* ---- Brand · Violet (primary) ---------------------------------------- */
+  --violet-50:  #F4F1FE;
+  --violet-100: #E9E3FD;
+  --violet-200: #D5C9FB;
+  --violet-300: #B49CF6;
+  --violet-400: #9577F1;
+  --violet-500: #7C5CFC;   /* core brand */
+  --violet-600: #6A47EA;   /* hover */
+  --violet-700: #5634C7;   /* pressed */
+  --violet-800: #43289C;
+
+  /* ---- Brand · Mint (accent / the coach) ------------------------------- */
+  --mint-50:  #E7F9F2;
+  --mint-100: #CCF2E4;
+  --mint-200: #99E6CA;
+  --mint-300: #5FD8AC;
+  --mint-400: #2FC992;
+  --mint-500: #16C79A;   /* core accent */
+  --mint-600: #0FA982;   /* hover */
+  --mint-700: #0B7E62;   /* pressed */
+
+  /* ---- Semantic · money direction & status ----------------------------- */
+  --income:        #18BE7C;   /* money in  (green) */
+  --income-soft:   #E4F8EF;
+  --expense:       #F2503C;   /* money out (red)   */
+  --expense-soft:  #FEE9E6;
+  --info:          #2E97E0;
+  --info-soft:     #E5F1FB;
+  --warning:       #F5A524;
+  --warning-soft:  #FEF1DD;
+
+  /* ---- Chart / category palette ---------------------------------------- */
+  --chart-1: #7C5CFC;   /* violet  */
+  --chart-2: #16C79A;   /* mint    */
+  --chart-3: #2E97E0;   /* blue    */
+  --chart-4: #F5A524;   /* amber   */
+  --chart-5: #F2503C;   /* red     */
+  --chart-6: #B49CF6;   /* lilac   */
+  --chart-empty: #E7E4EE;
+
+  /* ---- Neutrals · violet-tinted ink ------------------------------------ */
+  --ink-900: #14131A;   /* primary text, dark coach surface */
+  --ink-800: #201E2A;
+  --ink-700: #2C2A38;
+  --ink-600: #45424F;
+  --gray-500: #8A8794;  /* secondary text */
+  --gray-400: #AEAAB8;  /* tertiary / placeholder */
+  --gray-300: #CDCAD6;  /* strong border */
+  --gray-200: #E7E4EE;  /* hairline border */
+  --gray-100: #F3F1F8;  /* soft fill */
+  --white: #FFFFFF;
+
+  /* ---- Surfaces -------------------------------------------------------- */
+  --bg:           #F5F3FB;   /* app background, violet-tinted */
+  --bg-web:       #F7F6FC;   /* web shell background */
+  --surface:      #FFFFFF;   /* cards */
+  --surface-sunk: #F3F1F8;   /* inset wells, inputs */
+  --surface-dark: #14131A;   /* coach / insight capsule */
+  --overlay:      rgba(20,19,26,.46);
+
+  /* ---- Brand gradients -------------------------------------------------- */
+  --grad-violet:  linear-gradient(155deg, #9577F1 0%, #7C5CFC 46%, #6A47EA 100%); /* @kind color */
+  --grad-balance: linear-gradient(160deg, #8E72F2 0%, #6A47EA 100%); /* @kind color */
+  --grad-mint:    linear-gradient(150deg, #2FC992 0%, #16C79A 50%, #0FA982 100%); /* @kind color */
+  --grad-coach:   linear-gradient(135deg, #201E2A 0%, #14131A 100%); /* @kind color */
+
+  /* =========================================================================
+     SEMANTIC ALIASES — prefer these in components
+     ========================================================================= */
+  --brand:            var(--violet-500);
+  --brand-hover:      var(--violet-600);
+  --brand-pressed:    var(--violet-700);
+  --brand-soft:       var(--violet-100);
+  --brand-softer:     var(--violet-50);
+  --accent:           var(--mint-500);
+  --accent-hover:     var(--mint-600);
+  --accent-soft:      var(--mint-100);
+
+  --text-strong:      var(--ink-900);
+  --text-body:        var(--ink-700);
+  --text-muted:       var(--gray-500);
+  --text-subtle:      var(--gray-400);
+  --text-on-brand:    #FFFFFF;
+  --text-on-dark:     #FFFFFF;
+  --text-link:        var(--violet-600);
+
+  --surface-card:     var(--surface);
+  --surface-app:      var(--bg);
+  --border-hairline:  var(--gray-200);
+  --border-strong:    var(--gray-300);
+
+  --focus-ring:       0 0 0 3px rgba(124,92,252,.32);
+  --selection:        var(--violet-200);
+}
+
+::selection { background: var(--violet-200); color: var(--ink-900); }

@@ -1,0 +1,37 @@
+/* ===========================================================================
+   OLMENTA · BASE
+   Light reset + element defaults wired to tokens. Imported last.
+   =========================================================================== */
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; padding: 0; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--t-body-size);
+  line-height: var(--t-body-lh);
+  color: var(--text-strong);
+  background: var(--bg-web);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'ss01';
+}
+
+h1, h2, h3, h4, h5, h6 { font-weight: var(--fw-bold); letter-spacing: -0.4px; line-height: 1.15; }
+a { color: var(--text-link); text-decoration: none; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: none; }
+:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+img, svg { display: block; max-width: 100%; }
+
+code, kbd, samp { font-family: var(--font-mono); }
+.tnum { font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    transition-duration: .001ms !important;
+  }
+}
