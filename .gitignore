@@ -10,6 +10,9 @@ __pycache__/
 .env*
 !.env.example
 
+# Real bank exports used as parsing references — contain PII, never commit
+backend/bank-exports-examples/
+
 # Python extra
 .pytest_cache/
 

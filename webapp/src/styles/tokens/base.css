@@ -23,7 +23,16 @@ h1, h2, h3, h4, h5, h6 { font-weight: var(--fw-bold); letter-spacing: -0.4px; li
 a { color: var(--text-link); text-decoration: none; }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; background: none; border: none; }
-:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* Keyboard focus ring for interactive elements that don't draw their own.
+   Form fields are excluded: Input / AmountInput render the ring on their
+   wrapper, so a global ring on the inner control paints a second,
+   rectangular box. :where() keeps specificity at zero so component and
+   utility styles always win. */
+:where(a, button, summary, [role="button"], [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+:where(input, textarea, select):focus-visible { outline: none; }
 img, svg { display: block; max-width: 100%; }
 
 code, kbd, samp { font-family: var(--font-mono); }

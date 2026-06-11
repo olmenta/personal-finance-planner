@@ -7,7 +7,10 @@
 @import "../styles/tokens/colors.css";
 @import "../styles/tokens/typography.css";
 @import "../styles/tokens/spacing.css";
-@import "../styles/tokens/base.css";
+/* base.css goes into Tailwind's `base` layer: unlayered CSS outranks every
+   layer, so an unlayered `* { margin:0; padding:0 }` would silently defeat
+   all Tailwind/shadcn spacing and border utilities. */
+@import "../styles/tokens/base.css" layer(base);
 
 /* ============================================================
    shadcn/ui theme — mapped onto Olmenta design-system tokens.

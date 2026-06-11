@@ -3,8 +3,18 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AddTransactionDialog } from "@/components/AddTransactionDialog";
+import { DeleteTransactionDialog } from "@/components/DeleteTransactionDialog";
+import { EditTransactionDialog } from "@/components/EditTransactionDialog";
+import { ImportBankTransactionsDialog } from "@/components/ImportBankTransactionsDialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { IconButton } from "@/components/ui/IconButton";
 import { IconChip } from "@/components/ui/IconChip";
 import { ErrorPanel, SkeletonPanel } from "@/components/ui/QueryStates";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
@@ -27,24 +37,33 @@ function formatDate(iso: string): string {
   });
 }
 
+const TX_GRID = "2fr 1.2fr 1fr 0.9fr 40px";
+
 function TxTable({
   rows,
   categories,
-}: Readonly<{ rows: TransactionOut[]; categories: Map<string, CategoryOut> }>) {
+  onEdit,
+  onDelete,
+}: Readonly<{
+  rows: TransactionOut[];
+  categories: Map<string, CategoryOut>;
+  onEdit: (t: TransactionOut) => void;
+  onDelete: (t: TransactionOut) => void;
+}>) {
   return (
     <div>
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "2fr 1.2fr 1fr 0.9fr",
+          gridTemplateColumns: TX_GRID,
           gap: 16,
           padding: "0 6px 12px",
           borderBottom: "1px solid var(--border-hairline)",
         }}
       >
-        {["Transaction", "Category", "Date", "Amount"].map((h, i) => (
+        {["Transaction", "Category", "Date", "Amount", ""].map((h, i) => (
           <span
-            key={h}
+            key={h || "actions"}
             className="ol-eyebrow"
             style={{ color: "var(--text-subtle)", textAlign: i === 3 ? "right" : "left" }}
           >
@@ -60,7 +79,7 @@ function TxTable({
             key={r.id}
             style={{
               display: "grid",
-              gridTemplateColumns: "2fr 1.2fr 1fr 0.9fr",
+              gridTemplateColumns: TX_GRID,
               gap: 16,
               alignItems: "center",
               padding: "13px 6px",
@@ -81,10 +100,16 @@ function TxTable({
                     letterSpacing: "-0.1px",
                   }}
                 >
-                  {r.description ?? category?.name ?? "Transaction"}
+                  {/* Payee leads when present; the note drops to the secondary line. */}
+                  {r.payee_name ?? r.description ?? category?.name ?? "Transaction"}
                 </div>
                 <div style={{ font: "500 12px var(--font-mono)", color: "var(--text-subtle)" }}>
-                  {r.source === "manual" ? "Manual entry" : r.source}
+                  {[
+                    r.payee_name ? r.description : null,
+                    r.source === "manual" ? "Manual entry" : r.source,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </div>
               </div>
             </div>
@@ -107,6 +132,32 @@ function TxTable({
               {isIncome ? "+" : "−"}
               {euroCents(Math.abs(r.amount_cents))}
             </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <IconButton
+                  icon="more-horizontal"
+                  variant="ghost"
+                  size="sm"
+                  ariaLabel="Transaction actions"
+                />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                style={{
+                  borderRadius: "var(--r-md)",
+                  border: "1px solid var(--border-hairline)",
+                  boxShadow: "var(--shadow-lg)",
+                }}
+              >
+                <DropdownMenuItem onSelect={() => onEdit(r)}>Edit</DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => onDelete(r)}
+                  style={{ color: "var(--expense)" }}
+                >
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         );
       })}
@@ -147,6 +198,8 @@ function EmptyState() {
 export default function TransactionsPage() {
   const month = currentMonth();
   const [filter, setFilter] = React.useState("All");
+  const [editing, setEditing] = React.useState<TransactionOut | null>(null);
+  const [deleting, setDeleting] = React.useState<TransactionOut | null>(null);
 
   const txQuery = useQuery({
     queryKey: ["transactions", month],
@@ -194,7 +247,16 @@ export default function TransactionsPage() {
           boxShadow: "var(--shadow-sm)",
         }}
       >
-        {rows.length === 0 ? <EmptyState /> : <TxTable rows={rows} categories={categories} />}
+        {rows.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <TxTable
+            rows={rows}
+            categories={categories}
+            onEdit={setEditing}
+            onDelete={setDeleting}
+          />
+        )}
       </section>
     );
   }
@@ -226,6 +288,11 @@ export default function TransactionsPage() {
             <Button variant="ghost" size="sm" iconLeft="filter">
               Filter
             </Button>
+            <ImportBankTransactionsDialog>
+              <Button variant="secondary" size="sm" iconLeft="upload">
+                Import bank transactions
+              </Button>
+            </ImportBankTransactionsDialog>
             <AddTransactionDialog>
               <Button variant="primary" size="sm" iconLeft="plus">
                 Add transaction
@@ -235,6 +302,8 @@ export default function TransactionsPage() {
         </div>
         {body}
       </div>
+      <EditTransactionDialog transaction={editing} onClose={() => setEditing(null)} />
+      <DeleteTransactionDialog transaction={deleting} onClose={() => setDeleting(null)} />
     </>
   );
 }

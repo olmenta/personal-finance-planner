@@ -47,6 +47,68 @@ The transactions screen SHALL list from `GET /api/transactions?month=` joined cl
 - **WHEN** the user registers a 12,49 € expense in Supermercado
 - **THEN** the transaction appears in the list and the budget month's `spent_cents` for Supermercado reflects it after invalidation
 
+### Requirement: Payee entry and rendering
+
+The add-transaction dialog SHALL offer a payee field labeled "Payee" for expenses and "Payer" for incomes, suggesting matches from `GET /api/payees` (case-insensitive substring, free text allowed). Selecting a known payee SHALL prefill the category from the payee's `last_category_id` only when no category is chosen yet — never overriding an explicit choice. The transactions list SHALL render the payee as the row's primary line when present, with the note demoted to secondary text; rows without payee render as before. Transaction mutations SHALL invalidate the payees query alongside the existing invalidations.
+
+#### Scenario: Known payee prefills the category
+
+- **WHEN** the user types "Merc", picks the "Mercadona" suggestion, and has not chosen a category
+- **THEN** the category select fills with Mercadona's last-used category, still editable
+
+#### Scenario: Explicit category wins
+
+- **WHEN** the user picks a category first and then selects a known payee
+- **THEN** the chosen category stays
+
+#### Scenario: Label follows direction
+
+- **WHEN** the user switches the dialog from Expense to Income
+- **THEN** the field label changes from "Payee" to "Payer" and behaves identically
+
+#### Scenario: New payee appears in suggestions
+
+- **WHEN** the user saves a transaction with a brand-new payee name
+- **THEN** the next dialog open suggests it without a page reload
+
+### Requirement: Edit and delete from the transactions list
+
+Each row on the transactions screen SHALL offer an actions menu with "Edit" and "Delete". Edit SHALL open a dialog prefilled with the row's direction, amount, payee, note, category, and date, and submit a partial update via `PATCH /api/transactions/{id}`. Delete SHALL ask exactly one confirmation (showing the row's description and amount, with a destructive-styled action) before calling `DELETE /api/transactions/{id}`. On success either action SHALL invalidate the transactions query plus the budget and summary queries for every affected month — for an edit that changes the date, both the old and the new month.
+
+#### Scenario: Edit reflected everywhere
+
+- **WHEN** the user edits a June expense's amount in the dialog and saves
+- **THEN** the transactions list, June budget bars, and dashboard summary show the new amount without a page reload
+
+#### Scenario: Date change invalidates both months
+
+- **WHEN** the user moves a transaction from June to May in the edit dialog
+- **THEN** budget and summary queries for both 2026-06 and 2026-05 are invalidated
+
+#### Scenario: Delete needs one confirmation
+
+- **WHEN** the user picks "Delete" from a row's actions menu
+- **THEN** a confirmation dialog names the transaction, and only confirming removes it and refreshes the affected queries
+
+### Requirement: Category management on Settings
+
+The Settings screen SHALL offer a "Categories" section rendering the grouped tree with actions to add a category (name, icon from the Olmenta icon map, group), add a group, rename, change icon, move a category to another group, archive/unarchive a category, and delete an empty group. Every mutation SHALL invalidate the categories query and the current budget month query. Selection UIs (transaction dialogs, import review) SHALL exclude archived categories, while the management section and historical views keep showing them flagged.
+
+#### Scenario: New category usable immediately
+
+- **WHEN** the user adds "Mascotas" from Settings and then opens "Add transaction"
+- **THEN** the category select offers "Mascotas" without a page reload
+
+#### Scenario: Archived category leaves the pickers
+
+- **WHEN** the user archives "Ocio"
+- **THEN** the transaction dialogs and import review no longer offer it, while Settings still lists it with an archived badge and an unarchive action
+
+#### Scenario: Non-empty group delete surfaces the rule
+
+- **WHEN** the user tries to delete a group that still has categories
+- **THEN** the UI explains the group must be empty first and offers no destructive fallback
+
 ### Requirement: Loading and error presentation
 
 Screens reading server state SHALL render a non-blocking loading presentation (skeleton or equivalent, no layout shift on resolve) and an error state with a retry action when a query fails. Empty states SHALL invite action, never apologize.
@@ -74,3 +136,22 @@ The dashboard (Overview) SHALL read its data via TanStack Query instead of mock 
 
 - **WHEN** the current month has no transactions
 - **THEN** the dashboard renders zero amounts and an empty recent-transactions section inviting the first entry — no error, no mock data
+
+### Requirement: Statement import flow
+
+The transactions screen SHALL offer an "Import bank transactions" flow: pick the source from a list ("BBVA - es", "Sabadell - es", "Custom CSV" — the custom entry offers the downloadable template and explains its columns) and the matching file, upload via `POST /api/imports`, then review the staged rows — each with an editable category select prefilled with the AI suggestion and a visible skipped-duplicates count — and either confirm (with any category overrides) or discard. Confirming SHALL invalidate the transactions, budget, and summary queries for every month present in the batch. Upload and parse failures SHALL surface a retryable, actionable error (which bank/file to check), never a dead end.
+
+#### Scenario: Import reflected after confirm
+
+- **WHEN** the user confirms an imported batch containing June expenses
+- **THEN** the transactions list, the June budget bars, and the dashboard summary all reflect the new rows without a page reload
+
+#### Scenario: Unrecognized file
+
+- **WHEN** the upload fails with `file_format_unrecognized`
+- **THEN** the dialog explains the file didn't match the chosen bank's format and lets the user pick another file or bank
+
+#### Scenario: Suggested categories are editable
+
+- **WHEN** the review table shows a row with an AI-suggested category
+- **THEN** the user can change it before confirming, and the override is what gets saved

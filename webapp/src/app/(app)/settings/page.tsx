@@ -7,6 +7,7 @@ import { Icon } from "@/components/ui/Icon";
 import { IconChip, type ChipTone } from "@/components/ui/IconChip";
 import { Switch } from "@/components/ui/Switch";
 import { TopBar } from "@/components/shell/TopBar";
+import { CategorySettings } from "@/components/CategorySettings";
 
 function Row({
   icon,
@@ -131,6 +132,8 @@ export default function SettingsPage() {
             />
           </div>
         </div>
+
+        <CategorySettings />
 
         <div>
           <div className="ol-eyebrow" style={{ color: "var(--text-subtle)", margin: "4px 2px 6px" }}>

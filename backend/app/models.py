@@ -11,9 +11,11 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -75,6 +77,38 @@ class Category(Base):
     group: Mapped[CategoryGroup] = relationship(back_populates="categories")
 
 
+class Payee(Base):
+    """Who was paid (expense) / who paid (income) — one entity, label-only split.
+
+    Born from transaction writes (find-or-create), never via its own endpoint.
+    """
+
+    __tablename__ = "payees"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    __table_args__ = (
+        Index("uq_payees_user_lower_name", "user_id", func.lower(name), unique=True),
+    )
+
+
+class ImportBatch(Base):
+    __tablename__ = "import_batches"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), index=True)
+    source: Mapped[str] = mapped_column(String(24))  # import_bbva | import_sabadell
+    filename: Mapped[str] = mapped_column(String(255))
+    status: Mapped[str] = mapped_column(String(12), default="staged")  # staged | confirmed | discarded
+    row_count: Mapped[int] = mapped_column(Integer, default=0)
+    skipped_duplicates: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class Transaction(Base):
     __tablename__ = "transactions"
     __table_args__ = (
@@ -85,16 +119,26 @@ class Transaction(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     account_id: Mapped[str] = mapped_column(ForeignKey("accounts.id"), index=True)
     category_id: Mapped[str | None] = mapped_column(ForeignKey("categories.id"), index=True)
+    payee_id: Mapped[str | None] = mapped_column(ForeignKey("payees.id"), index=True)
     date: Mapped[date] = mapped_column(Date, index=True)
     # Signed cents: expenses negative, income positive (§6.3 ingestion contract).
     amount_cents: Mapped[int] = mapped_column(Integer)
     currency: Mapped[str] = mapped_column(String(3), default="EUR")
     description: Mapped[str | None] = mapped_column(String(500))
     source: Mapped[str] = mapped_column(String(24), default="manual")
-    import_batch_id: Mapped[str | None] = mapped_column(String(36))
+    import_batch_id: Mapped[str | None] = mapped_column(
+        ForeignKey("import_batches.id"), index=True
+    )
     dedupe_hash: Mapped[str] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(12), default="confirmed")  # staged | confirmed
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    # selectin: payee_name ships on every listed row (TransactionOut) without N+1.
+    payee: Mapped[Payee | None] = relationship(lazy="selectin")
+
+    @property
+    def payee_name(self) -> str | None:
+        return self.payee.name if self.payee else None
 
 
 class BudgetMonth(Base):

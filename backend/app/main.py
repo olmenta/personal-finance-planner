@@ -6,12 +6,14 @@ Run locally with:
 
 from fastapi import FastAPI
 
-from .routers import budget, categories, summary, transactions
+from .routers import budget, categories, imports, payees, summary, transactions
 
 app = FastAPI(title="Personal Finance Planner API")
 
 app.include_router(categories.router)
+app.include_router(payees.router)
 app.include_router(transactions.router)
+app.include_router(imports.router)
 app.include_router(budget.router)
 app.include_router(summary.router)
 

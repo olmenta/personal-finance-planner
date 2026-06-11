@@ -22,10 +22,12 @@ import { Separator } from "@/components/shadcn/separator";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { PayeeField } from "@/components/PayeeField";
 import {
   createTransaction,
   currentMonth,
   fetchCategories,
+  fetchPayees,
 } from "@/lib/api";
 import { parseEuroToCents } from "@/lib/format";
 
@@ -38,6 +40,7 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
   const [direction, setDirection] = React.useState("Expense");
   const [category, setCategory] = React.useState("");
   const [amount, setAmount] = React.useState("");
+  const [payee, setPayee] = React.useState("");
   const [note, setNote] = React.useState("");
   const today = new Date().toISOString().split("T")[0];
   const [date, setDate] = React.useState(today);
@@ -48,6 +51,31 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
     queryFn: fetchCategories,
     enabled: open,
   });
+  const { data: payees } = useQuery({
+    queryKey: ["payees"],
+    queryFn: fetchPayees,
+    enabled: open,
+  });
+
+  // Active categories only: archived ones leave the pickers and must not be
+  // prefilled either (spec: webapp-server-state).
+  const categoryIds = React.useMemo(
+    () =>
+      new Set(
+        (groups ?? []).flatMap((g) =>
+          g.categories.filter((c) => !c.archived).map((c) => c.id),
+        ),
+      ),
+    [groups],
+  );
+
+  function pickPayee(name: string, lastCategoryId: string | null) {
+    setPayee(name);
+    // Prefill, never override an explicit choice (design D4).
+    if (!category && lastCategoryId && categoryIds.has(lastCategoryId)) {
+      setCategory(lastCategoryId);
+    }
+  }
 
   const mutation = useMutation({
     mutationFn: createTransaction,
@@ -56,8 +84,11 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       queryClient.invalidateQueries({ queryKey: ["budget", currentMonth()] });
       queryClient.invalidateQueries({ queryKey: ["summary", currentMonth()] });
+      // A new payee may have been born from this write.
+      queryClient.invalidateQueries({ queryKey: ["payees"] });
       setOpen(false);
       setAmount("");
+      setPayee("");
       setNote("");
       setCategory("");
       setDate(today);
@@ -74,6 +105,7 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
       amount_cents: amountCents,
       category_id: category,
       kind: direction === "Income" ? "income" : "expense",
+      payee: payee.trim() || undefined,
       note: note || undefined,
       date,
     });
@@ -133,9 +165,17 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
               }}
             />
 
+            <PayeeField
+              label={direction === "Income" ? "Payer" : "Payee"}
+              value={payee}
+              payees={payees ?? []}
+              onChange={setPayee}
+              onPick={(p) => pickPayee(p.name, p.last_category_id)}
+            />
+
             <Input
-              label="Merchant or description"
-              placeholder="e.g. Mercadona"
+              label="Note"
+              placeholder="Optional note"
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />
@@ -174,7 +214,7 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
                   {(groups ?? []).map((g) => (
                     <SelectGroup key={g.id}>
                       <SelectLabel>{g.name}</SelectLabel>
-                      {g.categories.map((c) => (
+                      {g.categories.filter((c) => !c.archived).map((c) => (
                         <SelectItem key={c.id} value={c.id}>
                           {c.name}
                         </SelectItem>

@@ -19,6 +19,11 @@ export async function proxyFetch(
     return Response.json({ code: "backend_unavailable" }, { status: 502 });
   }
 
+  // Null-body statuses (204/205/304) reject any body, even an empty string.
+  if ([204, 205, 304].includes(upstream.status)) {
+    return new Response(null, { status: upstream.status });
+  }
+
   const body = await upstream.text();
   return new Response(body, {
     status: upstream.status,

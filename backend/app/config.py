@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     migrations_database_url: str | None = None
     test_database_url: str | None = None
 
+    # AI category suggestions (import pipeline). Missing key degrades to
+    # uncategorized staging — never blocks an import (design D5).
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-opus-4-8"
+
     @property
     def alembic_url(self) -> str:
         return self.migrations_database_url or self.database_url

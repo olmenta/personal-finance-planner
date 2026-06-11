@@ -58,11 +58,51 @@ export interface CategoryGroupOut {
   categories: CategoryOut[];
 }
 
+export interface CategoryCreate {
+  name: string;
+  icon?: string;
+  group_id: string;
+}
+
+export interface CategoryUpdate {
+  name?: string;
+  icon?: string;
+  group_id?: string; // move between groups
+  archived?: boolean;
+}
+
+export interface GroupCreate {
+  name: string;
+}
+
+export interface GroupUpdate {
+  name?: string;
+  sort_order?: number;
+}
+
+export interface PayeeOut {
+  id: string;
+  name: string;
+  // Category of the most recent confirmed transaction with this payee —
+  // drives the autocomplete category prefill. Null when none.
+  last_category_id: string | null;
+}
+
 export interface TransactionCreate {
   amount_cents: number;
   category_id: string;
   kind?: "expense" | "income";
+  payee?: string; // find-or-create by trimmed name, case-insensitive
   note?: string;
+  date?: string; // "YYYY-MM-DD"
+}
+
+export interface TransactionUpdate {
+  amount_cents?: number; // positive magnitude, signed server-side
+  kind?: "expense" | "income"; // omitted keeps the row's current sign
+  category_id?: string;
+  payee?: string; // "" clears the payee
+  note?: string | null; // null clears the description
   date?: string; // "YYYY-MM-DD"
 }
 
@@ -70,12 +110,27 @@ export interface TransactionOut {
   id: string;
   account_id: string;
   category_id: string | null;
+  payee_id: string | null;
+  payee_name: string | null; // joined server-side; null on imported rows
   date: string;
   amount_cents: number; // signed: expenses negative, income positive
   currency: string;
   description: string | null;
   source: string;
   status: string;
+}
+
+export type ImportBank = "bbva" | "sabadell" | "custom";
+
+export interface ImportBatchView {
+  id: string;
+  account_id: string;
+  source: string;
+  filename: string;
+  status: "staged" | "confirmed" | "discarded";
+  row_count: number;
+  skipped_duplicates: number;
+  transactions: TransactionOut[];
 }
 
 export interface SummaryWeek {
@@ -112,7 +167,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new ApiError(body?.code ?? "unknown_error", res.status);
+    // FastAPI nests codes under "detail"; the BFF's own errors are flat.
+    throw new ApiError(
+      body?.detail?.code ?? body?.code ?? "unknown_error",
+      res.status,
+    );
   }
   return res.json() as Promise<T>;
 }
@@ -139,6 +198,43 @@ export const confirmSuggestions = (month: string, categoryIds: string[]) =>
 export const fetchCategories = () =>
   request<CategoryGroupOut[]>("/categories");
 
+export const fetchPayees = () => request<PayeeOut[]>("/payees");
+
+export const createCategory = (input: CategoryCreate) =>
+  request<CategoryOut>("/categories", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+export const updateCategory = (id: string, patch: CategoryUpdate) =>
+  request<CategoryOut>(`/categories/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+
+export const createCategoryGroup = (input: GroupCreate) =>
+  request<CategoryGroupOut>("/categories/groups", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+export const updateCategoryGroup = (id: string, patch: GroupUpdate) =>
+  request<CategoryGroupOut>(`/categories/groups/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+
+export const deleteCategoryGroup = async (id: string): Promise<void> => {
+  const res = await fetch(`/api/categories/groups/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new ApiError(
+      body?.detail?.code ?? body?.code ?? "unknown_error",
+      res.status,
+    );
+  }
+};
+
 export const fetchSummary = (month: string) =>
   request<SummaryView>(`/summary/${month}`);
 
@@ -152,6 +248,65 @@ export const createTransaction = (input: TransactionCreate) =>
     method: "POST",
     body: JSON.stringify(input),
   });
+
+export const updateTransaction = (id: string, patch: TransactionUpdate) =>
+  request<TransactionOut>(`/transactions/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+
+export const deleteTransaction = async (id: string): Promise<void> => {
+  const res = await fetch(`/api/transactions/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new ApiError(
+      body?.detail?.code ?? body?.code ?? "unknown_error",
+      res.status,
+    );
+  }
+};
+
+export async function uploadImport(
+  file: File,
+  bank: ImportBank,
+): Promise<ImportBatchView> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("bank", bank);
+  // No Content-Type header — fetch sets the multipart boundary.
+  const res = await fetch("/api/imports", { method: "POST", body: form });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new ApiError(
+      body?.detail?.code ?? body?.code ?? "unknown_error",
+      res.status,
+    );
+  }
+  return res.json() as Promise<ImportBatchView>;
+}
+
+export const fetchImport = (id: string) =>
+  request<ImportBatchView>(`/imports/${id}`);
+
+export const confirmImport = (
+  id: string,
+  overrides: Record<string, string | null>,
+) =>
+  request<ImportBatchView>(`/imports/${id}/confirm`, {
+    method: "POST",
+    body: JSON.stringify({ overrides }),
+  });
+
+export const discardImport = async (id: string): Promise<void> => {
+  const res = await fetch(`/api/imports/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new ApiError(
+      body?.detail?.code ?? body?.code ?? "unknown_error",
+      res.status,
+    );
+  }
+};
 
 // ---- Presentation -----------------------------------------------------------
 

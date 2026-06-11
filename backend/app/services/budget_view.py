@@ -180,13 +180,16 @@ def build_view(db: Session, user: User, month: str) -> BudgetMonthView:
     for group in groups:
         cat_views: list[BudgetCategoryView] = []
         for category in group.categories:
-            if category.archived:
-                continue
             assignment = assignments.get(category.id)
             assigned = assignment.assigned_cents if assignment else 0
-            total_assigned += assigned
             cat_spent = spent.get(category.id, 0)
             cat_rollover = rollover.get(category.id, 0)
+            # Archived categories stay visible in months where they have
+            # activity, so historical months render unchanged (manage-
+            # categories design D1); only inactive ones drop out.
+            if category.archived and not (assigned or cat_spent or cat_rollover):
+                continue
+            total_assigned += assigned
             cat_views.append(
                 BudgetCategoryView(
                     id=category.id,
