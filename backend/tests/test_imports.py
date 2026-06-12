@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from fixtures import bbva_xlsx, sabadell_xls
 
+from app.services.category_suggestions import EMPTY, Suggestion
+
 
 def upload(client, blob: bytes, bank: str, filename: str = "export.xlsx"):
     return client.post(
@@ -34,8 +36,15 @@ def test_upload_stages_rows_without_touching_budget(client):
 def test_suggestions_attached_to_staged_rows(client, category_ids):
     target = category_ids["Supermercado"]
 
-    def fake_suggest(categories, rows):
-        return {i: (target if "Supermercado" in r.description else None) for i, r in enumerate(rows)}
+    def fake_suggest(categories, rows, history=None):
+        return {
+            i: (
+                Suggestion(target, "Supermercado Genérico", "high")
+                if "Supermercado" in r.description
+                else EMPTY
+            )
+            for i, r in enumerate(rows)
+        }
 
     with patch("app.services.import_batch.category_suggestions.suggest", fake_suggest):
         body = upload(client, bbva_xlsx(), "bbva").json()
@@ -130,3 +139,82 @@ def test_custom_csv_upload(client):
 
 def test_unknown_batch_404(client):
     assert client.get("/imports/nope").status_code == 404
+
+
+def test_second_upload_409_while_pending(client):
+    first = upload(client, bbva_xlsx(), "bbva").json()
+    second = upload(client, sabadell_xls(), "sabadell", "export.xls")
+    assert second.status_code == 409
+    detail = second.json()["detail"]
+    assert detail["code"] == "import_pending"
+    assert detail["batch_id"] == first["id"]
+    # No second batch staged — the pending view is still the first one.
+    assert client.get("/imports/pending").json()["id"] == first["id"]
+
+
+def test_upload_allowed_after_discard_and_after_confirm(client):
+    first = upload(client, bbva_xlsx(), "bbva").json()
+    assert client.delete(f"/imports/{first['id']}").status_code == 204
+    second = upload(client, bbva_xlsx(), "bbva")
+    assert second.status_code == 201
+
+    client.post(f"/imports/{second.json()['id']}/confirm", json={"overrides": {}})
+    third = upload(client, sabadell_xls(), "sabadell", "export.xls")
+    assert third.status_code == 201
+
+
+def test_pending_fetch_returns_staged_rows(client):
+    body = upload(client, bbva_xlsx(), "bbva").json()
+    pending = client.get("/imports/pending")
+    assert pending.status_code == 200
+    view = pending.json()
+    assert view["id"] == body["id"]
+    assert view["status"] == "staged"
+    assert view["filename"] == "export.xlsx"
+    assert len(view["transactions"]) == 6
+    assert all(t["status"] == "staged" for t in view["transactions"])
+
+
+def test_pending_404_when_none(client):
+    response = client.get("/imports/pending")
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "no_pending_import"
+
+    # Confirming the only batch clears the invariant — pending 404s again.
+    body = upload(client, bbva_xlsx(), "bbva").json()
+    client.post(f"/imports/{body['id']}/confirm", json={"overrides": {}})
+    assert client.get("/imports/pending").status_code == 404
+
+
+def test_staged_rows_carry_proposed_payee(client, db, user):
+    def fake_suggest(categories, rows, history=None):
+        return {i: Suggestion(None, "Cafetería Central", "medium") for i in range(len(rows))}
+
+    with patch("app.services.import_batch.category_suggestions.suggest", fake_suggest):
+        body = upload(client, bbva_xlsx(), "bbva").json()
+    assert all(t["payee_name"] == "Cafetería Central" for t in body["transactions"])
+    # One payee entity reused across the batch, born at staging.
+    from app.models import Payee
+
+    assert db.query(Payee).filter_by(user_id=user.id).count() == 1
+
+
+def test_discard_removes_orphan_payees(client, db, user, category_ids):
+    # A payee with prior history must survive the discard; a batch-only one must not.
+    client.post(
+        "/transactions",
+        json={"amount_cents": 100, "category_id": category_ids["Restaurantes"], "payee": "Cafetería Central"},
+    )
+
+    def fake_suggest(categories, rows, history=None):
+        names = ["Cafetería Central", "Suscripción Música"]
+        return {i: Suggestion(None, names[i % 2], "low") for i in range(len(rows))}
+
+    with patch("app.services.import_batch.category_suggestions.suggest", fake_suggest):
+        body = upload(client, bbva_xlsx(), "bbva").json()
+
+    assert client.delete(f"/imports/{body['id']}").status_code == 204
+    from app.models import Payee
+
+    names = {p.name for p in db.query(Payee).filter_by(user_id=user.id)}
+    assert names == {"Cafetería Central"}  # batch-only payee cleaned up

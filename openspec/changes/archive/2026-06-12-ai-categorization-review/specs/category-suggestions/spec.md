@@ -1,10 +1,6 @@
-# category-suggestions Specification
+# category-suggestions Delta Specification
 
-## Purpose
-
-AI-assisted category suggestions for ingested transactions: the backend calls the Anthropic API per import batch to propose a category per row, validates the result against the user's real category tree, and degrades gracefully to null suggestions — suggestions are review defaults, never auto-confirmations.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: AI category suggestion for ingested rows
 
@@ -39,6 +35,8 @@ The backend SHALL suggest a category per ingested row by calling the Anthropic A
 
 - **WHEN** a custom CSV row carries the free-text hint "comida"
 - **THEN** the hint is included in the suggestion prompt for that row
+
+## ADDED Requirements
 
 ### Requirement: On-demand categorization proposals
 

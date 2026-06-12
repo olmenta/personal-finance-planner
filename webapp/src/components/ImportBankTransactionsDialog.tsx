@@ -22,11 +22,14 @@ import { Separator } from "@/components/shadcn/separator";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
+import { PayeeField } from "@/components/PayeeField";
 import {
   ApiError,
   confirmImport,
   discardImport,
   fetchCategories,
+  fetchPayees,
+  fetchPendingImport,
   uploadImport,
   type ImportBank,
   type ImportBatchView,
@@ -71,6 +74,14 @@ function formatDate(iso: string): string {
   });
 }
 
+function uploadErrorCode(error: unknown, isError: boolean): string | null {
+  if (error instanceof ApiError) {
+    // 409 import_pending is navigation to the pending review, not an error (design D5).
+    return error.code === "import_pending" ? null : error.code;
+  }
+  return isError ? "unknown_error" : null;
+}
+
 export interface ImportBankTransactionsDialogProps {
   children: React.ReactNode;
 }
@@ -83,6 +94,8 @@ export function ImportBankTransactionsDialog({
   const [file, setFile] = React.useState<File | null>(null);
   const [batch, setBatch] = React.useState<ImportBatchView | null>(null);
   const [selections, setSelections] = React.useState<Record<string, string>>({});
+  // Row payee edits; absent key = keep the AI-staged payee untouched.
+  const [payeeEdits, setPayeeEdits] = React.useState<Record<string, string>>({});
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const queryClient = useQueryClient();
@@ -91,34 +104,64 @@ export function ImportBankTransactionsDialog({
     queryFn: fetchCategories,
     enabled: open,
   });
+  const { data: payees } = useQuery({
+    queryKey: ["payees"],
+    queryFn: fetchPayees,
+    enabled: open,
+  });
+  const pendingQuery = useQuery({
+    queryKey: ["imports", "pending"],
+    queryFn: fetchPendingImport,
+    enabled: open,
+  });
+
+  // Resume mode (design D3): with a pending batch and no fresh upload, the
+  // dialog reviews the pending one — whatever opened it lands on the review
+  // step instead of the source picker.
+  const activeBatch = batch ?? pendingQuery.data ?? null;
 
   const upload = useMutation({
     mutationFn: ({ file, bank }: { file: File; bank: ImportBank }) =>
       uploadImport(file, bank),
     onSuccess: (view) => {
       setBatch(view);
-      const initial: Record<string, string> = {};
-      for (const t of view.transactions) {
-        initial[t.id] = t.category_id ?? UNCATEGORIZED;
+      setSelections({});
+      setPayeeEdits({});
+      // Staging may have created AI-proposed payees.
+      queryClient.invalidateQueries({ queryKey: ["payees"] });
+      queryClient.setQueryData(["imports", "pending"], view);
+      queryClient.invalidateQueries({ queryKey: ["imports", "pending"] });
+    },
+    onError: (error) => {
+      // 409 import_pending is navigation, not an error wall (design D5):
+      // refetch the pending batch and activeBatch swaps to its review.
+      if (error instanceof ApiError && error.code === "import_pending") {
+        queryClient.invalidateQueries({ queryKey: ["imports", "pending"] });
       }
-      setSelections(initial);
     },
   });
+
+  // A row's category: explicit pick, else the staged AI suggestion.
+  const selectionFor = (t: { id: string; category_id: string | null }) =>
+    selections[t.id] ?? t.category_id ?? UNCATEGORIZED;
 
   const confirm = useMutation({
     mutationFn: () => {
       const overrides: Record<string, string | null> = {};
-      for (const t of batch?.transactions ?? []) {
-        const picked = selections[t.id] ?? UNCATEGORIZED;
+      const payeeOverrides: Record<string, string> = {};
+      for (const t of activeBatch?.transactions ?? []) {
+        const picked = selectionFor(t);
         const pickedId = picked === UNCATEGORIZED ? null : picked;
         if (pickedId !== t.category_id) overrides[t.id] = pickedId;
+        const edited = (payeeEdits[t.id] ?? t.payee_name ?? "").trim();
+        if (edited !== (t.payee_name ?? "").trim()) payeeOverrides[t.id] = edited;
       }
-      return confirmImport(batch!.id, overrides);
+      return confirmImport(activeBatch!.id, overrides, payeeOverrides);
     },
-    onSuccess: (view) => {
+    onSuccess: () => {
       // Imports span months, unlike single adds — invalidate each one.
       const months = new Set(
-        (batch?.transactions ?? []).map((t) => t.date.slice(0, 7)),
+        (activeBatch?.transactions ?? []).map((t) => t.date.slice(0, 7)),
       );
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       // Imports leave payees null today, but every transaction mutation
@@ -128,17 +171,25 @@ export function ImportBankTransactionsDialog({
         queryClient.invalidateQueries({ queryKey: ["budget", m] });
         queryClient.invalidateQueries({ queryKey: ["summary", m] });
       }
-      setBatch(view);
+      // Synchronous null first — the resume effect must not re-adopt the
+      // just-confirmed batch from stale cache.
+      queryClient.setQueryData(["imports", "pending"], null);
+      queryClient.invalidateQueries({ queryKey: ["imports", "pending"] });
       reset();
       setOpen(false);
     },
   });
 
   const discard = useMutation({
-    mutationFn: () => discardImport(batch!.id),
+    mutationFn: () => discardImport(activeBatch!.id),
     onSuccess: () => {
+      queryClient.setQueryData(["imports", "pending"], null);
+      queryClient.invalidateQueries({ queryKey: ["imports", "pending"] });
+      // Discard may have deleted batch-only payees from autocomplete.
+      queryClient.invalidateQueries({ queryKey: ["payees"] });
       setBatch(null);
       setSelections({});
+      setPayeeEdits({});
       setFile(null);
       upload.reset();
     },
@@ -149,25 +200,23 @@ export function ImportBankTransactionsDialog({
     setFile(null);
     setBatch(null);
     setSelections({});
+    setPayeeEdits({});
     upload.reset();
     confirm.reset();
     discard.reset();
   }
 
   function handleOpenChange(next: boolean) {
-    if (!next && batch && batch.status === "staged" && !confirm.isPending) {
-      // Closing mid-review abandons the batch — don't leave staged rows behind.
-      discardImport(batch.id).catch(() => {});
-    }
+    // Closing mid-review keeps the batch staged — the transactions screen
+    // shows a resume banner and reopening lands back on this review.
     if (!next) reset();
     setOpen(next);
   }
 
   const selectedSource = SOURCES.find((s) => s.id === bank);
-  const uploadError =
-    upload.error instanceof ApiError ? upload.error.code : upload.isError ? "unknown_error" : null;
+  const uploadError = uploadErrorCode(upload.error, upload.isError);
 
-  const reviewing = batch !== null && batch.status === "staged";
+  const reviewing = activeBatch !== null && activeBatch.status === "staged";
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -177,7 +226,9 @@ export function ImportBankTransactionsDialog({
         className="p-0 gap-0 overflow-hidden"
         style={{
           borderRadius: "var(--r-2xl)",
-          maxWidth: reviewing ? 640 : 480,
+          // Review step takes 3/4 of the screen; floor keeps phones usable
+          // (the w-full base class stretches up to this cap).
+          maxWidth: reviewing ? "max(75vw, 360px)" : 480,
           border: "1px solid var(--border-hairline)",
           boxShadow: "var(--shadow-xl)",
         }}
@@ -359,12 +410,14 @@ export function ImportBankTransactionsDialog({
               }}
             >
               <span style={{ font: "600 13.5px var(--font-sans)", color: "var(--text-body)" }}>
-                {batch.row_count} {batch.row_count === 1 ? "transaction" : "transactions"} ready to
+                {activeBatch.row_count} {activeBatch.row_count === 1 ? "transaction" : "transactions"} ready to
                 import
               </span>
-              {batch.skipped_duplicates > 0 && (
+              {activeBatch.skipped_duplicates > 0 && (
                 <Badge tone="neutral" icon="check">
-                  {batch.skipped_duplicates} duplicates skipped
+                  {activeBatch.skipped_duplicates}{" "}
+                  {activeBatch.skipped_duplicates === 1 ? "row" : "rows"} already
+                  imported — skipped
                 </Badge>
               )}
             </div>
@@ -377,7 +430,7 @@ export function ImportBankTransactionsDialog({
                 borderRadius: "var(--r-lg)",
               }}
             >
-              {batch.row_count === 0 ? (
+              {activeBatch.row_count === 0 ? (
                 <div
                   style={{
                     padding: "28px 16px",
@@ -386,24 +439,35 @@ export function ImportBankTransactionsDialog({
                     color: "var(--text-muted)",
                   }}
                 >
-                  Every row in this file is already in Olmenta — nothing new to import.
+                  <div
+                    style={{
+                      font: "700 14.5px var(--font-sans)",
+                      color: "var(--text-strong)",
+                      marginBottom: 6,
+                    }}
+                  >
+                    These transactions are already in
+                  </div>
+                  Every row in this file matches a transaction you imported
+                  before — check your transactions list to see them. Discard
+                  this review to import a different file.
                 </div>
               ) : (
-                batch.transactions.map((t, i) => {
+                activeBatch.transactions.map((t, i) => {
                   const isIncome = t.amount_cents > 0;
                   const suggested =
-                    t.category_id !== null && selections[t.id] === t.category_id;
+                    t.category_id !== null && selectionFor(t) === t.category_id;
                   return (
                     <div
                       key={t.id}
                       style={{
                         display: "grid",
-                        gridTemplateColumns: "58px 1fr 96px 180px",
+                        gridTemplateColumns: "58px minmax(0, 1fr) 190px 96px 180px",
                         gap: 10,
                         alignItems: "center",
                         padding: "10px 12px",
                         borderBottom:
-                          i < batch.transactions.length - 1
+                          i < activeBatch.transactions.length - 1
                             ? "1px solid var(--border-hairline)"
                             : "none",
                       }}
@@ -423,6 +487,17 @@ export function ImportBankTransactionsDialog({
                       >
                         {t.description}
                       </span>
+                      <PayeeField
+                        label=""
+                        value={payeeEdits[t.id] ?? t.payee_name ?? ""}
+                        payees={payees ?? []}
+                        onChange={(value) =>
+                          setPayeeEdits((prev) => ({ ...prev, [t.id]: value }))
+                        }
+                        onPick={(p) =>
+                          setPayeeEdits((prev) => ({ ...prev, [t.id]: p.name }))
+                        }
+                      />
                       <span
                         style={{
                           textAlign: "right",
@@ -434,49 +509,62 @@ export function ImportBankTransactionsDialog({
                         {isIncome ? "+" : "−"}
                         {euroCents(Math.abs(t.amount_cents))}
                       </span>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <Select
-                          value={selections[t.id] ?? UNCATEGORIZED}
-                          onValueChange={(value) =>
-                            setSelections((prev) => ({ ...prev, [t.id]: value }))
-                          }
+                      {isIncome ? (
+                        // Income is never categorized — it lands in "Ready to
+                        // assign", so there is no category to pick.
+                        <span
+                          style={{
+                            font: "600 12.5px var(--font-sans)",
+                            color: "var(--text-muted)",
+                          }}
                         >
-                          <SelectTrigger
-                            className="h-9 rounded-[8px] border text-xs font-medium w-full"
-                            style={{
-                              borderColor: "var(--border-hairline)",
-                              background: "var(--surface)",
-                              fontFamily: "var(--font-sans)",
-                              color:
-                                selections[t.id] === UNCATEGORIZED
-                                  ? "var(--text-subtle)"
-                                  : "var(--text-strong)",
-                            }}
+                          Ready to assign
+                        </span>
+                      ) : (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <Select
+                            value={selectionFor(t)}
+                            onValueChange={(value) =>
+                              setSelections((prev) => ({ ...prev, [t.id]: value }))
+                            }
                           >
-                            <SelectValue placeholder="Pick a category" />
-                          </SelectTrigger>
-                          <SelectContent
-                            style={{
-                              borderRadius: "var(--r-md)",
-                              border: "1px solid var(--border-hairline)",
-                              boxShadow: "var(--shadow-lg)",
-                            }}
-                          >
-                            <SelectItem value={UNCATEGORIZED}>Uncategorized</SelectItem>
-                            {(groups ?? []).map((g) => (
-                              <SelectGroup key={g.id}>
-                                <SelectLabel>{g.name}</SelectLabel>
-                                {g.categories.filter((c) => !c.archived).map((c) => (
-                                  <SelectItem key={c.id} value={c.id}>
-                                    {c.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectGroup>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {suggested && <Badge tone="brand">Suggested</Badge>}
-                      </div>
+                            <SelectTrigger
+                              className="h-9 rounded-[8px] border text-xs font-medium w-full"
+                              style={{
+                                borderColor: "var(--border-hairline)",
+                                background: "var(--surface)",
+                                fontFamily: "var(--font-sans)",
+                                color:
+                                  selectionFor(t) === UNCATEGORIZED
+                                    ? "var(--text-subtle)"
+                                    : "var(--text-strong)",
+                              }}
+                            >
+                              <SelectValue placeholder="Pick a category" />
+                            </SelectTrigger>
+                            <SelectContent
+                              style={{
+                                borderRadius: "var(--r-md)",
+                                border: "1px solid var(--border-hairline)",
+                                boxShadow: "var(--shadow-lg)",
+                              }}
+                            >
+                              <SelectItem value={UNCATEGORIZED}>Uncategorized</SelectItem>
+                              {(groups ?? []).map((g) => (
+                                <SelectGroup key={g.id}>
+                                  <SelectLabel>{g.name}</SelectLabel>
+                                  {g.categories.filter((c) => !c.archived).map((c) => (
+                                    <SelectItem key={c.id} value={c.id}>
+                                      {c.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectGroup>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {suggested && <Badge tone="brand">Suggested</Badge>}
+                        </div>
+                      )}
                     </div>
                   );
                 })
@@ -543,7 +631,7 @@ export function ImportBankTransactionsDialog({
                 size="sm"
                 type="button"
                 iconLeft="check"
-                disabled={confirm.isPending || batch.row_count === 0}
+                disabled={confirm.isPending || activeBatch.row_count === 0}
                 onClick={() => confirm.mutate()}
               >
                 {confirm.isPending ? "Importing…" : "Confirm import"}

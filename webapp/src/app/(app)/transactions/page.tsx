@@ -1,8 +1,9 @@
 "use client";
 
 import React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { AddTransactionDialog } from "@/components/AddTransactionDialog";
+import { SuggestCategoriesDialog } from "@/components/SuggestCategoriesDialog";
 import { DeleteTransactionDialog } from "@/components/DeleteTransactionDialog";
 import { EditTransactionDialog } from "@/components/EditTransactionDialog";
 import { ImportBankTransactionsDialog } from "@/components/ImportBankTransactionsDialog";
@@ -22,9 +23,12 @@ import { TopBar } from "@/components/shell/TopBar";
 import {
   currentMonth,
   fetchCategories,
+  fetchPendingImport,
   fetchTransactions,
+  suggestCategories,
   toneForCategory,
   type CategoryOut,
+  type CategoryProposal,
   type TransactionOut,
 } from "@/lib/api";
 import { euroCents } from "@/lib/format";
@@ -200,12 +204,24 @@ export default function TransactionsPage() {
   const [filter, setFilter] = React.useState("All");
   const [editing, setEditing] = React.useState<TransactionOut | null>(null);
   const [deleting, setDeleting] = React.useState<TransactionOut | null>(null);
+  const [proposals, setProposals] = React.useState<CategoryProposal[] | null>(null);
+
+  const suggestMutation = useMutation({
+    mutationFn: () => suggestCategories(),
+    onSuccess: (response) => setProposals(response.proposals),
+  });
 
   const txQuery = useQuery({
     queryKey: ["transactions", month],
     queryFn: () => fetchTransactions(month),
   });
   const catQuery = useQuery({ queryKey: ["categories"], queryFn: fetchCategories });
+  // Pending staged import — drives the resume banner (spec: statement import flow).
+  const pendingQuery = useQuery({
+    queryKey: ["imports", "pending"],
+    queryFn: fetchPendingImport,
+  });
+  const pendingImport = pendingQuery.data ?? null;
 
   const categories = React.useMemo(() => {
     const map = new Map<string, CategoryOut>();
@@ -288,6 +304,17 @@ export default function TransactionsPage() {
             <Button variant="ghost" size="sm" iconLeft="filter">
               Filter
             </Button>
+            {(txQuery.data ?? []).some((t) => !t.category_id) && (
+              // Plain verb, no sparkle — that icon is the coach's (design D4).
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={suggestMutation.isPending}
+                onClick={() => suggestMutation.mutate()}
+              >
+                {suggestMutation.isPending ? "Suggesting…" : "Suggest categories"}
+              </Button>
+            )}
             <ImportBankTransactionsDialog>
               <Button variant="secondary" size="sm" iconLeft="upload">
                 Import bank transactions
@@ -300,10 +327,50 @@ export default function TransactionsPage() {
             </AddTransactionDialog>
           </div>
         </div>
+        {pendingImport && (
+          <section
+            aria-label="Pending import"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 14,
+              background: "var(--surface)",
+              border: "1px solid var(--border-hairline)",
+              borderLeft: "3px solid var(--info)",
+              borderRadius: "var(--r-xl)",
+              padding: "16px 22px",
+              boxShadow: "var(--shadow-sm)",
+            }}
+          >
+            <IconChip icon="upload" tone="info" size={40} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div
+                style={{
+                  font: "700 14.5px var(--font-sans)",
+                  letterSpacing: "-0.1px",
+                  color: "var(--text-strong)",
+                }}
+              >
+                Import of {pendingImport.filename} awaiting review
+              </div>
+              <div style={{ font: "500 13px var(--font-sans)", color: "var(--text-muted)" }}>
+                {pendingImport.row_count}{" "}
+                {pendingImport.row_count === 1 ? "transaction" : "transactions"} staged —
+                nothing lands until you confirm.
+              </div>
+            </div>
+            <ImportBankTransactionsDialog>
+              <Button variant="secondary" size="sm" iconLeft="arrow-right">
+                Resume review
+              </Button>
+            </ImportBankTransactionsDialog>
+          </section>
+        )}
         {body}
       </div>
       <EditTransactionDialog transaction={editing} onClose={() => setEditing(null)} />
       <DeleteTransactionDialog transaction={deleting} onClose={() => setDeleting(null)} />
+      <SuggestCategoriesDialog proposals={proposals} onClose={() => setProposals(null)} />
     </>
   );
 }

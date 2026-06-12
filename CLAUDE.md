@@ -14,6 +14,7 @@ Subscription web app that teaches people who have never budgeted to use simplifi
 
 - **Backend:** Python version is pinned with **uv** (`backend/.python-version`). Use **uv** for everything — install libraries with `uv add <pkg>`, run scripts with `uv run <script>`, serve with **uvicorn** via `uv run uvicorn app.main:app --reload`. Never call `pip` or system Python directly.
 - **Frontend:** Node version is pinned with **Volta** (`volta` field in `webapp/package.json`). Always use Volta to install libraries and run npm: `volta run npm install`, `volta run npm run dev` (or Volta shims, which resolve `node`/`npm` to the pinned version). Never bypass the pin with a system Node.
+- Use LiteLLM for LLM calls
 
 ## Tech stack
 

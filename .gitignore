@@ -20,3 +20,4 @@ backend/bank-exports-examples/
 node_modules/
 .next/
 *.tsbuildinfo
+.codegraph/

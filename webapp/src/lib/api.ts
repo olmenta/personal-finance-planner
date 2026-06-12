@@ -111,13 +111,27 @@ export interface TransactionOut {
   account_id: string;
   category_id: string | null;
   payee_id: string | null;
-  payee_name: string | null; // joined server-side; null on imported rows
+  payee_name: string | null; // joined server-side; AI-resolved at import staging
   date: string;
   amount_cents: number; // signed: expenses negative, income positive
   currency: string;
   description: string | null;
   source: string;
   status: string;
+}
+
+export type SuggestionConfidence = "high" | "medium" | "low";
+
+export interface CategoryProposal {
+  transaction_id: string;
+  category_id: string | null;
+  payee: string | null; // cleaned merchant/payer name, null when unclear
+  confidence: SuggestionConfidence;
+}
+
+export interface CategoryAssignment {
+  category_id?: string; // omitted = leave category untouched
+  payee?: string; // omitted = leave payee untouched; "" clears
 }
 
 export type ImportBank = "bbva" | "sabadell" | "custom";
@@ -255,6 +269,22 @@ export const updateTransaction = (id: string, patch: TransactionUpdate) =>
     body: JSON.stringify(patch),
   });
 
+export const suggestCategories = (transactionIds?: string[]) =>
+  request<{ proposals: CategoryProposal[] }>("/transactions/suggest-categories", {
+    method: "POST",
+    body: JSON.stringify(
+      transactionIds ? { transaction_ids: transactionIds } : {},
+    ),
+  });
+
+export const applyCategories = (
+  assignments: Record<string, CategoryAssignment>,
+) =>
+  request<{ applied: number }>("/transactions/apply-categories", {
+    method: "POST",
+    body: JSON.stringify({ assignments }),
+  });
+
 export const deleteTransaction = async (id: string): Promise<void> => {
   const res = await fetch(`/api/transactions/${id}`, { method: "DELETE" });
   if (!res.ok) {
@@ -288,13 +318,25 @@ export async function uploadImport(
 export const fetchImport = (id: string) =>
   request<ImportBatchView>(`/imports/${id}`);
 
+/** The user's staged batch, or null when none (404 no_pending_import). */
+export async function fetchPendingImport(): Promise<ImportBatchView | null> {
+  try {
+    return await request<ImportBatchView>("/imports/pending");
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
 export const confirmImport = (
   id: string,
   overrides: Record<string, string | null>,
+  // txn_id -> payee name ("" clears; backend resolves find-or-create)
+  payeeOverrides: Record<string, string> = {},
 ) =>
   request<ImportBatchView>(`/imports/${id}/confirm`, {
     method: "POST",
-    body: JSON.stringify({ overrides }),
+    body: JSON.stringify({ overrides, payee_overrides: payeeOverrides }),
   });
 
 export const discardImport = async (id: string): Promise<void> => {

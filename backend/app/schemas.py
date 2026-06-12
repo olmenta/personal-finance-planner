@@ -44,7 +44,7 @@ class TransactionOut(BaseModel):
     account_id: str
     category_id: str | None
     payee_id: str | None
-    payee_name: str | None  # joined server-side; null on imported rows (D5)
+    payee_name: str | None  # joined server-side; AI-resolved at import staging
     date: date_type
     amount_cents: int  # signed: expenses negative, income positive
     currency: str
@@ -53,6 +53,40 @@ class TransactionOut(BaseModel):
     status: str
 
     model_config = {"from_attributes": True}
+
+
+# ---- AI categorization review (spec: category-suggestions) -------------------
+
+
+class SuggestCategoriesRequest(BaseModel):
+    # None = all confirmed uncategorized transactions (500 newest).
+    transaction_ids: list[str] | None = None
+
+
+class CategoryProposal(BaseModel):
+    transaction_id: str
+    category_id: str | None
+    payee: str | None  # cleaned merchant/payer name, null when unclear
+    confidence: Literal["high", "medium", "low"]
+
+
+class SuggestCategoriesResponse(BaseModel):
+    proposals: list[CategoryProposal]
+
+
+class CategoryAssignment(BaseModel):
+    category_id: str | None = None  # None = leave category untouched
+    # None = leave payee untouched; "" clears it; name resolves find-or-create.
+    payee: str | None = Field(default=None, max_length=120)
+
+
+class ApplyCategoriesRequest(BaseModel):
+    # txn_id -> accepted assignment
+    assignments: dict[str, CategoryAssignment]
+
+
+class ApplyCategoriesResponse(BaseModel):
+    applied: int
 
 
 # ---- Imports ----------------------------------------------------------------
@@ -72,6 +106,8 @@ class ImportBatchView(BaseModel):
 class ConfirmImportRequest(BaseModel):
     # txn_id -> category_id (null clears the suggestion)
     overrides: dict[str, str | None] = Field(default_factory=dict)
+    # txn_id -> payee name ("" clears; resolves find-or-create on confirm)
+    payee_overrides: dict[str, str] = Field(default_factory=dict)
 
 
 # ---- Payees -----------------------------------------------------------------

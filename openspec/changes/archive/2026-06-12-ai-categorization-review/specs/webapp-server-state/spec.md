@@ -4,7 +4,7 @@
 
 ### Requirement: AI categorization review flow
 
-The transactions screen SHALL offer a "Suggest categories" action when confirmed uncategorized transactions exist. Triggering it SHALL request proposals and open a review dialog listing each proposed row (date, description, amount, editable category select prefilled with the proposal, confidence badge) with per-row checkboxes defaulting to checked and low-confidence rows sorted first. Applying SHALL post only the checked rows (with any overrides) to the apply endpoint and invalidate the transactions query plus the budget and summary queries for every affected month. An empty proposal list (nothing uncategorized, or AI unavailable) SHALL render an actionable empty state, never a dead end, and the AI SHALL never write a category without the user applying it.
+The transactions screen SHALL offer a "Suggest categories" action when confirmed uncategorized transactions exist. Triggering it SHALL request proposals and open a review dialog listing each proposed row (date, description, amount, editable category select and editable payee input prefilled with the proposals, confidence badge) with per-row checkboxes defaulting to checked and low-confidence rows sorted first. Applying SHALL post only the checked rows (with any overrides) to the apply endpoint and invalidate the transactions query plus the budget and summary queries for every affected month. An empty proposal list (nothing uncategorized, or AI unavailable) SHALL render an actionable empty state, never a dead end, and the AI SHALL never write a category without the user applying it.
 
 #### Scenario: Bulk categorization applied
 

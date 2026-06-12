@@ -1,10 +1,6 @@
-# payees Specification
+# payees Delta Specification
 
-## Purpose
-
-The payee entity contract: one per-user entity for "who was paid" (expense) and "who paid" (income), born from transaction writes rather than its own CRUD, listed with last-used-category memory to power autocomplete and category prefill.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Payees are born from transaction writes
 
@@ -29,17 +25,3 @@ The backend SHALL persist payees per user and resolve them on transaction writes
 
 - **WHEN** an import batch whose rows created new payees is discarded
 - **THEN** payees referenced by no remaining transaction are deleted
-
-### Requirement: Payee list with category memory
-
-The API SHALL expose `GET /payees` returning the user's payees ordered by most recent use, each with `id`, `name`, and `last_category_id` — the category of the user's most recent confirmed transaction with that payee, or null when none exists.
-
-#### Scenario: Memory follows latest use
-
-- **WHEN** the user's last "Mercadona" transaction was categorized "Supermercado"
-- **THEN** `GET /payees` lists Mercadona with that category id as `last_category_id`
-
-#### Scenario: Fresh payee has no memory
-
-- **WHEN** a payee exists only on an uncategorized transaction
-- **THEN** its `last_category_id` is null

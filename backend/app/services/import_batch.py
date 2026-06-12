@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from ..ingestion import ADAPTERS, NormalizedTransaction
 from ..models import Category, ImportBatch, Transaction, User
 from . import category_suggestions
+from .payees import delete_orphan_payees, resolve_payee
 
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_ROWS = 2_000
@@ -74,7 +75,10 @@ def create_batch(
         )
     )
     ordered = list(surviving.items())
-    suggestions = category_suggestions.suggest(categories, [row for _, row in ordered])
+    history = category_suggestions.sample_history(db, user.id)
+    suggestions = category_suggestions.suggest(
+        categories, [row for _, row in ordered], history
+    )
 
     batch = ImportBatch(
         user_id=user.id,
@@ -88,11 +92,18 @@ def create_batch(
     db.add(batch)
     db.flush()
     for index, (digest, row) in enumerate(ordered):
+        suggestion = suggestions.get(index, category_suggestions.EMPTY)
+        # AI-proposed payee resolves at staging so the review shows the clean
+        # name; discard removes payees nothing else references (design D1).
+        payee = resolve_payee(db, user.id, suggestion.payee)
         db.add(
             Transaction(
                 user_id=user.id,
                 account_id=account_id,
-                category_id=suggestions.get(index),
+                # Income is never categorized — it lands in "ready to assign"
+                # (guards against prompt regressions; suggest() also nulls it).
+                category_id=suggestion.category_id if row.amount_cents < 0 else None,
+                payee_id=payee.id if payee else None,
                 date=row.date,
                 amount_cents=row.amount_cents,
                 currency=row.currency or "EUR",
@@ -117,8 +128,32 @@ def staged_rows(db: Session, batch: ImportBatch) -> list[Transaction]:
     )
 
 
+def _apply_payee_overrides(
+    db: Session, user: User, batch: ImportBatch, payee_overrides: dict[str, str]
+) -> set[str]:
+    """Set user-edited payees on staged rows; returns replaced payee ids."""
+    replaced: set[str] = set()
+    if not payee_overrides:
+        return replaced
+    staged = {t.id: t for t in staged_rows(db, batch)}
+    for txn_id, name in payee_overrides.items():
+        txn = staged.get(txn_id)
+        if txn is None:
+            continue
+        payee = resolve_payee(db, user.id, name[:120])
+        new_id = payee.id if payee else None
+        if txn.payee_id and txn.payee_id != new_id:
+            replaced.add(txn.payee_id)
+        txn.payee_id = new_id
+    return replaced
+
+
 def confirm_batch(
-    db: Session, user: User, batch: ImportBatch, overrides: dict[str, str | None]
+    db: Session,
+    user: User,
+    batch: ImportBatch,
+    overrides: dict[str, str | None],
+    payee_overrides: dict[str, str] | None = None,
 ) -> ImportBatch:
     if batch.status != "staged":
         raise BatchNotStagedError()
@@ -133,6 +168,7 @@ def confirm_batch(
             .where(Transaction.id == txn_id, Transaction.import_batch_id == batch.id)
             .values(category_id=category_id)
         )
+    replaced_payee_ids = _apply_payee_overrides(db, user, batch, payee_overrides or {})
     db.execute(
         update(Transaction)
         .where(Transaction.import_batch_id == batch.id)
@@ -140,13 +176,21 @@ def confirm_batch(
     )
     batch.status = "confirmed"
     db.flush()
+    # Replaced AI payee proposals must not linger in autocomplete.
+    delete_orphan_payees(db, user.id, replaced_payee_ids)
     return batch
 
 
 def discard_batch(db: Session, batch: ImportBatch) -> None:
     if batch.status != "staged":
         raise BatchNotStagedError()
+    batch_payee_ids: set[str] = set()
     for txn in staged_rows(db, batch):
+        if txn.payee_id:
+            batch_payee_ids.add(txn.payee_id)
         db.delete(txn)
+    db.flush()
+    # Rejected AI payee proposals must not linger in autocomplete.
+    delete_orphan_payees(db, batch.user_id, batch_payee_ids)
     batch.status = "discarded"
     db.flush()

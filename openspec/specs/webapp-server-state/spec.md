@@ -90,6 +90,25 @@ Each row on the transactions screen SHALL offer an actions menu with "Edit" and 
 - **WHEN** the user picks "Delete" from a row's actions menu
 - **THEN** a confirmation dialog names the transaction, and only confirming removes it and refreshes the affected queries
 
+### Requirement: AI categorization review flow
+
+The transactions screen SHALL offer a "Suggest categories" action when confirmed uncategorized transactions exist. Triggering it SHALL request proposals and open a review dialog listing each proposed row (date, description, amount, editable category select and editable payee input prefilled with the proposals, confidence badge) with per-row checkboxes defaulting to checked and low-confidence rows sorted first. Applying SHALL post only the checked rows (with any overrides) to the apply endpoint and invalidate the transactions query plus the budget and summary queries for every affected month. An empty proposal list (nothing uncategorized, or AI unavailable) SHALL render an actionable empty state, never a dead end, and the AI SHALL never write a category without the user applying it.
+
+#### Scenario: Bulk categorization applied
+
+- **WHEN** the user runs "Suggest categories" over 40 uncategorized rows and applies 30 of them
+- **THEN** those 30 transactions show their categories in the list and the affected months' budget bars and dashboard refresh without a page reload
+
+#### Scenario: Low confidence surfaces first
+
+- **WHEN** proposals include `low` and `high` confidence rows
+- **THEN** the review dialog lists the low-confidence rows first with a distinct badge
+
+#### Scenario: AI unavailable
+
+- **WHEN** the suggestion request returns no proposals
+- **THEN** the dialog explains nothing could be suggested right now and points to manual categorization instead of showing an error wall
+
 ### Requirement: Category management on Settings
 
 The Settings screen SHALL offer a "Categories" section rendering the grouped tree with actions to add a category (name, icon from the Olmenta icon map, group), add a group, rename, change icon, move a category to another group, archive/unarchive a category, and delete an empty group. Every mutation SHALL invalidate the categories query and the current budget month query. Selection UIs (transaction dialogs, import review) SHALL exclude archived categories, while the management section and historical views keep showing them flagged.
@@ -139,7 +158,7 @@ The dashboard (Overview) SHALL read its data via TanStack Query instead of mock 
 
 ### Requirement: Statement import flow
 
-The transactions screen SHALL offer an "Import bank transactions" flow: pick the source from a list ("BBVA - es", "Sabadell - es", "Custom CSV" — the custom entry offers the downloadable template and explains its columns) and the matching file, upload via `POST /api/imports`, then review the staged rows — each with an editable category select prefilled with the AI suggestion and a visible skipped-duplicates count — and either confirm (with any category overrides) or discard. Confirming SHALL invalidate the transactions, budget, and summary queries for every month present in the batch. Upload and parse failures SHALL surface a retryable, actionable error (which bank/file to check), never a dead end.
+The transactions screen SHALL offer an "Import bank transactions" flow: pick the source from a list ("BBVA - es", "Sabadell - es", "Custom CSV" — the custom entry offers the downloadable template and explains its columns) and the matching file, upload via `POST /api/imports`, then review the staged rows — each with an editable category select prefilled with the AI suggestion and a visible skipped-duplicates count — and either confirm (with any category overrides) or discard. While a pending (staged) batch exists, the transactions screen SHALL show a persistent banner naming the file and row count with a "Resume review" action that reopens the review step, the import dialog SHALL open directly into that review instead of offering a new upload, and a 409 `import_pending` from upload SHALL navigate to the pending review rather than render an error. The skipped-duplicates copy SHALL state that skipped rows are already-imported transactions, and an all-skipped upload SHALL render an explanatory empty state, not a failure. Upload, confirm, and discard SHALL invalidate the pending-import query; confirming SHALL additionally invalidate the transactions, budget, and summary queries for every month present in the batch. Upload and parse failures SHALL surface a retryable, actionable error (which bank/file to check), never a dead end.
 
 #### Scenario: Import reflected after confirm
 
@@ -155,3 +174,18 @@ The transactions screen SHALL offer an "Import bank transactions" flow: pick the
 
 - **WHEN** the review table shows a row with an AI-suggested category
 - **THEN** the user can change it before confirming, and the override is what gets saved
+
+#### Scenario: Closed review is resumable
+
+- **WHEN** the user uploads a statement, closes the review dialog without confirming, and returns to the transactions screen later
+- **THEN** a banner names the pending file and row count, and "Resume review" reopens the review with the staged rows intact
+
+#### Scenario: Dialog reopens into the pending review
+
+- **WHEN** a pending batch exists and the user opens "Import bank transactions"
+- **THEN** the dialog shows the pending review (with discard available) instead of the source picker
+
+#### Scenario: All rows already imported
+
+- **WHEN** an upload stages 0 rows because every row collides with confirmed transactions
+- **THEN** the review explains the rows are already imported and points to the transactions list, instead of presenting a dead-end zero count

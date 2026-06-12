@@ -7,13 +7,25 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import current_user
-from ..models import Account, Category, Payee, Transaction, User
-from ..schemas import TransactionCreate, TransactionOut, TransactionUpdate
+from ..ingestion import NormalizedTransaction
+from ..models import Account, Category, Transaction, User
+from ..schemas import (
+    ApplyCategoriesRequest,
+    ApplyCategoriesResponse,
+    CategoryProposal,
+    SuggestCategoriesRequest,
+    SuggestCategoriesResponse,
+    TransactionCreate,
+    TransactionOut,
+    TransactionUpdate,
+)
+from ..services import category_suggestions
+from ..services.payees import resolve_payee
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -31,27 +43,6 @@ def dedupe_hash(
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-def resolve_payee(db: Session, user_id: str, name: str | None) -> Payee | None:
-    """Find-or-create the user's payee, case-insensitive on the trimmed name.
-
-    Payees are born from transaction writes — no POST /payees (design D2).
-    Returns None for empty/whitespace-only input.
-    Reconciliation note: when edit-delete-transactions lands, wire this into
-    PATCH /transactions/{id} too (empty string clears payee_id).
-    """
-    trimmed = (name or "").strip()
-    if not trimmed:
-        return None
-    payee = db.scalar(
-        select(Payee).where(
-            Payee.user_id == user_id, func.lower(Payee.name) == trimmed.lower()
-        )
-    )
-    if payee is None:
-        payee = Payee(user_id=user_id, name=trimmed)
-        db.add(payee)
-        db.flush()
-    return payee
 
 
 @router.post("", response_model=TransactionOut, status_code=201)
@@ -91,6 +82,100 @@ def create_transaction(
     db.add(txn)
     db.flush()
     return txn
+
+
+SUGGEST_ROW_CAP = 500
+
+
+@router.post("/suggest-categories", response_model=SuggestCategoriesResponse)
+def suggest_categories(
+    payload: SuggestCategoriesRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> SuggestCategoriesResponse:
+    """Propose categories + payees without writing anything (design D2/D3).
+
+    POST despite being a read: one model call, seconds of latency — keep it
+    out of caches and prefetchers. AI failure degrades to an empty list.
+    """
+    query = select(Transaction).where(
+        Transaction.user_id == user.id, Transaction.status == "confirmed"
+    )
+    if payload.transaction_ids:
+        query = query.where(Transaction.id.in_(payload.transaction_ids))
+    else:
+        query = query.where(Transaction.category_id.is_(None))
+    query = query.order_by(Transaction.date.desc(), Transaction.created_at.desc()).limit(
+        SUGGEST_ROW_CAP
+    )
+    txns = list(db.scalars(query))
+    if not txns:
+        return SuggestCategoriesResponse(proposals=[])
+
+    categories = list(
+        db.scalars(
+            select(Category).where(Category.user_id == user.id, Category.archived.is_(False))
+        )
+    )
+    rows = [
+        NormalizedTransaction(
+            date=txn.date,
+            amount_cents=txn.amount_cents,
+            currency=txn.currency,
+            description=txn.description or txn.payee_name or "",
+            category_hint=None,
+        )
+        for txn in txns
+    ]
+    history = category_suggestions.sample_history(db, user.id)
+    suggestions = category_suggestions.suggest(categories, rows, history)
+
+    proposals = [
+        CategoryProposal(
+            transaction_id=txn.id,
+            category_id=suggestion.category_id,
+            payee=suggestion.payee,
+            confidence=suggestion.confidence,
+        )
+        for index, txn in enumerate(txns)
+        if (suggestion := suggestions.get(index, category_suggestions.EMPTY)).category_id
+        or suggestion.payee
+    ]
+    return SuggestCategoriesResponse(proposals=proposals)
+
+
+@router.post("/apply-categories", response_model=ApplyCategoriesResponse)
+def apply_categories(
+    payload: ApplyCategoriesRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> ApplyCategoriesResponse:
+    """Write the accepted assignments; invalid entries are skipped (design D2)."""
+    valid_category_ids = set(
+        db.scalars(select(Category.id).where(Category.user_id == user.id))
+    )
+    applied = 0
+    for txn_id, assignment in payload.assignments.items():
+        txn = db.scalar(
+            select(Transaction).where(
+                Transaction.id == txn_id,
+                Transaction.user_id == user.id,
+                Transaction.status == "confirmed",
+            )
+        )
+        if txn is None:
+            continue  # vanished or foreign row — skip, never fail the batch
+        if assignment.category_id is not None and assignment.category_id not in valid_category_ids:
+            continue
+        if assignment.category_id is None and assignment.payee is None:
+            continue
+        if assignment.category_id is not None:
+            txn.category_id = assignment.category_id
+        if assignment.payee is not None:  # "" clears, name find-or-creates
+            txn.payee = resolve_payee(db, user.id, assignment.payee)
+        applied += 1
+    db.flush()
+    return ApplyCategoriesResponse(applied=applied)
 
 
 def get_confirmed_or_404(db: Session, user_id: str, txn_id: str) -> Transaction:
