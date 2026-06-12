@@ -16,7 +16,9 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     func,
+    text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -139,6 +141,53 @@ class Transaction(Base):
     @property
     def payee_name(self) -> str | None:
         return self.payee.name if self.payee else None
+
+
+class OnboardingSession(Base):
+    """One AI onboarding interview run (project-definition §6.6).
+
+    Transcript and extracted answers persist per turn so the interview
+    survives reloads; the generated setup proposal is stored on completion
+    so the review screen can be re-rendered. JSONB columns are reassigned
+    (never mutated in place) so change tracking fires.
+    """
+
+    __tablename__ = "onboarding_sessions"
+    __table_args__ = (
+        # One active interview per user — concurrent /start calls (e.g. React
+        # StrictMode double-firing in dev) must not fork the conversation.
+        Index(
+            "uq_onboarding_one_active_per_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    prompt_version: Mapped[str] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(12), default="active")  # active | completed | abandoned
+    transcript_json: Mapped[list] = mapped_column(JSONB, default=list)
+    extracted_json: Mapped[dict] = mapped_column(JSONB, default=dict)
+    proposal_json: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class UserPreferences(Base):
+    """Per-user preferences memory — one JSONB document, written only through
+    PreferencesStore (§6.6). Feeds category generation, import suggestions,
+    and future coach features.
+    """
+
+    __tablename__ = "user_preferences"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), unique=True)
+    preferences: Mapped[dict] = mapped_column(JSONB, default=dict)
+    prompt_version: Mapped[str] = mapped_column(String(40))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
 
 
 class BudgetMonth(Base):

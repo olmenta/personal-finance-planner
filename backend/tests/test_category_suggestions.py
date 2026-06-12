@@ -20,10 +20,12 @@ def _category(category_id: str, name: str) -> SimpleNamespace:
     return SimpleNamespace(id=category_id, name=name, group=SimpleNamespace(name="Esenciales"))
 
 
-def _row(description: str, hint: str | None = None) -> NormalizedTransaction:
+def _row(
+    description: str, hint: str | None = None, amount_cents: int = -1000
+) -> NormalizedTransaction:
     return NormalizedTransaction(
         date=date(2026, 6, 1),
-        amount_cents=-1000,
+        amount_cents=amount_cents,
         currency="EUR",
         description=description,
         category_hint=hint,
@@ -173,3 +175,45 @@ class TestSampleHistory:
         descriptions = [e.description for e in examples]
         assert descriptions == ["MERCADONA VALENCIA", "REPSOL A7"]
         assert examples[1].category_name == "Gasolina"
+
+
+class TestChunkingAndIncome:
+    def test_income_rows_never_categorized(self):
+        categories = [_category("cat-1", "Supermercado")]
+        call = MagicMock(
+            return_value=SuggestionResponse(
+                suggestions=[
+                    RowSuggestion(row=0, category_id="cat-1", payee="Empresa SL", confidence="high")
+                ]
+            )
+        )
+        with (
+            patch.object(category_suggestions, "get_settings", _settings_with_key),
+            patch.object(category_suggestions, "_call_model", call),
+        ):
+            result = suggest(categories, [_row("ABONO NOMINA", amount_cents=88129)])
+        # Category dropped (income lands in "ready to assign"); payee kept.
+        assert result == {0: Suggestion(None, "Empresa SL", "high")}
+
+    def test_chunk_failure_degrades_only_that_chunk(self):
+        categories = [_category("cat-1", "Supermercado")]
+        rows = [_row(f"row {i}") for i in range(4)]
+        ok = SuggestionResponse(
+            suggestions=[
+                RowSuggestion(row=0, category_id="cat-1"),
+                RowSuggestion(row=1, category_id="cat-1"),
+            ]
+        )
+        call = MagicMock(side_effect=[ok, RuntimeError("rate limit")])
+        with (
+            patch.object(category_suggestions, "get_settings", _settings_with_key),
+            patch.object(category_suggestions, "_call_model", call),
+            patch.object(category_suggestions, "CHUNK_ROWS", 2),
+        ):
+            result = suggest(categories, rows)
+        assert call.call_count == 2
+        assert result[0].category_id == "cat-1"
+        assert result[1].category_id == "cat-1"
+        # Failed second chunk degrades alone — first chunk's results survive.
+        assert result[2] == EMPTY
+        assert result[3] == EMPTY

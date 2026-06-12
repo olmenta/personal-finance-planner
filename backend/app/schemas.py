@@ -231,5 +231,58 @@ class SummaryView(BaseModel):
     weeks: list[SummaryWeek]
 
 
+# ---- Onboarding ------------------------------------------------------------
+
+
+class OnboardingMessageRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+
+
+class OnboardingStatusOut(BaseModel):
+    has_completed: bool
+    has_active: bool
+
+
+class OnboardingSessionOut(BaseModel):
+    id: str
+    status: str
+    prompt_version: str
+    # Turn entries: {role, content} for user turns; assistant turns add
+    # input_kind, options, done so the webapp can re-render the pending turn.
+    transcript: list[dict]
+    proposal: dict | None = None
+
+
+class OnboardingCategoryIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    icon: str = Field(default="circle", max_length=40)
+
+
+class OnboardingGroupIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    categories: list[OnboardingCategoryIn] = []
+
+
+class OnboardingIncomeIn(BaseModel):
+    sources: list[str] = []
+    expected_monthly_cents: int | None = Field(default=None, ge=0)
+    income_day: int | None = Field(default=None, ge=1, le=31)
+
+
+class OnboardingFinalizeRequest(BaseModel):
+    """The reviewed proposal: checked items only, renames applied,
+    user-added entries included."""
+
+    category_groups: list[OnboardingGroupIn] = []
+    payers: list[str] = []
+    payees: list[str] = []
+    income: OnboardingIncomeIn | None = None
+
+
+class OnboardingFinalizeResponse(BaseModel):
+    categories_created: int
+    payees_created: int
+
+
 class ErrorOut(BaseModel):
     code: str

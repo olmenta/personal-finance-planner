@@ -6,11 +6,16 @@ is rolled back, so tests never leak state into the branch.
 
 import os
 
+# Before app import: app.main runs configure_sentry() at import time, and a
+# developer's .env DSN would make test-triggered warnings send real events.
+os.environ["SENTRY_DSN"] = ""
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import get_db
 from app.main import app
 from app.models import Base
@@ -19,6 +24,17 @@ from app.seed import seed
 TEST_URL = os.environ.get("TEST_DATABASE_URL")
 
 pytestmark = pytest.mark.skipif(not TEST_URL, reason="TEST_DATABASE_URL not set")
+
+
+@pytest.fixture(autouse=True)
+def no_live_llm(monkeypatch):
+    """Tests never call Anthropic. Settings loads backend/.env, so a real
+    ANTHROPIC_API_KEY there would leak in and make import tests do live LLM
+    calls (slow, flaky, costs tokens). Env vars beat env_file values."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture(scope="session")

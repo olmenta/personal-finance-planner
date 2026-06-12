@@ -218,3 +218,54 @@ def test_discard_removes_orphan_payees(client, db, user, category_ids):
 
     names = {p.name for p in db.query(Payee).filter_by(user_id=user.id)}
     assert names == {"Cafetería Central"}  # batch-only payee cleaned up
+
+
+def test_income_rows_stage_uncategorized(client, category_ids):
+    # Even if the model proposes a category for an income row, staging nulls
+    # it — income lands in "ready to assign", not in a budget envelope.
+    target = category_ids["Supermercado"]
+
+    def fake_suggest(categories, rows, history=None):
+        return {i: Suggestion(target, "Empresa ejemplo", "high") for i in range(len(rows))}
+
+    with patch("app.services.import_batch.category_suggestions.suggest", fake_suggest):
+        body = upload(client, bbva_xlsx(), "bbva").json()
+    income = next(t for t in body["transactions"] if t["amount_cents"] > 0)
+    assert income["category_id"] is None
+    assert income["payee_name"] == "Empresa ejemplo"
+    expenses = [t for t in body["transactions"] if t["amount_cents"] < 0]
+    assert expenses and all(t["category_id"] == target for t in expenses)
+
+
+def test_confirm_payee_override_replaces_and_cleans(client):
+    def fake_suggest(categories, rows, history=None):
+        return {
+            i: (
+                Suggestion(None, "Cafetería AI", "medium")
+                if "Cafetería" in r.description
+                else EMPTY
+            )
+            for i, r in enumerate(rows)
+        }
+
+    with patch("app.services.import_batch.category_suggestions.suggest", fake_suggest):
+        body = upload(client, bbva_xlsx(), "bbva").json()
+    coffees = [t for t in body["transactions"] if "Cafetería" in t["description"]]
+    assert coffees and all(t["payee_name"] == "Cafetería AI" for t in coffees)
+
+    response = client.post(
+        f"/imports/{body['id']}/confirm",
+        json={
+            "overrides": {},
+            "payee_overrides": {t["id"]: "Café Central" for t in coffees},
+        },
+    )
+    assert response.status_code == 200
+
+    listed = client.get("/transactions", params={"month": "2026-06"}).json()
+    renamed = [t for t in listed if t["id"] in {c["id"] for c in coffees}]
+    assert renamed and all(t["payee_name"] == "Café Central" for t in renamed)
+    # The replaced AI proposal must not linger in autocomplete.
+    names = [p["name"] for p in client.get("/payees").json()]
+    assert "Café Central" in names
+    assert "Cafetería AI" not in names

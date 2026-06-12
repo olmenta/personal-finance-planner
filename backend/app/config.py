@@ -20,7 +20,19 @@ class Settings(BaseSettings):
     # AI category suggestions (import pipeline). Missing key degrades to
     # uncategorized staging — never blocks an import (design D5).
     anthropic_api_key: str | None = None
-    anthropic_model: str = "claude-opus-4-8"
+    anthropic_model: str = "claude-sonnet-4-6"
+
+    # Sentry error monitoring — dormant when no DSN is set. PII stays off:
+    # never log or expose financial data in telemetry (GDPR).
+    sentry_dsn: str | None = None
+    sentry_environment: str = "development"
+    sentry_traces_sample_rate: float = 0.1
+    # Forward Python logging to Sentry Logs. Safe with our logging rules:
+    # log lines never carry transcripts or financial data.
+    sentry_enable_logs: bool = False
+    # Include LLM prompts/completions in gen-AI spans. Honored only outside
+    # production — transcripts and bank data never reach telemetry in prod.
+    sentry_send_default_pii: bool = False
 
     @property
     def alembic_url(self) -> str:

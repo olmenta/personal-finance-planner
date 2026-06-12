@@ -350,6 +350,95 @@ export const discardImport = async (id: string): Promise<void> => {
   }
 };
 
+// ---- Onboarding -------------------------------------------------------------
+
+export type OnboardingInputKind = "chips" | "checkboxes" | "text" | "money";
+
+/** One transcript entry; assistant turns carry the quick-input hints. */
+export interface OnboardingTranscriptEntry {
+  role: "user" | "assistant";
+  content: string;
+  input_kind?: OnboardingInputKind;
+  options?: string[];
+  done?: boolean;
+}
+
+export interface OnboardingProposedCategory {
+  name: string;
+  icon: string;
+}
+
+export interface OnboardingProposedGroup {
+  name: string;
+  categories: OnboardingProposedCategory[];
+}
+
+export interface OnboardingIncome {
+  sources: string[];
+  expected_monthly_cents: number | null;
+  income_day: number | null;
+}
+
+export interface OnboardingProposal {
+  category_groups: OnboardingProposedGroup[];
+  payers: string[];
+  payees: string[];
+  income: OnboardingIncome;
+}
+
+export interface OnboardingSessionView {
+  id: string;
+  status: "active" | "completed" | "abandoned";
+  prompt_version: string;
+  transcript: OnboardingTranscriptEntry[];
+  proposal: OnboardingProposal | null;
+}
+
+/** The reviewed proposal: checked items only, renames applied, additions included. */
+export interface OnboardingFinalizePayload {
+  category_groups: OnboardingProposedGroup[];
+  payers: string[];
+  payees: string[];
+  income?: OnboardingIncome;
+}
+
+export interface OnboardingFinalizeResult {
+  categories_created: number;
+  payees_created: number;
+}
+
+export interface OnboardingStatus {
+  has_completed: boolean;
+  has_active: boolean;
+}
+
+export const fetchOnboardingStatus = () =>
+  request<OnboardingStatus>("/onboarding/status");
+
+export const startOnboarding = () =>
+  request<OnboardingSessionView>("/onboarding/start", { method: "POST" });
+
+export const fetchOnboardingSession = () =>
+  request<OnboardingSessionView>("/onboarding/session");
+
+export const sendOnboardingMessage = (message: string) =>
+  request<OnboardingSessionView>("/onboarding/messages", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+
+export const finalizeOnboarding = (
+  sessionId: string,
+  payload: OnboardingFinalizePayload,
+) =>
+  request<OnboardingFinalizeResult>(`/onboarding/${sessionId}/finalize`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const useOnboardingTemplate = () =>
+  request<OnboardingFinalizeResult>("/onboarding/template", { method: "POST" });
+
 // ---- Presentation -----------------------------------------------------------
 
 /** Current calendar month as "YYYY-MM" (design D4). */
