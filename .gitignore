@@ -24,3 +24,5 @@ node_modules/
 
 # Personal budget spreadsheets — real financial data, never commit
 *.xlsx
+# Prototypes built with real personal data — local only
+*.local.html
