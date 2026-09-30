@@ -15,6 +15,7 @@ Subscription web app that teaches people who have never budgeted to use simplifi
 - **Backend:** Python version is pinned with **uv** (`backend/.python-version`). Use **uv** for everything — install libraries with `uv add <pkg>`, run scripts with `uv run <script>`, serve with **uvicorn** via `uv run uvicorn app.main:app --reload`. Never call `pip` or system Python directly.
 - **Frontend:** Node version is pinned with **Volta** (`volta` field in `webapp/package.json`). Always use Volta to install libraries and run npm: `volta run npm install`, `volta run npm run dev` (or Volta shims, which resolve `node`/`npm` to the pinned version). Never bypass the pin with a system Node.
 - Use LiteLLM for LLM calls
+- **Code navigation:** use the **codegraph** MCP tools for structural questions — `codegraph_callers`/`codegraph_callees` ("who calls X"), `codegraph_impact` ("what breaks if I change Y"), `codegraph_trace` (flow between two symbols), `codegraph_context` (orient on an area) — instead of grep+read loops. Plain grep is fine for single-string lookups. The index refreshes ~1s after writes.
 
 ## Tech stack
 

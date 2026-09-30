@@ -21,3 +21,6 @@ node_modules/
 .next/
 *.tsbuildinfo
 .codegraph/
+
+# Personal budget spreadsheets — real financial data, never commit
+*.xlsx
