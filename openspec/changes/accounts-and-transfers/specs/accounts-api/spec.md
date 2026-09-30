@@ -4,7 +4,7 @@
 
 ### Requirement: Account CRUD
 
-The API SHALL expose `GET /accounts` (the user's accounts with `id`, `name`, `type`, `institution`, derived `balance_cents`, `archived`), `POST /accounts` (`name`, `type` of `cash | bank | credit`, optional `institution`, optional `opening_balance_cents`), and `PATCH /accounts/{id}` (rename, `institution`, `archived`). There SHALL be no account delete — archiving hides the account from pickers while its transactions keep counting. A duplicate active account name for the user SHALL return 409 `account_exists`; an unknown or foreign account SHALL return 404 `account_not_found`.
+The API SHALL expose `GET /accounts` (the user's accounts with `id`, `name`, `type`, `institution`, derived `balance_cents`, `archived`, and for credit accounts `payment_day`, `suggested_payment_day`, `payment_available_cents`, `uncovered_debt_cents` — see the credit-cards capability), `POST /accounts` (`name`, `type` of `cash | bank | credit`, optional `institution`, optional `opening_balance_cents`, optional `payment_day` for credit accounts), and `PATCH /accounts/{id}` (rename, `institution`, `archived`, `payment_day`). There SHALL be no account delete — archiving hides the account from pickers while its transactions keep counting. A duplicate active account name for the user SHALL return 409 `account_exists`; an unknown or foreign account SHALL return 404 `account_not_found`.
 
 #### Scenario: Create a bank account
 
@@ -27,17 +27,17 @@ An account's `balance_cents` SHALL be the sum of its confirmed transactions' sig
 
 ### Requirement: Opening balance funds To Be Assigned
 
-When `opening_balance_cents` is provided at creation, the backend SHALL write one confirmed, uncategorized transaction in the new account, dated the creation day, with `source = "opening_balance"` and a salted dedupe hash. A positive opening balance therefore counts as income (To Be Assigned); a negative one (a credit card carrying debt) lowers To Be Assigned by the same amount.
+When `opening_balance_cents` is provided at creation, the backend SHALL write one confirmed, uncategorized transaction in the new account, dated the creation day, with `source = "opening_balance"` and a salted dedupe hash. For `cash` and `bank` accounts a positive opening balance counts as income (To Be Assigned). For a `credit` account the opening balance is **pre-existing debt** (YNAB semantics): it SHALL be excluded from income and from To Be Assigned, it SHALL NOT be a move into or out of the payment category, and it appears as the card's uncovered debt until money is assigned to the payment category and paid.
 
 #### Scenario: Positive opening balance is income
 
 - **WHEN** "Banco B" is created with `opening_balance_cents = 50000`
 - **THEN** the month's `income_cents` rises by 50000 and the account balance is 500,00 €
 
-#### Scenario: Credit card debt lowers TBA
+#### Scenario: Credit card debt is pre-existing debt
 
 - **WHEN** "Tarjeta Visa" is created with `type = "credit"` and `opening_balance_cents = -34000`
-- **THEN** the account balance is −340,00 € and the month's To Be Assigned drops by 340,00 €
+- **THEN** the account balance is −340,00 €, the month's To Be Assigned is unchanged, "Pago Tarjeta Visa" holds 0 available, and the account reports `uncovered_debt_cents = 34000`
 
 ### Requirement: Main account default
 

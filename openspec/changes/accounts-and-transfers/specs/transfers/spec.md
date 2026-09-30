@@ -14,7 +14,7 @@ A transfer between two of the user's accounts SHALL be persisted as two confirme
 #### Scenario: Credit card payment is a transfer
 
 - **WHEN** the user pays 340,00 € from Banco A to the Tarjeta Visa account
-- **THEN** the card balance rises by 340,00 € (toward zero) and no expense is recorded — the card's purchases were already categorized at swipe time
+- **THEN** the card balance rises by 340,00 € (toward zero), the card's payment category available drops by 340,00 €, and no expense is recorded — the card's purchases were already categorized at swipe time
 
 ### Requirement: Mirrored editing and unlinking
 

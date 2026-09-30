@@ -57,7 +57,7 @@ When the interview completes, the turn SHALL carry `done: true` and a setup prop
 
 ### Requirement: Transactional finalize from the reviewed proposal
 
-`POST /onboarding/{session_id}/finalize` SHALL accept the user-reviewed proposal (checked items only, renames applied, user-added entries included) and apply it in a single transaction: **create the accepted accounts (reusing existing account names case-insensitively; credit cards start at zero balance — existing debt is set later from the accounts screen)**, create category groups and categories reusing existing names case-insensitively instead of duplicating or erroring, seed the accepted payees and payers through the existing payee resolution, persist the preferences document, write the primary bank account's opening-balance transaction when the user provided a balance during the interview (confirmed, uncategorized, `source = "opening_balance"` — it funds To Be Assigned; skipped answer writes nothing), and mark the session `completed`. On any failure nothing SHALL be persisted. Finalizing a session that is not `active` SHALL return 409 `session_not_active`.
+`POST /onboarding/{session_id}/finalize` SHALL accept the user-reviewed proposal (checked items only, renames applied, user-added entries included) and apply it in a single transaction: **create the accepted accounts (reusing existing account names case-insensitively; credit cards start at zero balance and get their system payment category through the same account-creation path — existing debt and the payment day are set later from the accounts screen, or the payment day is inferred from imported statements)**, create category groups and categories reusing existing names case-insensitively instead of duplicating or erroring, seed the accepted payees and payers through the existing payee resolution, persist the preferences document, write the primary bank account's opening-balance transaction when the user provided a balance during the interview (confirmed, uncategorized, `source = "opening_balance"` — it funds To Be Assigned; skipped answer writes nothing), and mark the session `completed`. On any failure nothing SHALL be persisted. Finalizing a session that is not `active` SHALL return 409 `session_not_active`.
 
 #### Scenario: Reviewed tree created
 
@@ -67,7 +67,7 @@ When the interview completes, the turn SHALL carry `done: true` and a setup prop
 #### Scenario: Accounts created from review
 
 - **WHEN** the user keeps "BBVA" (bank) and "Visa BBVA" (credit) checked and finalizes
-- **THEN** both accounts exist, the BBVA account holds the opening-balance transaction if a balance was given, and the Visa starts at zero
+- **THEN** both accounts exist, the BBVA account holds the opening-balance transaction if a balance was given, the Visa starts at zero, and "Pago Visa BBVA" exists in the "Tarjetas de crédito" group
 
 #### Scenario: Existing names reused, not duplicated
 

@@ -1,16 +1,19 @@
 # Tasks — Accounts & Transfers
 
-> Depends on `refund-categorized-inflows` being implemented and synced first (shared income/spent semantics).
+> `refund-categorized-inflows` is done and archived (2026-09-30) — the shared income/spent semantics are in place.
+> Credit cards follow the YNAB model (design D6, revised 2026-09-30); section 3b replaces the former option B.
 
 ## 1. Data layer
 
-- [ ] 1.1 `Transaction.transfer_pair_id` (nullable `String(36)`, indexed) in `models.py`; `Account.type` docs/validation accept `credit`; Alembic migration with downgrade
+- [ ] 1.1 `Transaction.transfer_pair_id` (nullable `String(36)`, indexed) in `models.py`; `Account.type` docs/validation accept `credit`; `Account.payment_day` (nullable int 1–31); `Category.payment_account_id` (nullable unique FK); `CategoryGroup.system` (bool, default false); one Alembic migration with downgrade
 - [ ] 1.2 `opening_balance` added to the transaction source values (schema comment + ingestion-safe)
 
 ## 2. Accounts backend
 
 - [ ] 2.1 `routers/accounts.py`: `GET /accounts` (derived `balance_cents` via one grouped query), `POST /accounts` (name/type/institution/opening_balance_cents, 409 `account_exists`), `PATCH /accounts/{id}` (rename/institution/archived, 404 `account_not_found`); register in `main.py`
-- [ ] 2.2 Opening-balance write: confirmed uncategorized salted transaction, `source = "opening_balance"`, negative allowed for credit
+- [ ] 2.2 Opening-balance write: confirmed uncategorized salted transaction, `source = "opening_balance"`; on credit accounts it is pre-existing debt (negative, excluded from income/TBA and from payment-category moves)
+- [ ] 2.5 Credit account creation creates its payment category ("Pago <name>") in the "Tarjetas de crédito" system group (created on first need), same transaction; rename/archive of the account propagates; `payment_day` accepted on POST/PATCH (credit only, 1–31)
+- [ ] 2.6 `routers/categories.py`: payment categories and system groups reject delete/re-parent with 409 `payment_category_locked`
 - [ ] 2.3 Main-account resolution helper (oldest active); replace the three "first account" sites (`routers/transactions.py`, `routers/imports.py`, keep `seed.py` semantics) with resolve-requested-or-main + 404 on foreign accounts
 - [ ] 2.4 `POST /transactions` and `PATCH /transactions/{id}` accept `account_id` (move between registers on PATCH)
 
@@ -20,6 +23,15 @@
 - [ ] 3.2 `routers/transfers.py`: `POST /transfers` (422 `same_account`), `PATCH /transfers/{pair_id}`, `DELETE /transfers/{pair_id}`, `POST /transfers/{pair_id}/unlink`; register in `main.py`
 - [ ] 3.3 `PATCH /transactions/{id}` returns 409 `is_transfer` for paired rows
 - [ ] 3.4 Aggregate exclusions: `transfer_pair_id IS NULL` filter in `income_cents` and the expense/spent aggregations (budget view + summary already share them after the refund change)
+
+## 3b. Credit cards (YNAB model)
+
+- [ ] 3b.1 `budget_view`: split category activity by account type in one grouped query; per (category, card) funded move = `min(card_spending, max(0, assigned + rollover − net non-card activity))`, card refunds move back in full; expose `credit_overspent_cents`
+- [ ] 3b.2 Payment categories in the view: `kind = "credit_payment"`, `payment_account_id`, spent = transfer inflows into the card, available = assigned + rollover + funded moves − payments; "Tarjetas de crédito" group rendered with the others
+- [ ] 3b.3 Rollover: add back the previous month's `credit_overspent_cents`; payment categories carry forward like any category
+- [ ] 3b.4 `income_cents`: exclude credit-account opening balances (and keep TBA untouched by funded moves)
+- [ ] 3b.5 `GET /accounts` credit fields: `payment_available_cents`, `uncovered_debt_cents = max(0, −balance − payment_available)`, `payment_day`, `suggested_payment_day` (≥2 transfer inflows within ±2 days of the same day-of-month → earliest day; null otherwise)
+- [ ] 3b.6 Category suggestion prompt: recognize card interest/fee rows (`INTERESES`, `COMISION`) and propose an "Intereses y comisiones" category when the user has one
 
 ## 4. Import-side transfers
 
@@ -39,6 +51,7 @@
 - [ ] 5.1 Accounts: CRUD, duplicate name 409, archive keeps balances, derived balance, opening balance → income/TBA (positive and credit-negative)
 - [ ] 5.2 Transfers: twin invariants, mirrored edit, delete both, unlink re-enters budget plane, 409 `is_transfer` on PATCH, 422 `same_account`, budget/summary unchanged by transfers
 - [ ] 5.3 Import: chosen account staging, transfer marking creates twin on confirm, matcher suggests (accept adopts / ignore confirms), no silent links
+- [ ] 5.4 Credit cards: payment category created/renamed/archived with the card and locked (409); budgeted purchase moves to payment category with TBA unchanged; payment consumes it; card refund moves back; credit overspending reported, not moved, reset at rollover and visible as uncovered debt; covering it in-month funds the card; mixed cash+card category applies cash first; opening debt leaves TBA unchanged; `suggested_payment_day` from two payments, null with one
 
 ## 6. BFF + API client
 
@@ -51,10 +64,11 @@
 - [ ] 7.2 Third "Transfer" segment in Add/Edit dialogs: from/to/amount/date/note; edit mode loads the pair, offers Unlink; mirrored save
 - [ ] 7.3 `TransactionRow` + transactions list: transfer rendering (`arrow-left-right`, "Transfer → <account>", neutral amount color, no category chip)
 - [ ] 7.4 Import review: "Transfers →" group in the row dropdown (other active accounts); transfer-marked rows show no category; matcher suggestion chip with accept/ignore
-- [ ] 7.5 Accounts screen: list with balances, create (type + opening balance with TBA-impact copy), rename, archive
+- [ ] 7.5 Accounts screen: list with balances (credit as "Debes …" in neutral color, uncovered debt as secondary line), create (type + opening balance; credit adds the optional "¿Qué día te cobran la tarjeta?"), accept chip for `suggested_payment_day`, rename, archive
+- [ ] 7.6 Budget screen: "Tarjetas de crédito" group (assignable payment rows, spent labelled "Pagado"); credit-overspent amounts in a distinct non-red warning style; first card purchase gets a one-time coach explanation of the move
 
 ## 8. Verification
 
 - [ ] 8.1 `uv run pytest` green in `backend/`
 - [ ] 8.2 `volta run npm run build` + lint green in `webapp/`
-- [ ] 8.3 Manual: create second account + credit card with debt (TBA drops), manual transfer, card payment as transfer, import into chosen account, mark transfer at review, import counterpart statement and accept the match — budget totals never move
+- [ ] 8.3 Manual: create second account + credit card with debt (TBA unchanged, debt shown uncovered), card purchase moves money to "Pago <card>", card payment as transfer empties it, overspend on the card and see it as debt next month, manual transfer, import into chosen account, mark transfer at review, import counterpart statement and accept the match — budget totals never move for transfers

@@ -23,7 +23,7 @@ Transactions SHALL record their `source` (`manual`, `import_bbva`, `import_sabad
 
 ### Requirement: Core schema with integer-cent amounts
 
-The backend SHALL persist the v1 core entities — User, Account, CategoryGroup, Category, Transaction, BudgetMonth, BudgetAssignment — with all monetary amounts stored as integer cents and currency fixed to EUR (column present for future multi-currency). `Account.type` SHALL accept `cash`, `bank`, and `credit` (credit cards: balances naturally negative). Schema changes SHALL be applied through Alembic migrations.
+The backend SHALL persist the v1 core entities — User, Account, CategoryGroup, Category, Transaction, BudgetMonth, BudgetAssignment — with all monetary amounts stored as integer cents and currency fixed to EUR (column present for future multi-currency). `Account.type` SHALL accept `cash`, `bank`, and `credit` (credit cards: balances naturally negative); `Account.payment_day` (nullable integer 1–31) SHALL hold a credit card's charge day. `Category.payment_account_id` (nullable, unique, FK to Account) SHALL mark a credit card's system payment category, and `CategoryGroup.system` (boolean, default false) SHALL mark system-managed groups such as "Tarjetas de crédito". Schema changes SHALL be applied through Alembic migrations.
 
 #### Scenario: Amounts round-trip as cents
 
@@ -40,3 +40,8 @@ The backend SHALL persist the v1 core entities — User, Account, CategoryGroup,
 
 - **WHEN** an account with `type = "credit"` is created
 - **THEN** it round-trips with that type and may hold a negative derived balance
+
+#### Scenario: Payment category links its card
+
+- **WHEN** a credit account is created
+- **THEN** exactly one category references it through `payment_account_id`, inside a group with `system = true`

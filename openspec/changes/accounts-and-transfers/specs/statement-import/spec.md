@@ -50,3 +50,12 @@ When staging rows into an account, the importer SHALL detect staged rows that mi
 
 - **WHEN** the user ignores a match suggestion
 - **THEN** the staged row confirms as an ordinary transaction and the existing twin is untouched
+
+### Requirement: Card payments feed payment-day inference
+
+Card payments confirmed from a bank statement — rows marked (or matched) as transfers into a credit account — SHALL be the history the credit-cards capability uses to suggest a card's `payment_day`. The import SHALL NOT set `payment_day` itself; the suggestion surfaces on the account for the user to accept.
+
+#### Scenario: Two imported card payments produce a suggestion
+
+- **WHEN** the August and September BBVA statements each contain `LIQUIDACION TARJETA` rows marked as transfers to "Visa BBVA" on the 10th and 11th
+- **THEN** after confirming the second statement, "Visa BBVA" reports `suggested_payment_day = 10` and its `payment_day` is still unset
