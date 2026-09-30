@@ -46,4 +46,4 @@
 
 - [x] 8.1 `uv run pytest` green in `backend/` (135 + 1 new status test)
 - [x] 8.2 `volta run npm run build` and `volta run npm run lint` green in `webapp/`
-- [ ] 8.3 Manual walkthrough with a real API key: full interview ≤ ~2 min via taps, review edits applied exactly, payees visible in `GET /payees`, preferences row written (live LLM smoke test of opening + extraction turns done; full browser walkthrough pending)
+- [x] 8.3 Manual walkthrough with a real API key: full interview ≤ ~2 min via taps, review edits applied exactly, payees visible in `GET /payees`, preferences row written (completed 2026-06-12: 27-turn interview finalized in browser — 9 groups, 36 categories, payees seeded, preferences document written)

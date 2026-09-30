@@ -8,7 +8,7 @@ Next.js Route Handlers acting as a backend-for-frontend: the browser talks only 
 
 ### Requirement: Route Handlers proxy the backend API
 
-The webapp SHALL expose Next.js Route Handlers under `/api/*` that forward requests to the FastAPI backend for every endpoint the UI consumes: `GET /api/categories`, `POST /api/categories`, `PATCH /api/categories/{id}`, `POST /api/categories/groups`, `PATCH /api/categories/groups/{id}`, `DELETE /api/categories/groups/{id}`, `GET /api/payees`, `GET /api/transactions` (with query string), `POST /api/transactions`, `PATCH /api/transactions/{id}`, `DELETE /api/transactions/{id}`, `POST /api/transactions/suggest-categories`, `POST /api/transactions/apply-categories`, `GET /api/budget/{month}`, `PUT /api/budget/{month}/assignments/{categoryId}`, `POST /api/budget/{month}/confirm-suggestions`, `GET /api/summary/{month}`, `POST /api/imports` (multipart upload forwarded with its body and content type), `GET /api/imports/pending`, `GET /api/imports/{id}`, `POST /api/imports/{id}/confirm`, and `DELETE /api/imports/{id}`. The browser SHALL NOT call the FastAPI backend directly.
+The webapp SHALL expose Next.js Route Handlers under `/api/*` that forward requests to the FastAPI backend for every endpoint the UI consumes: `GET /api/categories`, `POST /api/categories`, `PATCH /api/categories/{id}`, `POST /api/categories/groups`, `PATCH /api/categories/groups/{id}`, `DELETE /api/categories/groups/{id}`, `GET /api/payees`, `GET /api/transactions` (with query string), `POST /api/transactions`, `PATCH /api/transactions/{id}`, `DELETE /api/transactions/{id}`, `POST /api/transactions/suggest-categories`, `POST /api/transactions/apply-categories`, `GET /api/budget/{month}`, `PUT /api/budget/{month}/assignments/{categoryId}`, `POST /api/budget/{month}/confirm-suggestions`, `GET /api/summary/{month}`, `POST /api/imports` (multipart upload forwarded with its body and content type), `GET /api/imports/pending`, `GET /api/imports/{id}`, `POST /api/imports/{id}/confirm`, `DELETE /api/imports/{id}`, `POST /api/onboarding/start`, `GET /api/onboarding/session`, `GET /api/onboarding/status`, `POST /api/onboarding/messages`, `POST /api/onboarding/{id}/finalize`, and `POST /api/onboarding/template`. The browser SHALL NOT call the FastAPI backend directly.
 
 #### Scenario: Budget view proxied
 
@@ -59,6 +59,11 @@ The webapp SHALL expose Next.js Route Handlers under `/api/*` that forward reque
 
 - **WHEN** the browser sends `POST /api/transactions/suggest-categories`
 - **THEN** the backend receives it at `POST {BACKEND_URL}/transactions/suggest-categories` and the proposal list passes through unchanged
+
+#### Scenario: Onboarding turn proxied
+
+- **WHEN** the browser sends `POST /api/onboarding/messages` with the user's reply
+- **THEN** the backend receives it at `POST {BACKEND_URL}/onboarding/messages` and the structured turn (or the 503 with `onboarding_unavailable`) passes through unchanged
 
 ### Requirement: Backend base URL from server environment
 
