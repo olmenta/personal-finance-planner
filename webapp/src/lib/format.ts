@@ -3,6 +3,8 @@ export function money(n: number, dp = 2): string {
   return n.toLocaleString("es-ES", {
     minimumFractionDigits: dp,
     maximumFractionDigits: dp,
+    // es-ES skips the separator on 4-digit amounts by default ("4212,34").
+    useGrouping: "always",
   });
 }
 
