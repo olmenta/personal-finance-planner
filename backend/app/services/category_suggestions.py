@@ -130,6 +130,9 @@ def _build_prompt(
     lines += [
         "",
         "Transactions (row | date | amount in cents, negative = expense | description).",
+        "Positive rows are inflows: suggest a category ONLY when the description",
+        "matches a merchant in the user's history above (a refund of that spending);",
+        "regular income (salary, benefits) must get category_id null.",
         "Some rows carry a user-written category hint — it may not match any",
         "category name exactly; map it onto the closest category in the tree.",
     ]

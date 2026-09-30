@@ -83,14 +83,17 @@ def materialize_month(db: Session, user: User, month: str) -> BudgetMonth:
 
 
 def spent_by_category(db: Session, user: User, month: str) -> dict[str, int]:
-    """Spent = |Σ negative confirmed transactions| per category."""
+    """Spent = negated net of signed confirmed activity per category.
+
+    Categorized inflows are refunds: they restore the category's available
+    instead of counting as income (spec: budget-api, refund scenario).
+    """
     start, end = month_bounds(month)
     rows = db.execute(
         select(Transaction.category_id, func.sum(Transaction.amount_cents))
         .where(
             Transaction.user_id == user.id,
             Transaction.status == "confirmed",
-            Transaction.amount_cents < 0,
             Transaction.date >= start,
             Transaction.date < end,
         )
@@ -99,13 +102,23 @@ def spent_by_category(db: Session, user: User, month: str) -> dict[str, int]:
     return {category_id: -total for category_id, total in rows if category_id}
 
 
+def income_filters(user: User) -> tuple:
+    """What counts as income: confirmed, positive, and uncategorized —
+    a categorized inflow is a refund (category activity), not income.
+    Shared with the summary so dashboard and budget can never disagree."""
+    return (
+        Transaction.user_id == user.id,
+        Transaction.status == "confirmed",
+        Transaction.amount_cents > 0,
+        Transaction.category_id.is_(None),
+    )
+
+
 def income_cents(db: Session, user: User, month: str) -> int:
     start, end = month_bounds(month)
     total = db.scalar(
         select(func.coalesce(func.sum(Transaction.amount_cents), 0)).where(
-            Transaction.user_id == user.id,
-            Transaction.status == "confirmed",
-            Transaction.amount_cents > 0,
+            *income_filters(user),
             Transaction.date >= start,
             Transaction.date < end,
         )

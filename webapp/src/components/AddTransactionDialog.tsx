@@ -22,6 +22,7 @@ import { Separator } from "@/components/shadcn/separator";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { Switch } from "@/components/ui/Switch";
 import { PayeeField } from "@/components/PayeeField";
 import {
   createTransaction,
@@ -38,6 +39,7 @@ export interface AddTransactionDialogProps {
 export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
   const [open, setOpen] = React.useState(false);
   const [direction, setDirection] = React.useState("Expense");
+  const [isRefund, setIsRefund] = React.useState(false);
   const [category, setCategory] = React.useState("");
   const [amount, setAmount] = React.useState("");
   const [payee, setPayee] = React.useState("");
@@ -91,20 +93,29 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
       setPayee("");
       setNote("");
       setCategory("");
+      setIsRefund(false);
       setDate(today);
     },
   });
 
+  const isIncome = direction === "Income";
+  // A refund is an inflow that restores its category instead of counting as
+  // income (spec: budget-api) — the category becomes required again.
+  const needsCategory = !isIncome || isRefund;
   const amountCents = parseEuroToCents(amount);
-  const canSubmit = !!category && amountCents !== null && amountCents > 0 && !mutation.isPending;
+  const canSubmit =
+    (!needsCategory || !!category) &&
+    amountCents !== null &&
+    amountCents > 0 &&
+    !mutation.isPending;
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!canSubmit || amountCents === null) return;
     mutation.mutate({
       amount_cents: amountCents,
-      category_id: category,
-      kind: direction === "Income" ? "income" : "expense",
+      category_id: needsCategory ? category : undefined,
+      kind: isIncome ? "income" : "expense",
       payee: payee.trim() || undefined,
       note: note || undefined,
       date,
@@ -180,6 +191,37 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
               onChange={(e) => setNote(e.target.value)}
             />
 
+            {isIncome && (
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
+                }}
+              >
+                <span
+                  style={{
+                    font: "600 13.5px var(--font-sans)",
+                    color: "var(--text-body)",
+                    letterSpacing: "-0.1px",
+                  }}
+                >
+                  It&apos;s a refund
+                  <span
+                    style={{
+                      display: "block",
+                      font: "500 12px var(--font-sans)",
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    Returns the money to the category it was spent from
+                  </span>
+                </span>
+                <Switch checked={isRefund} onChange={setIsRefund} />
+              </label>
+            )}
+            {needsCategory && (
             <label style={{ display: "flex", flexDirection: "column", gap: 7 }}>
               <span
                 style={{
@@ -224,6 +266,7 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
                 </SelectContent>
               </Select>
             </label>
+            )}
 
             <Input
               label="Date"

@@ -51,11 +51,18 @@ def create_transaction(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> Transaction:
-    category = db.scalar(
-        select(Category).where(Category.id == payload.category_id, Category.user_id == user.id)
-    )
-    if category is None:
-        raise HTTPException(status_code=404, detail={"code": "category_not_found"})
+    category = None
+    if payload.category_id is None:
+        if payload.kind == "expense":
+            raise HTTPException(status_code=422, detail={"code": "category_required"})
+    else:
+        category = db.scalar(
+            select(Category).where(
+                Category.id == payload.category_id, Category.user_id == user.id
+            )
+        )
+        if category is None:
+            raise HTTPException(status_code=404, detail={"code": "category_not_found"})
 
     account = db.scalar(select(Account).where(Account.user_id == user.id))
     if account is None:
@@ -68,7 +75,7 @@ def create_transaction(
     txn = Transaction(
         user_id=user.id,
         account_id=account.id,
-        category_id=category.id,
+        category_id=category.id if category else None,
         payee_id=payee.id if payee else None,
         date=txn_date,
         amount_cents=signed,
@@ -205,15 +212,19 @@ def update_transaction(
 ) -> Transaction:
     txn = get_confirmed_or_404(db, user.id, txn_id)
 
-    if payload.category_id is not None:
-        category = db.scalar(
-            select(Category).where(
-                Category.id == payload.category_id, Category.user_id == user.id
+    # Explicit null clears the category (un-marks a refund); absent leaves it.
+    if "category_id" in payload.model_fields_set:
+        if payload.category_id is None:
+            txn.category_id = None
+        else:
+            category = db.scalar(
+                select(Category).where(
+                    Category.id == payload.category_id, Category.user_id == user.id
+                )
             )
-        )
-        if category is None:
-            raise HTTPException(status_code=404, detail={"code": "category_not_found"})
-        txn.category_id = category.id
+            if category is None:
+                raise HTTPException(status_code=404, detail={"code": "category_not_found"})
+            txn.category_id = category.id
 
     # Create-like amount semantics: positive magnitude + direction, signed
     # here. Without `kind` the row's current sign is kept (design D1).

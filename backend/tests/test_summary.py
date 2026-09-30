@@ -28,7 +28,7 @@ def test_month_totals_exclude_staged(client, db, user, category_ids):
     )
     client.post(
         "/transactions",
-        json={"amount_cents": 235000, "category_id": ocio, "kind": "income", "date": "2026-06-01"},
+        json={"amount_cents": 235000, "kind": "income", "date": "2026-06-01"},
     )
     account_id = db.query(Transaction).first().account_id
     db.add(
@@ -53,7 +53,7 @@ def test_balance_spans_months(client, category_ids):
     ocio = category_ids["Ocio"]
     client.post(
         "/transactions",
-        json={"amount_cents": 100000, "category_id": ocio, "kind": "income", "date": "2026-05-15"},
+        json={"amount_cents": 100000, "kind": "income", "date": "2026-05-15"},
     )
     client.post(
         "/transactions",
@@ -74,7 +74,7 @@ def test_buckets_cover_and_sum_to_totals(client, category_ids):
         )
     client.post(
         "/transactions",
-        json={"amount_cents": 50000, "category_id": ocio, "kind": "income", "date": "2026-06-10"},
+        json={"amount_cents": 50000, "kind": "income", "date": "2026-06-10"},
     )
     view = client.get("/summary/2026-06").json()
     weeks = view["weeks"]
@@ -91,6 +91,33 @@ def test_buckets_cover_and_sum_to_totals(client, category_ids):
     assert weeks[1]["spent_cents"] == 2000
     assert weeks[1]["income_cents"] == 50000
     assert weeks[4]["spent_cents"] == 3000
+
+
+def test_refund_nets_expense_not_income(client, category_ids):
+    """Spec scenario: categorized inflow nets the expense side."""
+    super_id = category_ids["Supermercado"]
+    client.post(
+        "/transactions",
+        json={"amount_cents": 193800, "category_id": super_id, "date": "2026-06-09"},
+    )
+    client.post(
+        "/transactions",
+        json={"amount_cents": 235000, "kind": "income", "date": "2026-06-01"},
+    )
+    client.post(
+        "/transactions",
+        json={
+            "amount_cents": 1250,
+            "category_id": super_id,
+            "kind": "income",
+            "date": "2026-06-10",
+        },
+    )
+    view = client.get("/summary/2026-06").json()
+    assert view["income_cents"] == 235000
+    assert view["expense_cents"] == 192550
+    assert sum(w["spent_cents"] for w in view["weeks"]) == 192550
+    assert sum(w["income_cents"] for w in view["weeks"]) == 235000
 
 
 def test_empty_month_returns_zeros(client):

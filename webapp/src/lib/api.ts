@@ -90,7 +90,7 @@ export interface PayeeOut {
 
 export interface TransactionCreate {
   amount_cents: number;
-  category_id: string;
+  category_id?: string; // required for expenses; income may go uncategorized
   kind?: "expense" | "income";
   payee?: string; // find-or-create by trimmed name, case-insensitive
   note?: string;
@@ -99,8 +99,8 @@ export interface TransactionCreate {
 
 export interface TransactionUpdate {
   amount_cents?: number; // positive magnitude, signed server-side
+  category_id?: string | null; // absent = untouched, null = clear (un-refund)
   kind?: "expense" | "income"; // omitted keeps the row's current sign
-  category_id?: string;
   payee?: string; // "" clears the payee
   note?: string | null; // null clears the description
   date?: string; // "YYYY-MM-DD"

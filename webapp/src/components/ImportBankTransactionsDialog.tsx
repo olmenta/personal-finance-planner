@@ -509,62 +509,54 @@ export function ImportBankTransactionsDialog({
                         {isIncome ? "+" : "−"}
                         {euroCents(Math.abs(t.amount_cents))}
                       </span>
-                      {isIncome ? (
-                        // Income is never categorized — it lands in "Ready to
-                        // assign", so there is no category to pick.
-                        <span
-                          style={{
-                            font: "600 12.5px var(--font-sans)",
-                            color: "var(--text-muted)",
-                          }}
+                      {/* Positive rows default to "Ready to assign" (income);
+                          picking a category turns them into refunds that
+                          restore that category (spec: statement-import). */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <Select
+                          value={selectionFor(t)}
+                          onValueChange={(value) =>
+                            setSelections((prev) => ({ ...prev, [t.id]: value }))
+                          }
                         >
-                          Ready to assign
-                        </span>
-                      ) : (
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <Select
-                            value={selectionFor(t)}
-                            onValueChange={(value) =>
-                              setSelections((prev) => ({ ...prev, [t.id]: value }))
-                            }
+                          <SelectTrigger
+                            className="h-9 rounded-[8px] border text-xs font-medium w-full"
+                            style={{
+                              borderColor: "var(--border-hairline)",
+                              background: "var(--surface)",
+                              fontFamily: "var(--font-sans)",
+                              color:
+                                selectionFor(t) === UNCATEGORIZED
+                                  ? "var(--text-subtle)"
+                                  : "var(--text-strong)",
+                            }}
                           >
-                            <SelectTrigger
-                              className="h-9 rounded-[8px] border text-xs font-medium w-full"
-                              style={{
-                                borderColor: "var(--border-hairline)",
-                                background: "var(--surface)",
-                                fontFamily: "var(--font-sans)",
-                                color:
-                                  selectionFor(t) === UNCATEGORIZED
-                                    ? "var(--text-subtle)"
-                                    : "var(--text-strong)",
-                              }}
-                            >
-                              <SelectValue placeholder="Pick a category" />
-                            </SelectTrigger>
-                            <SelectContent
-                              style={{
-                                borderRadius: "var(--r-md)",
-                                border: "1px solid var(--border-hairline)",
-                                boxShadow: "var(--shadow-lg)",
-                              }}
-                            >
-                              <SelectItem value={UNCATEGORIZED}>Uncategorized</SelectItem>
-                              {(groups ?? []).map((g) => (
-                                <SelectGroup key={g.id}>
-                                  <SelectLabel>{g.name}</SelectLabel>
-                                  {g.categories.filter((c) => !c.archived).map((c) => (
-                                    <SelectItem key={c.id} value={c.id}>
-                                      {c.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectGroup>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          {suggested && <Badge tone="brand">Suggested</Badge>}
-                        </div>
-                      )}
+                            <SelectValue placeholder="Pick a category" />
+                          </SelectTrigger>
+                          <SelectContent
+                            style={{
+                              borderRadius: "var(--r-md)",
+                              border: "1px solid var(--border-hairline)",
+                              boxShadow: "var(--shadow-lg)",
+                            }}
+                          >
+                            <SelectItem value={UNCATEGORIZED}>
+                              {isIncome ? "Ready to assign" : "Uncategorized"}
+                            </SelectItem>
+                            {(groups ?? []).map((g) => (
+                              <SelectGroup key={g.id}>
+                                <SelectLabel>{g.name}</SelectLabel>
+                                {g.categories.filter((c) => !c.archived).map((c) => (
+                                  <SelectItem key={c.id} value={c.id}>
+                                    {c.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {suggested && <Badge tone="brand">Suggested</Badge>}
+                      </div>
                     </div>
                   );
                 })

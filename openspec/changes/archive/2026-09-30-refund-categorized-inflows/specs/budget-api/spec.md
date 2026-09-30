@@ -1,10 +1,6 @@
-# budget-api Specification
+# budget-api Delta Specification
 
-## Purpose
-
-HTTP API surface for the zero-based budget: the per-month budget view contract the webapp renders, category assignment upserts, draft suggestions seeded from the previous month, and rollover of unspent balances.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Budget month view
 
@@ -39,40 +35,3 @@ The API SHALL expose `GET /budget/{month}` returning the `BudgetMonthView` contr
 
 - **WHEN** the first-ever month is requested
 - **THEN** every category's `last_month_assigned_cents`, `avg_3m_cents`, and `last_month_spent_cents` are `null`
-
-### Requirement: Assign to a category
-
-The API SHALL expose `PUT /budget/{month}/assignments/{category_id}` accepting `amount_cents ≥ 0`, upserting the assignment and setting its suggestion state to `edited`. The response SHALL include the recalculated `to_be_assigned_cents`.
-
-#### Scenario: Assignment updates to-be-assigned
-
-- **WHEN** income is 2.350,00 €, total assigned is 1.938,00 €, and a client raises one category by 412,00 €
-- **THEN** the response reports `to_be_assigned_cents = 0`
-
-### Requirement: Draft suggestions from the previous month
-
-When a budget month is created, each category's assignment SHALL be drafted from the previous month's assignment (state `draft`); if no previous month exists, assignments SHALL start at zero with no draft. `POST /budget/{month}/confirm-suggestions` SHALL mark the given categories' drafts as `confirmed` without changing amounts, and SHALL NOT overwrite `edited` assignments.
-
-#### Scenario: New month pre-fills from history
-
-- **WHEN** June is first requested and May has assignments
-- **THEN** June's assignments equal May's with `suggestion_state = "draft"`
-
-#### Scenario: First month starts empty
-
-- **WHEN** the first-ever month is requested
-- **THEN** all assignments are zero and no category is in `draft` state
-
-#### Scenario: Confirm preserves edits
-
-- **WHEN** a client confirms suggestions after editing one category manually
-- **THEN** drafted categories become `confirmed` and the edited category keeps its amount and `edited` state
-
-### Requirement: Rollover carries unspent balances forward
-
-A category's `rollover_cents` for month M SHALL equal its available balance at the end of month M−1 (`assigned + rollover − spent`, floored at the chain's actual value, including negative carryover), and zero when no previous month exists.
-
-#### Scenario: Positive carryover
-
-- **WHEN** a category ends May with 32,00 € available
-- **THEN** June's view reports `rollover_cents = 3200` for that category

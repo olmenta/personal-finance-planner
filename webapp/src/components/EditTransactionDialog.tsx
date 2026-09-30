@@ -21,6 +21,7 @@ import { Separator } from "@/components/shadcn/separator";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { Switch } from "@/components/ui/Switch";
 import { PayeeField } from "@/components/PayeeField";
 import {
   fetchCategories,
@@ -55,6 +56,10 @@ function EditForm({
 }: Readonly<{ transaction: TransactionOut; onClose: () => void }>) {
   const wasIncome = transaction.amount_cents > 0;
   const [direction, setDirection] = React.useState(wasIncome ? "Income" : "Expense");
+  // An income row that already carries a category is a refund.
+  const [isRefund, setIsRefund] = React.useState(
+    wasIncome && transaction.category_id !== null,
+  );
   const [amount, setAmount] = React.useState(
     money(Math.abs(transaction.amount_cents) / 100),
   );
@@ -67,13 +72,19 @@ function EditForm({
   const { data: groups } = useQuery({ queryKey: ["categories"], queryFn: fetchCategories });
   const { data: payees } = useQuery({ queryKey: ["payees"], queryFn: fetchPayees });
 
+  const isIncome = direction === "Income";
+  // Refund = inflow that restores its category (spec: budget-api).
+  const needsCategory = !isIncome || isRefund;
+
   const mutation = useMutation({
     mutationFn: () => {
       const amountCents = parseEuroToCents(amount);
       return updateTransaction(transaction.id, {
         amount_cents: amountCents ?? undefined,
-        kind: direction === "Income" ? "income" : "expense",
-        category_id: category || undefined,
+        kind: isIncome ? "income" : "expense",
+        // Refund off on an income row → null clears the stored category so
+        // the inflow counts as income again; absent leaves it untouched.
+        category_id: needsCategory ? category || undefined : null,
         payee: payee.trim(), // "" clears
         note: note || null, // cleared text clears the description
         date,
@@ -168,6 +179,37 @@ function EditForm({
             onChange={(e) => setNote(e.target.value)}
           />
 
+          {isIncome && (
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 10,
+              }}
+            >
+              <span
+                style={{
+                  font: "600 13.5px var(--font-sans)",
+                  color: "var(--text-body)",
+                  letterSpacing: "-0.1px",
+                }}
+              >
+                It&apos;s a refund
+                <span
+                  style={{
+                    display: "block",
+                    font: "500 12px var(--font-sans)",
+                    color: "var(--text-muted)",
+                  }}
+                >
+                  Returns the money to the category it was spent from
+                </span>
+              </span>
+              <Switch checked={isRefund} onChange={setIsRefund} />
+            </label>
+          )}
+          {needsCategory && (
           <label style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             <span
               style={{
@@ -212,6 +254,7 @@ function EditForm({
               </SelectContent>
             </Select>
           </label>
+          )}
 
           <Input
             label="Date"

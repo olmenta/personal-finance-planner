@@ -32,6 +32,22 @@ def test_income_kind_stored_positive(client, category_ids):
     assert response.json()["amount_cents"] == 235000
 
 
+def test_income_without_category_allowed(client):
+    response = client.post(
+        "/transactions", json={"amount_cents": 240000, "kind": "income"}
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["amount_cents"] == 240000
+    assert body["category_id"] is None
+
+
+def test_expense_without_category_rejected(client):
+    response = client.post("/transactions", json={"amount_cents": 1200})
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "category_required"
+
+
 @pytest.mark.parametrize("amount", [0, -5])
 def test_invalid_amount_rejected(client, category_ids, amount):
     response = client.post(
@@ -130,6 +146,24 @@ def test_patch_kind_alone_resigns_current_magnitude(client, category_ids):
     txn = create_expense(client, category_ids["Ahorro"], amount=700)
     body = client.patch(f"/transactions/{txn['id']}", json={"kind": "income"}).json()
     assert body["amount_cents"] == 700
+
+
+def test_patch_category_null_clears_it(client, category_ids):
+    """Un-marking a refund: explicit null clears, absent leaves untouched."""
+    txn = client.post(
+        "/transactions",
+        json={
+            "amount_cents": 1250,
+            "category_id": category_ids["Supermercado"],
+            "kind": "income",
+        },
+    ).json()
+    untouched = client.patch(f"/transactions/{txn['id']}", json={"note": "x"}).json()
+    assert untouched["category_id"] == category_ids["Supermercado"]
+    cleared = client.patch(
+        f"/transactions/{txn['id']}", json={"category_id": None}
+    ).json()
+    assert cleared["category_id"] is None
 
 
 def test_patch_note_null_clears_description(client, category_ids):

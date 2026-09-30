@@ -91,8 +91,10 @@ function TxTable({
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              {/* A categorized inflow is a refund — show its category, not the
+                  generic income glyph. */}
               <IconChip
-                icon={isIncome ? "dollar-sign" : (category?.icon ?? "circle")}
+                icon={isIncome && !category ? "dollar-sign" : (category?.icon ?? "circle")}
                 tone={isIncome ? "income" : toneForCategory(category?.icon ?? "circle")}
                 size={40}
               />
@@ -119,7 +121,7 @@ function TxTable({
             </div>
             <div>
               <Badge tone={isIncome ? "income" : "brand"} dot>
-                {category?.name ?? "Uncategorized"}
+                {category?.name ?? (isIncome ? "Ready to assign" : "Uncategorized")}
               </Badge>
             </div>
             <div style={{ font: "500 13.5px var(--font-sans)", color: "var(--text-muted)" }}>

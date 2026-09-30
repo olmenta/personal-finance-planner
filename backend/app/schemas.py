@@ -14,7 +14,9 @@ from pydantic import BaseModel, Field
 
 class TransactionCreate(BaseModel):
     amount_cents: int = Field(gt=0)
-    category_id: str
+    # Required for expenses; optional for income (income funds To Be Assigned,
+    # it doesn't have to live in a spending category).
+    category_id: str | None = None
     kind: Literal["expense", "income"] = "expense"
     # Find-or-create against the user's payees, case-insensitive on the
     # trimmed name (spec: payees). Empty/whitespace-only means "no payee".
@@ -75,7 +77,9 @@ class SuggestCategoriesResponse(BaseModel):
 
 
 class CategoryAssignment(BaseModel):
-    category_id: str | None = None  # None = leave category untouched
+    # Absent = leave category untouched; explicit null clears it (un-marks a
+    # refund so the inflow counts as income again).
+    category_id: str | None = None
     # None = leave payee untouched; "" clears it; name resolves find-or-create.
     payee: str | None = Field(default=None, max_length=120)
 

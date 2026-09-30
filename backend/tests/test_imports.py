@@ -89,6 +89,32 @@ def test_confirm_with_override_updates_budget_and_list(client, category_ids):
     assert summary["expense_cents"] > 0
 
 
+def test_positive_row_categorized_on_confirm_is_refund(client, category_ids):
+    """Spec scenario: imported inflow + category override = refund."""
+    body = upload(client, bbva_xlsx(), "bbva").json()
+    nomina = next(t for t in body["transactions"] if t["amount_cents"] > 0)
+    super_id = category_ids["Supermercado"]
+    client.post(
+        f"/imports/{body['id']}/confirm",
+        json={"overrides": {nomina["id"]: super_id}},
+    )
+    summary = client.get("/summary/2026-06").json()
+    assert summary["income_cents"] == 0  # the inflow became category activity
+    budget = client.get("/budget/2026-06").json()
+    spent = {
+        c["name"]: c["spent_cents"] for g in budget["groups"] for c in g["categories"]
+    }
+    assert spent["Supermercado"] == -nomina["amount_cents"]
+
+
+def test_positive_row_uncategorized_confirms_as_income(client):
+    body = upload(client, bbva_xlsx(), "bbva").json()
+    nomina = next(t for t in body["transactions"] if t["amount_cents"] > 0)
+    client.post(f"/imports/{body['id']}/confirm", json={"overrides": {}})
+    summary = client.get("/summary/2026-06").json()
+    assert summary["income_cents"] == nomina["amount_cents"]
+
+
 def test_reimport_is_idempotent(client):
     first = upload(client, bbva_xlsx(), "bbva").json()
     client.post(f"/imports/{first['id']}/confirm", json={"overrides": {}})

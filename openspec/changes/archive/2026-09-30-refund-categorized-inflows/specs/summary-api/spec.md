@@ -1,10 +1,6 @@
-# summary-api Specification
+# summary-api Delta Specification
 
-## Purpose
-
-Backend contract for the month summary that feeds the dashboard: all-time balance, monthly income and expense totals, and per-week buckets, aggregated in the database from confirmed transactions.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Month summary view
 

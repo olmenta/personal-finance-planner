@@ -75,15 +75,43 @@ def test_staged_transactions_excluded_from_spent(client, db, user, category_ids)
     assert get_category(view, "Ocio")["spent_cents"] == 4500
 
 
-def test_assignment_recalculates_to_be_assigned(client, category_ids):
+def test_categorized_refund_restores_category_not_income(client, category_ids):
+    """Spec scenario: refund nets spent and stays out of income."""
+    supermercado = category_ids["Supermercado"]
+    client.post(
+        "/transactions",
+        json={"amount_cents": 13800, "category_id": supermercado, "date": "2026-06-05"},
+    )
     client.post(
         "/transactions",
         json={
-            "amount_cents": 235000,
-            "category_id": category_ids["Ahorro"],
+            "amount_cents": 1250,
+            "category_id": supermercado,
             "kind": "income",
-            "date": "2026-06-01",
+            "date": "2026-06-07",
         },
+    )
+    view = client.get("/budget/2026-06").json()
+    assert get_category(view, "Supermercado")["spent_cents"] == 12550
+    assert view["income_cents"] == 0
+
+
+def test_uncategorized_inflow_is_income(client, category_ids):
+    client.post(
+        "/transactions",
+        json={"amount_cents": 235000, "kind": "income", "date": "2026-06-01"},
+    )
+    view = client.get("/budget/2026-06").json()
+    assert view["income_cents"] == 235000
+    for group in view["groups"]:
+        for cat in group["categories"]:
+            assert cat["spent_cents"] == 0
+
+
+def test_assignment_recalculates_to_be_assigned(client, category_ids):
+    client.post(
+        "/transactions",
+        json={"amount_cents": 235000, "kind": "income", "date": "2026-06-01"},
     )
     client.get("/budget/2026-06")
     client.put(

@@ -8,7 +8,7 @@ HTTP API surface for transactions: creating manual entries and listing transacti
 
 ### Requirement: Create a manual transaction
 
-The API SHALL expose `POST /transactions` accepting `amount_cents` (positive integer), `category_id`, optional `payee` (trimmed name ≤120 chars, resolved find-or-create against the user's payees), optional `note`, and optional `date` defaulting to today. The created transaction SHALL have `source = "manual"` and `status = "confirmed"`. Validation errors SHALL return machine-readable error codes (i18n-ready, no human-language coupling).
+The API SHALL expose `POST /transactions` accepting `amount_cents` (positive integer), `category_id` (required for expenses, 422 `category_required` when missing; optional for income — uncategorized income funds To Be Assigned), optional `payee` (trimmed name ≤120 chars, resolved find-or-create against the user's payees), optional `note`, and optional `date` defaulting to today. The created transaction SHALL have `source = "manual"` and `status = "confirmed"`. Validation errors SHALL return machine-readable error codes (i18n-ready, no human-language coupling).
 
 #### Scenario: Minimal entry
 
@@ -29,6 +29,16 @@ The API SHALL expose `POST /transactions` accepting `amount_cents` (positive int
 
 - **WHEN** a client posts a `category_id` that does not exist
 - **THEN** the API returns 404 with a machine-readable error code
+
+#### Scenario: Income without category
+
+- **WHEN** a client posts `{ "amount_cents": 240000, "kind": "income" }` with no `category_id`
+- **THEN** the API returns 201 with a positive uncategorized transaction
+
+#### Scenario: Expense requires category
+
+- **WHEN** a client posts an expense with no `category_id`
+- **THEN** the API returns 422 with code `category_required`
 
 ### Requirement: List transactions
 
@@ -51,7 +61,7 @@ The API SHALL expose `GET /transactions` returning confirmed transactions only, 
 
 ### Requirement: Update a transaction
 
-The API SHALL expose `PATCH /transactions/{id}` to partially update a confirmed transaction owned by the user. Editable fields: `amount_cents` (positive magnitude) with `kind` (`expense` | `income`) signing it server-side — when `amount_cents` is sent without `kind`, the row's current sign is kept; `category_id` (validated against the user's categories); `note` (`null` clears the description); `payee` (trimmed name resolved find-or-create against the user's payees, empty string clears it); and `date`. Omitted fields SHALL stay unchanged, and the row's `dedupe_hash` SHALL remain immutable so re-imports keep colliding with edited rows. Budget and summary reads SHALL reflect the edit immediately. A transaction that does not exist, belongs to another user, or is not `confirmed` SHALL return 404 with code `transaction_not_found`.
+The API SHALL expose `PATCH /transactions/{id}` to partially update a confirmed transaction owned by the user. Editable fields: `amount_cents` (positive magnitude) with `kind` (`expense` | `income`) signing it server-side — when `amount_cents` is sent without `kind`, the row's current sign is kept; `category_id` (validated against the user's categories; an **explicit `null` clears the category** — un-marking a refund so the inflow counts as income again — while an absent field leaves it untouched); `note` (`null` clears the description); `payee` (trimmed name resolved find-or-create against the user's payees, empty string clears it); and `date`. Omitted fields SHALL stay unchanged, and the row's `dedupe_hash` SHALL remain immutable so re-imports keep colliding with edited rows. Budget and summary reads SHALL reflect the edit immediately. A transaction that does not exist, belongs to another user, or is not `confirmed` SHALL return 404 with code `transaction_not_found`.
 
 #### Scenario: Amount and category corrected
 
@@ -62,6 +72,16 @@ The API SHALL expose `PATCH /transactions/{id}` to partially update a confirmed 
 
 - **WHEN** a confirmed expense is patched with `kind = "income"` and `amount_cents = 5000`
 - **THEN** the row stores `amount_cents = +5000`
+
+#### Scenario: Null category un-marks a refund
+
+- **WHEN** a categorized +12,50 € inflow is patched with `category_id: null`
+- **THEN** the row becomes uncategorized and counts as income on the next budget and summary reads
+
+#### Scenario: Absent category stays untouched
+
+- **WHEN** a categorized inflow is patched changing only the note
+- **THEN** its category is unchanged
 
 #### Scenario: Imported row keeps its dedupe identity
 
