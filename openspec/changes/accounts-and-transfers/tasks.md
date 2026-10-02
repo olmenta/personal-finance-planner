@@ -28,8 +28,8 @@
 
 - [ ] 3b.1 `budget_view`: split category activity by account type in one grouped query; per (category, card) funded move = `min(card_spending, max(0, assigned + rollover − net non-card activity))`, card refunds move back in full; expose `credit_overspent_cents`
 - [ ] 3b.2 Payment categories in the view: `kind = "credit_payment"`, `payment_account_id`, spent = transfer inflows into the card, available = assigned + rollover + funded moves − payments; "Tarjetas de crédito" group rendered with the others
-- [ ] 3b.3 Rollover: add back the previous month's `credit_overspent_cents`; payment categories carry forward like any category
-- [ ] 3b.4 `income_cents`: exclude credit-account opening balances (and keep TBA untouched by funded moves)
+- [ ] 3b.3 Rollover (on top of budget-rules' reset): split a negative end balance into credit overspending (stays as card debt) and cash overspending (deducted from next month's TBA); payment categories carry forward like any category
+- [ ] 3b.4 `income_cents` and budget-rules' unbudgeted sum: exclude transfer rows and credit-account opening balances (and keep TBA untouched by funded moves); extend the identity property test with cards and transfers
 - [ ] 3b.5 `GET /accounts` credit fields: `payment_available_cents`, `uncovered_debt_cents = max(0, −balance − payment_available)`, `payment_day`, `suggested_payment_day` (≥2 transfer inflows within ±2 days of the same day-of-month → earliest day; null otherwise)
 - [ ] 3b.6 Category suggestion prompt: recognize card interest/fee rows (`INTERESES`, `COMISION`) and propose an "Intereses y comisiones" category when the user has one
 
