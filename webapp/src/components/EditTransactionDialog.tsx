@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/Input";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Switch } from "@/components/ui/Switch";
 import { PayeeField } from "@/components/PayeeField";
+import { useCoverPrompt } from "@/components/budget/CoverPrompt";
 import {
   fetchCategories,
   fetchPayees,
@@ -76,6 +77,7 @@ function EditForm({
   // Refund = inflow that restores its category (spec: budget-api).
   const needsCategory = !isIncome || isRefund;
 
+  const promptCover = useCoverPrompt();
   const mutation = useMutation({
     mutationFn: () => {
       const amountCents = parseEuroToCents(amount);
@@ -101,6 +103,8 @@ function EditForm({
         queryClient.invalidateQueries({ queryKey: ["summary", m] });
       }
       onClose();
+      // Overspent now? Offer the cover after the dialog closes (budget-rules D8).
+      if (updated.category_id) void promptCover(updated.date.slice(0, 7), [updated.category_id]);
     },
   });
 

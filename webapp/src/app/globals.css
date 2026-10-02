@@ -142,3 +142,21 @@
 @media (max-width: 560px) {
   .grid-2 { grid-template-columns: 1fr; }
 }
+
+/* Post-save cover prompt (budget-rules): bottom-right on desktop, above the
+   bottom nav on mobile. */
+.cover-prompt {
+  position: fixed;
+  z-index: var(--z-toast);
+  right: 24px;
+  bottom: 24px;
+  width: min(380px, calc(100vw - 32px));
+}
+@media (max-width: 1023px) {
+  .cover-prompt {
+    left: 16px;
+    right: 16px;
+    bottom: 96px;
+    width: auto;
+  }
+}

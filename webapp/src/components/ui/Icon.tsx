@@ -1,6 +1,7 @@
 import {
   ArrowDownLeft,
   ArrowLeft,
+  ArrowLeftRight,
   ArrowRight,
   ArrowUp,
   ArrowUpRight,
@@ -58,6 +59,7 @@ import {
 const OL_ICONS: Record<string, LucideIcon> = {
   "arrow-down-left": ArrowDownLeft,
   "arrow-left": ArrowLeft,
+  "arrow-left-right": ArrowLeftRight,
   "arrow-right": ArrowRight,
   "arrow-up": ArrowUp,
   "arrow-up-right": ArrowUpRight,

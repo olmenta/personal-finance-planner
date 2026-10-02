@@ -24,9 +24,9 @@ import { Input } from "@/components/ui/Input";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Switch } from "@/components/ui/Switch";
 import { PayeeField } from "@/components/PayeeField";
+import { useCoverPrompt } from "@/components/budget/CoverPrompt";
 import {
   createTransaction,
-  currentMonth,
   fetchCategories,
   fetchPayees,
 } from "@/lib/api";
@@ -79,13 +79,17 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
     }
   }
 
+  const promptCover = useCoverPrompt();
   const mutation = useMutation({
     mutationFn: createTransaction,
-    onSuccess: () => {
+    onSuccess: (_created, vars) => {
+      // Overspent now? Offer the cover after the dialog closes (budget-rules D8).
+      if (vars.category_id) void promptCover((vars.date ?? today).slice(0, 7), [vars.category_id]);
       // Spent totals changed — list, budget month, and dashboard summary are stale.
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["budget", currentMonth()] });
-      queryClient.invalidateQueries({ queryKey: ["summary", currentMonth()] });
+      // Any month: the entry's date may not be the month on screen.
+      queryClient.invalidateQueries({ queryKey: ["budget"] });
+      queryClient.invalidateQueries({ queryKey: ["summary"] });
       // A new payee may have been born from this write.
       queryClient.invalidateQueries({ queryKey: ["payees"] });
       setOpen(false);

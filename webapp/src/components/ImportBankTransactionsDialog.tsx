@@ -35,6 +35,7 @@ import {
   type ImportBatchView,
 } from "@/lib/api";
 import { euroCents } from "@/lib/format";
+import { useCoverPrompt } from "@/components/budget/CoverPrompt";
 
 const UNCATEGORIZED = "none";
 
@@ -145,6 +146,7 @@ export function ImportBankTransactionsDialog({
   const selectionFor = (t: { id: string; category_id: string | null }) =>
     selections[t.id] ?? t.category_id ?? UNCATEGORIZED;
 
+  const promptCover = useCoverPrompt();
   const confirm = useMutation({
     mutationFn: () => {
       const overrides: Record<string, string | null> = {};
@@ -158,7 +160,7 @@ export function ImportBankTransactionsDialog({
       }
       return confirmImport(activeBatch!.id, overrides, payeeOverrides);
     },
-    onSuccess: () => {
+    onSuccess: (confirmed) => {
       // Imports span months, unlike single adds — invalidate each one.
       const months = new Set(
         (activeBatch?.transactions ?? []).map((t) => t.date.slice(0, 7)),
@@ -177,6 +179,18 @@ export function ImportBankTransactionsDialog({
       queryClient.invalidateQueries({ queryKey: ["imports", "pending"] });
       reset();
       setOpen(false);
+      // Overspent now? Offer the cover for the first month that needs it.
+      const touched = new Map<string, string[]>();
+      for (const t of confirmed.transactions) {
+        if (!t.category_id) continue;
+        const m = t.date.slice(0, 7);
+        touched.set(m, [...(touched.get(m) ?? []), t.category_id]);
+      }
+      void (async () => {
+        for (const [m, ids] of [...touched].sort(([a], [b]) => b.localeCompare(a))) {
+          if (await promptCover(m, ids)) return;
+        }
+      })();
     },
   });
 

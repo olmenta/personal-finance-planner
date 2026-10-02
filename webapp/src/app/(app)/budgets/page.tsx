@@ -11,8 +11,10 @@ import { ErrorPanel, SkeletonPanel } from "@/components/ui/QueryStates";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { TbaHero } from "@/components/ui/TbaHero";
 import { AssignGroups } from "@/components/budget/AssignGroups";
+import { MoveMoneySheet } from "@/components/budget/MoveMoneySheet";
 import { TopBar } from "@/components/shell/TopBar";
 import { euroCents } from "@/lib/format";
+import type { BudgetCategoryView } from "@/lib/api";
 import { useBudgetMonth } from "@/lib/useBudgetMonth";
 import { budgets, chartLegend } from "@/lib/mock-data";
 
@@ -170,8 +172,14 @@ function AssignMode() {
     refetch,
     assignFailed,
     retryAssign,
+    move,
+    moveFailed,
+    moveErrorCode,
+    retryMove,
+    dismissMoveError,
   } = useBudgetMonth();
   const [capsuleDismissed, setCapsuleDismissed] = React.useState(false);
+  const [moveFrom, setMoveFrom] = React.useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -204,6 +212,8 @@ function AssignMode() {
         <TbaHero
           toBeAssignedCents={toBeAssignedCents}
           incomeCents={month.income_cents}
+          carriedInCents={month.carried_in_cents}
+          overspentDeductedCents={month.overspent_deducted_cents}
           action={
             draftIds.length > 0 && !capsuleDismissed ? (
               <Button variant="accent" size="sm" iconLeft="check" onClick={() => confirmSuggestions(draftIds)}>
@@ -258,7 +268,56 @@ function AssignMode() {
         </div>
       )}
 
-      <AssignGroups groups={month.groups} onAssign={assign} />
+      {moveFailed && (
+        <div
+          role="alert"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 10,
+            background: "var(--expense-soft)",
+            color: "var(--expense)",
+            borderRadius: "var(--r-md)",
+            padding: "10px 14px",
+            font: "600 13.5px var(--font-sans)",
+          }}
+        >
+          {moveErrorCode === "insufficient_available" || moveErrorCode === "insufficient_to_be_assigned"
+            ? "That money isn't there anymore — your budget is unchanged."
+            : "That move didn't save — your budget is unchanged."}
+          <span style={{ display: "flex", gap: 8 }}>
+            <Button variant="secondary" size="sm" onClick={dismissMoveError}>
+              Dismiss
+            </Button>
+            <Button variant="secondary" size="sm" iconLeft="rotate-cw" onClick={retryMove}>
+              Retry
+            </Button>
+          </span>
+        </div>
+      )}
+
+      <AssignGroups
+        groups={month.groups}
+        onAssign={assign}
+        onCover={(c: BudgetCategoryView) => {
+          if (!c.cover_suggestion) return;
+          move({
+            from_category_id: c.cover_suggestion.source_category_id,
+            to_category_id: c.id,
+            amount_cents: c.cover_suggestion.amount_cents,
+          });
+        }}
+        onMove={(c: BudgetCategoryView) => setMoveFrom(c.id)}
+      />
+
+      <MoveMoneySheet
+        open={moveFrom !== null}
+        onOpenChange={(open) => !open && setMoveFrom(null)}
+        view={month}
+        initialFrom={moveFrom ?? undefined}
+        onMove={move}
+      />
     </>
   );
 }

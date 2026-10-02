@@ -3,18 +3,22 @@
 import React from "react";
 import { euroCents } from "@/lib/format";
 import { availableCents } from "@/lib/useBudgetMonth";
-import type { BudgetGroupView } from "@/lib/api";
+import type { BudgetCategoryView, BudgetGroupView } from "@/lib/api";
 import { Panel } from "@/components/ui/Panel";
 import { AssignRow } from "./AssignRow";
 
 export interface AssignGroupsProps {
   groups: BudgetGroupView[];
   onAssign: (categoryId: string, cents: number) => void;
+  onCover: (category: BudgetCategoryView) => void;
+  onMove: (category: BudgetCategoryView) => void;
 }
 
 /* One Panel per CategoryGroup composing AssignRows; assigned/available
    subtotals in the group header (desktop only). */
-export function AssignGroups({ groups, onAssign }: Readonly<AssignGroupsProps>) {
+export function AssignGroups({ groups, onAssign, onCover, onMove }: Readonly<AssignGroupsProps>) {
+  const names = new Map(groups.flatMap((g) => g.categories.map((c) => [c.id, c.name] as const)));
+  const nameOf = (id: string) => names.get(id) ?? "another category";
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {[...groups]
@@ -48,7 +52,14 @@ export function AssignGroups({ groups, onAssign }: Readonly<AssignGroupsProps>) 
               style={{ paddingTop: 16, paddingBottom: 8 }}
             >
               {g.categories.map((c) => (
-                <AssignRow key={c.id} category={c} onAssign={onAssign} />
+                <AssignRow
+                  key={c.id}
+                  category={c}
+                  onAssign={onAssign}
+                  onCover={onCover}
+                  onMove={onMove}
+                  nameOf={nameOf}
+                />
               ))}
             </Panel>
           );

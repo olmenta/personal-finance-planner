@@ -173,6 +173,12 @@ class CategoryGroupOut(BaseModel):
 # ---- Budget month view ------------------------------------------------------
 
 
+class CoverSuggestion(BaseModel):
+    # null = cover from To Be Assigned
+    source_category_id: str | None
+    amount_cents: int
+
+
 class BudgetCategoryView(BaseModel):
     id: str
     name: str
@@ -181,6 +187,11 @@ class BudgetCategoryView(BaseModel):
     spent_cents: int
     rollover_cents: int
     available_cents: int
+    overspent_cents: int
+    # Last month's overspending of this category, reset instead of carried
+    # (deducted from To Be Assigned).
+    rollover_reset_cents: int
+    cover_suggestion: CoverSuggestion | None = None
     suggestion_cents: int | None
     suggestion_state: Literal["draft", "confirmed", "edited"]
     # Quick-fill sources for the assignment UI; null when no history exists.
@@ -199,7 +210,10 @@ class BudgetGroupView(BaseModel):
 class BudgetMonthView(BaseModel):
     month: str
     income_cents: int
+    # Cumulative: carried_in + unbudgeted − assigned − overspent_deducted.
     to_be_assigned_cents: int
+    carried_in_cents: int  # previous month's To Be Assigned
+    overspent_deducted_cents: int  # previous month's uncovered overspending
     groups: list[BudgetGroupView]
 
 
@@ -212,6 +226,13 @@ class AssignResponse(BaseModel):
     assigned_cents: int
     suggestion_state: str
     to_be_assigned_cents: int
+
+
+class MoveRequest(BaseModel):
+    # null = draw from To Be Assigned
+    from_category_id: str | None
+    to_category_id: str
+    amount_cents: int = Field(gt=0)
 
 
 class ConfirmSuggestionsRequest(BaseModel):

@@ -12,6 +12,12 @@ import { NumpadSheet } from "@/components/ui/NumpadSheet";
 export interface AssignRowProps {
   category: BudgetCategoryView;
   onAssign: (categoryId: string, cents: number) => void;
+  /** One-tap cover from the server's suggestion (budget-rules). */
+  onCover: (category: BudgetCategoryView) => void;
+  /** Opens the move-money sheet with this category as the source. */
+  onMove: (category: BudgetCategoryView) => void;
+  /** Category id → name, for the cover button label. */
+  nameOf: (categoryId: string) => string;
 }
 
 function QuickFill({
@@ -56,7 +62,13 @@ function QuickFill({
 /* One category row in the assignment list: chip + name, editable Assigned cell
    (inline input on desktop, numpad sheet on mobile), spent, available chip
    colored by sign, progress bar, expandable rollover breakdown. */
-export function AssignRow({ category: c, onAssign }: Readonly<AssignRowProps>) {
+export function AssignRow({
+  category: c,
+  onAssign,
+  onCover,
+  onMove,
+  nameOf,
+}: Readonly<AssignRowProps>) {
   const [expanded, setExpanded] = React.useState(false);
   const [sheetOpen, setSheetOpen] = React.useState(false);
 
@@ -216,6 +228,31 @@ export function AssignRow({ category: c, onAssign }: Readonly<AssignRowProps>) {
             }}
           />
         </div>
+        {c.cover_suggestion && (
+          <button
+            onClick={() => onCover(c)}
+            style={{
+              marginTop: 10,
+              border: "none",
+              background: "var(--expense-soft)",
+              color: "var(--expense)",
+              borderRadius: "var(--r-full)",
+              padding: "6px 12px",
+              font: "600 12.5px var(--font-sans)",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            <Icon name="arrow-left-right" size={14} />
+            Cover {euroCents(c.cover_suggestion.amount_cents)} from{" "}
+            {c.cover_suggestion.source_category_id === null
+              ? "unassigned"
+              : nameOf(c.cover_suggestion.source_category_id)}
+          </button>
+        )}
         {expanded && (
           <div style={{ paddingTop: 12 }}>
             <div
@@ -231,8 +268,34 @@ export function AssignRow({ category: c, onAssign }: Readonly<AssignRowProps>) {
               Rollover {euroCents(c.rollover_cents)} + assigned {euroCents(c.assigned_cents)} −
               spent {euroCents(c.spent_cents)} ={" "}
               <b style={{ color: availColor }}>{euroCents(available)}</b> available
+              {c.rollover_reset_cents > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  Started this month clean: last month&apos;s {euroCents(c.rollover_reset_cents)}{" "}
+                  overspending came out of To Be Assigned.
+                </div>
+              )}
             </div>
             <QuickFill category={c} onPick={(cents) => onAssign(c.id, cents)} />
+            {available > 0 && (
+              <button
+                onClick={() => onMove(c)}
+                style={{
+                  marginTop: 8,
+                  border: "1px solid var(--border-hairline)",
+                  background: "var(--surface)",
+                  borderRadius: "var(--r-full)",
+                  padding: "6px 11px",
+                  font: "600 12px var(--font-sans)",
+                  color: "var(--text-body)",
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <Icon name="arrow-left-right" size={13} /> Move money
+              </button>
+            )}
           </div>
         )}
       </div>

@@ -5,12 +5,39 @@ import { Icon } from "./Icon";
 export interface TbaHeroProps {
   toBeAssignedCents: number;
   incomeCents: number;
+  /** Previous month's To Be Assigned (carries over). */
+  carriedInCents?: number;
+  /** Previous month's uncovered overspending, deducted here. */
+  overspentDeductedCents?: number;
   action?: React.ReactNode;
 }
 
 /* "To be assigned" hero — the number the zero-based method optimizes.
    Three money-semantic states (design.md D2): violet >0, mint =0, red <0. */
-export function TbaHero({ toBeAssignedCents, incomeCents, action }: TbaHeroProps) {
+export function TbaHero({
+  toBeAssignedCents,
+  incomeCents,
+  carriedInCents = 0,
+  overspentDeductedCents = 0,
+  action,
+}: TbaHeroProps) {
+  // To Be Assigned carries over (budget-rules): say where the number comes from.
+  // Income is money entering the budget: semantic green (design system).
+  const income = (
+    <>
+      of{" "}
+      <b style={{ color: "var(--income)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+        {euroCents(incomeCents)}
+      </b>{" "}
+      income this month
+    </>
+  );
+  const breakdown: string[] = [];
+  if (carriedInCents > 0) breakdown.push(`includes ${euroCents(carriedInCents)} from last month`);
+  if (carriedInCents < 0) breakdown.push(`−${euroCents(-carriedInCents)} over-assigned last month`);
+  if (overspentDeductedCents > 0)
+    breakdown.push(`−${euroCents(overspentDeductedCents)} for last month's uncovered overspending`);
+
   let state: { color: string; bg: string; copy: React.ReactNode; icon: string };
   if (toBeAssignedCents > 0) {
     state = {
@@ -85,7 +112,8 @@ export function TbaHero({ toBeAssignedCents, incomeCents, action }: TbaHeroProps
             {state.copy}
           </div>
           <div style={{ font: "500 12.5px var(--font-sans)", color: "var(--text-muted)" }}>
-            of {euroCents(incomeCents)} income this month
+            {income}
+            {breakdown.map((part) => ` · ${part}`)}
           </div>
         </div>
       </div>

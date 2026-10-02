@@ -8,6 +8,12 @@ import type { ChipTone } from "@/components/ui/IconChip";
 
 export type SuggestionState = "draft" | "confirmed" | "edited";
 
+export interface CoverSuggestion {
+  /** null = cover from To Be Assigned */
+  source_category_id: string | null;
+  amount_cents: number;
+}
+
 export interface BudgetCategoryView {
   id: string;
   name: string;
@@ -16,6 +22,10 @@ export interface BudgetCategoryView {
   spent_cents: number;
   rollover_cents: number;
   available_cents: number;
+  overspent_cents: number;
+  /** Last month's overspending of this category, reset instead of carried. */
+  rollover_reset_cents: number;
+  cover_suggestion: CoverSuggestion | null;
   suggestion_cents: number | null;
   suggestion_state: SuggestionState;
   last_month_assigned_cents: number | null;
@@ -33,8 +43,20 @@ export interface BudgetGroupView {
 export interface BudgetMonthView {
   month: string; // "2026-06"
   income_cents: number;
+  /** Cumulative: carries over between months — never recompute client-side. */
   to_be_assigned_cents: number;
+  /** Previous month's To Be Assigned. */
+  carried_in_cents: number;
+  /** Previous month's uncovered overspending, deducted from this month. */
+  overspent_deducted_cents: number;
   groups: BudgetGroupView[];
+}
+
+export interface MoveRequest {
+  /** null = draw from To Be Assigned */
+  from_category_id: string | null;
+  to_category_id: string;
+  amount_cents: number;
 }
 
 export interface AssignResponse {
@@ -201,6 +223,12 @@ export const putAssignment = (
   request<AssignResponse>(`/budget/${month}/assignments/${categoryId}`, {
     method: "PUT",
     body: JSON.stringify({ amount_cents: amountCents }),
+  });
+
+export const moveMoney = (month: string, body: MoveRequest) =>
+  request<BudgetMonthView>(`/budget/${month}/moves`, {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 
 export const confirmSuggestions = (month: string, categoryIds: string[]) =>

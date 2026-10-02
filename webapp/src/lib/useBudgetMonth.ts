@@ -7,13 +7,16 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  ApiError,
   confirmSuggestions as confirmSuggestionsApi,
-  currentMonth,
   fetchBudgetMonth,
+  moveMoney,
   putAssignment,
   type BudgetCategoryView,
   type BudgetMonthView,
+  type MoveRequest,
 } from "./api";
+import { useSelectedMonth } from "./selectedMonth";
 
 /* Server state over GET /api/budget/{month} (design D3): same public shape
    as the old mock hook, queries/mutations inside. Assign is optimistic with
@@ -49,8 +52,70 @@ function patchAssignment(
   };
 }
 
+/* Optimistic move: source down, target up (or To Be Assigned down when the
+   source is null). The server view replaces this on success. */
+function patchMove(view: BudgetMonthView, move: MoveRequest): BudgetMonthView {
+  const shift = (c: BudgetCategoryView, delta: number): BudgetCategoryView => {
+    const available = c.available_cents + delta;
+    return {
+      ...c,
+      assigned_cents: c.assigned_cents + delta,
+      available_cents: available,
+      overspent_cents: Math.max(0, -available),
+      cover_suggestion: available < 0 ? c.cover_suggestion : null,
+      suggestion_state: "edited",
+    };
+  };
+  return {
+    ...view,
+    to_be_assigned_cents:
+      move.from_category_id === null
+        ? view.to_be_assigned_cents - move.amount_cents
+        : view.to_be_assigned_cents,
+    groups: view.groups.map((g) => ({
+      ...g,
+      categories: g.categories.map((c) => {
+        if (c.id === move.to_category_id) return shift(c, move.amount_cents);
+        if (c.id === move.from_category_id) return shift(c, -move.amount_cents);
+        return c;
+      }),
+    })),
+  };
+}
+
+/* Move money within a month (budget-rules): shared by the budget screen and
+   the post-save cover prompt, so both update the same cached month. */
+export function useMoveMoney(month: string) {
+  const queryClient = useQueryClient();
+  const queryKey = ["budget", month];
+  const mutation = useMutation({
+    mutationFn: (move: MoveRequest) => moveMoney(month, move),
+    onMutate: async (move) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<BudgetMonthView>(queryKey);
+      if (previous) queryClient.setQueryData(queryKey, patchMove(previous, move));
+      return { previous };
+    },
+    onSuccess: (view) => queryClient.setQueryData(queryKey, view),
+    onError: (_err, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(queryKey, context.previous);
+    },
+  });
+  return {
+    move: (body: MoveRequest) => mutation.mutate(body),
+    moveFailed: mutation.isError,
+    moveErrorCode: mutation.error instanceof ApiError ? mutation.error.code : null,
+    retryMove: () => {
+      const vars = mutation.variables;
+      mutation.reset();
+      if (vars) mutation.mutate(vars);
+    },
+    dismissMoveError: () => mutation.reset(),
+  };
+}
+
 export function useBudgetMonth() {
-  const month = currentMonth();
+  const [month] = useSelectedMonth();
   const queryClient = useQueryClient();
   const queryKey = ["budget", month];
 
@@ -77,6 +142,8 @@ export function useBudgetMonth() {
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey }),
   });
+
+  const moveMoneyState = useMoveMoney(month);
 
   const confirmMutation = useMutation({
     mutationFn: (categoryIds: string[]) => confirmSuggestionsApi(month, categoryIds),
@@ -112,6 +179,7 @@ export function useBudgetMonth() {
     isLoading: query.isPending,
     isError: query.isError,
     refetch: query.refetch,
+    ...moveMoneyState,
     assignFailed: assignMutation.isError,
     retryAssign: () => {
       assignMutation.reset();
