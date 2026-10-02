@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React from "react";
+import { useSelectedMonth } from "@/lib/selectedMonth";
 import { useQuery } from "@tanstack/react-query";
 import { AddTransactionDialog } from "@/components/AddTransactionDialog";
 import { BalanceCard } from "@/components/ui/BalanceCard";
@@ -17,7 +18,6 @@ import { StatCard } from "@/components/ui/StatCard";
 import { TransactionRow } from "@/components/ui/TransactionRow";
 import { TopBar } from "@/components/shell/TopBar";
 import {
-  currentMonth,
   fetchBudgetMonth,
   fetchCategories,
   fetchOnboardingStatus,
@@ -228,7 +228,7 @@ function OnboardingNudge() {
 }
 
 export default function OverviewPage() {
-  const month = currentMonth();
+  const [month] = useSelectedMonth();
   const summaryQuery = useQuery({
     queryKey: ["summary", month],
     queryFn: () => fetchSummary(month),

@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useSelectedMonth } from "@/lib/selectedMonth";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { AddTransactionDialog } from "@/components/AddTransactionDialog";
 import { SuggestCategoriesDialog } from "@/components/SuggestCategoriesDialog";
@@ -21,7 +22,6 @@ import { ErrorPanel, SkeletonPanel } from "@/components/ui/QueryStates";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { TopBar } from "@/components/shell/TopBar";
 import {
-  currentMonth,
   fetchCategories,
   fetchPendingImport,
   fetchTransactions,
@@ -202,7 +202,7 @@ function EmptyState() {
 }
 
 export default function TransactionsPage() {
-  const month = currentMonth();
+  const [month] = useSelectedMonth();
   const [filter, setFilter] = React.useState("All");
   const [editing, setEditing] = React.useState<TransactionOut | null>(null);
   const [deleting, setDeleting] = React.useState<TransactionOut | null>(null);

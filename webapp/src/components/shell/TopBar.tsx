@@ -24,15 +24,8 @@ import {
 import { Icon } from "@/components/ui/Icon";
 import { IconButton } from "@/components/ui/IconButton";
 import { SearchInput } from "@/components/ui/SearchInput";
+import { monthOptions, useSelectedMonth } from "@/lib/selectedMonth";
 
-const MONTHS = [
-  { value: "2026-06", label: "June 2026" },
-  { value: "2026-05", label: "May 2026" },
-  { value: "2026-04", label: "April 2026" },
-  { value: "2026-03", label: "March 2026" },
-  { value: "2026-02", label: "February 2026" },
-  { value: "2026-01", label: "January 2026" },
-];
 
 const NOTIFICATIONS = [
   { id: 1, text: "You're 74% through your Food & dining budget.", time: "2h ago" },
@@ -111,7 +104,8 @@ function NotificationBell() {
 }
 
 export function TopBar({ title, sub }: Readonly<{ title: string; sub?: string }>) {
-  const [month, setMonth] = React.useState("2026-06");
+  const [month, setMonth] = useSelectedMonth();
+  const months = React.useMemo(() => monthOptions(), []);
 
   return (
     <header
@@ -176,7 +170,7 @@ export function TopBar({ title, sub }: Readonly<{ title: string; sub?: string }>
                 boxShadow: "var(--shadow-lg)",
               }}
             >
-              {MONTHS.map((m) => (
+              {months.map((m) => (
                 <SelectItem key={m.value} value={m.value}>
                   {m.label}
                 </SelectItem>

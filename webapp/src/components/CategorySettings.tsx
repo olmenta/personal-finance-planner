@@ -32,7 +32,6 @@ import {
   ApiError,
   createCategory,
   createCategoryGroup,
-  currentMonth,
   deleteCategoryGroup,
   fetchCategories,
   toneForCategory,
@@ -61,7 +60,7 @@ function useInvalidateCategories() {
   return () => {
     queryClient.invalidateQueries({ queryKey: ["categories"] });
     // Names and icons render in the budget bars too.
-    queryClient.invalidateQueries({ queryKey: ["budget", currentMonth()] });
+    queryClient.invalidateQueries({ queryKey: ["budget"] });
   };
 }
 
