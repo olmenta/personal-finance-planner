@@ -295,3 +295,21 @@ def test_confirm_payee_override_replaces_and_cleans(client):
     names = [p["name"] for p in client.get("/payees").json()]
     assert "Café Central" in names
     assert "Cafetería AI" not in names
+
+
+def test_confirm_note_override_replaces_description(client):
+    body = upload(client, bbva_xlsx(), "bbva").json()
+    noted, cleared = body["transactions"][0], body["transactions"][1]
+
+    response = client.post(
+        f"/imports/{body['id']}/confirm",
+        json={"note_overrides": {noted["id"]: "  Cena con Ana  ", cleared["id"]: ""}},
+    )
+    assert response.status_code == 200
+
+    listed = {t["id"]: t for t in client.get("/transactions", params={"month": "2026-06"}).json()}
+    assert listed[noted["id"]]["description"] == "Cena con Ana"
+    assert listed[cleared["id"]]["description"] is None
+    # The dedupe hash was fixed at staging: re-importing still skips every row.
+    again = upload(client, bbva_xlsx(), "bbva").json()
+    assert again["row_count"] == 0

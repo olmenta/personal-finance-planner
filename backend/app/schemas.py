@@ -201,6 +201,10 @@ class ConfirmImportRequest(BaseModel):
     overrides: dict[str, str | None] = Field(default_factory=dict)
     # txn_id -> payee name ("" clears; resolves find-or-create on confirm)
     payee_overrides: dict[str, str] = Field(default_factory=dict)
+    # txn_id -> note, which replaces the bank description (null or "" clears).
+    note_overrides: dict[str, Annotated[str, Field(max_length=500)] | None] = Field(
+        default_factory=dict
+    )
     # txn_id -> other account: the row is a transfer, its twin is created on
     # confirm (wins over a category override for the same row).
     transfer_overrides: dict[str, str] = Field(default_factory=dict)

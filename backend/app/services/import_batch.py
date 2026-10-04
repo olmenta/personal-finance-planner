@@ -206,6 +206,20 @@ def _apply_payee_overrides(
     return replaced
 
 
+def _apply_note_overrides(
+    db: Session, batch: ImportBatch, note_overrides: dict[str, str | None]
+) -> None:
+    """The note is the row's description: an edit replaces the bank text
+    (the dedupe hash was fixed at staging, so re-imports still collide)."""
+    if not note_overrides:
+        return
+    staged = {t.id: t for t in staged_rows(db, batch)}
+    for txn_id, note in note_overrides.items():
+        txn = staged.get(txn_id)
+        if txn is not None:
+            txn.description = (note or "").strip()[:500] or None
+
+
 def _mark_transfers(
     db: Session, user: User, batch: ImportBatch, transfer_overrides: dict[str, str]
 ) -> set[str]:
@@ -272,6 +286,7 @@ def confirm_batch(
     payee_overrides: dict[str, str] | None = None,
     transfer_overrides: dict[str, str] | None = None,
     accept_matches: list[str] | None = None,
+    note_overrides: dict[str, str | None] | None = None,
 ) -> ImportBatch:
     if batch.status != "staged":
         raise BatchNotStagedError()
@@ -287,6 +302,8 @@ def confirm_batch(
             .values(category_id=category_id)
         )
     replaced_payee_ids = _apply_payee_overrides(db, user, batch, payee_overrides or {})
+    # Before marking transfers: the twin copies the near row's note.
+    _apply_note_overrides(db, batch, note_overrides or {})
     # Adopt before marking: an accepted row must not also become a new pair.
     replaced_payee_ids |= _adopt_matches(db, batch, accept_matches or [])
     replaced_payee_ids |= _mark_transfers(db, user, batch, transfer_overrides or {})

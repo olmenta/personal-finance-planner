@@ -140,3 +140,23 @@ def test_no_match_outside_window(client):
     )
     body = upload(client, sabadell_xls(SABADELL_COUNTERPART), "sabadell", b).json()
     assert row(body, "TRANSFERENCIA RECIBIDA")["match"] is None
+
+
+def test_marked_transfer_twin_carries_note(client, db):
+    a, b = make_banks(client)
+    body = upload(client, bbva_xlsx(BBVA_TRANSFER), "bbva", a).json()
+    staged = row(body, "Traspaso a cuenta B")
+    client.post(
+        f"/imports/{body['id']}/confirm",
+        json={
+            "transfer_overrides": {staged["id"]: b},
+            "note_overrides": {staged["id"]: "Ahorro de junio"},
+        },
+    )
+    near = db.get(Transaction, staged["id"])
+    twin = db.scalar(
+        select(Transaction).where(
+            Transaction.transfer_pair_id == near.transfer_pair_id, Transaction.id != near.id
+        )
+    )
+    assert near.description == twin.description == "Ahorro de junio"

@@ -673,6 +673,8 @@ export const confirmImport = (
   transferOverrides: Record<string, string> = {},
   // staged rows whose match suggestion was accepted (existing twin adopted)
   acceptMatches: string[] = [],
+  // txn_id -> note, replacing the bank description (null clears)
+  noteOverrides: Record<string, string | null> = {},
 ) =>
   request<ImportBatchView>(`/imports/${id}/confirm`, {
     method: "POST",
@@ -681,6 +683,7 @@ export const confirmImport = (
       payee_overrides: payeeOverrides,
       transfer_overrides: transferOverrides,
       accept_matches: acceptMatches,
+      note_overrides: noteOverrides,
     }),
   });
 

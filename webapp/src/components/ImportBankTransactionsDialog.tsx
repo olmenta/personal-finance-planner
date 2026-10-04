@@ -22,6 +22,7 @@ import { Separator } from "@/components/shadcn/separator";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
+import { Input } from "@/components/ui/Input";
 import { PayeeField } from "@/components/PayeeField";
 import { AccountSelect, accountName, useAccounts } from "@/components/AccountPicker";
 import {
@@ -101,6 +102,8 @@ export function ImportBankTransactionsDialog({
   const [selections, setSelections] = React.useState<Record<string, string>>({});
   // Row payee edits; absent key = keep the AI-staged payee untouched.
   const [payeeEdits, setPayeeEdits] = React.useState<Record<string, string>>({});
+  // Row note edits; the note is the row's description (bank text prefilled).
+  const [noteEdits, setNoteEdits] = React.useState<Record<string, string>>({});
   // Twin-match suggestions the user answered; unanswered ones stay suggestions.
   const [matchDecisions, setMatchDecisions] = React.useState<
     Record<string, "accept" | "ignore">
@@ -139,6 +142,7 @@ export function ImportBankTransactionsDialog({
       setBatch(view);
       setSelections({});
       setPayeeEdits({});
+      setNoteEdits({});
       setMatchDecisions({});
       // Staging may have created AI-proposed payees.
       queryClient.invalidateQueries({ queryKey: ["payees"] });
@@ -165,12 +169,15 @@ export function ImportBankTransactionsDialog({
       const payeeOverrides: Record<string, string> = {};
       const transferOverrides: Record<string, string> = {};
       const acceptMatches: string[] = [];
+      const noteOverrides: Record<string, string | null> = {};
       for (const t of activeBatch?.transactions ?? []) {
         if (t.match && matchDecisions[t.id] === "accept") {
           // The existing twin is adopted; the staged row is dropped.
           acceptMatches.push(t.id);
           continue;
         }
+        const note = (noteEdits[t.id] ?? t.description ?? "").trim();
+        if (note !== (t.description ?? "").trim()) noteOverrides[t.id] = note || null;
         const picked = selectionFor(t);
         if (picked.startsWith(TRANSFER_PREFIX)) {
           transferOverrides[t.id] = picked.slice(TRANSFER_PREFIX.length);
@@ -187,6 +194,7 @@ export function ImportBankTransactionsDialog({
         payeeOverrides,
         transferOverrides,
         acceptMatches,
+        noteOverrides,
       );
     },
     onSuccess: (confirmed) => {
@@ -234,6 +242,7 @@ export function ImportBankTransactionsDialog({
       setBatch(null);
       setSelections({});
       setPayeeEdits({});
+      setNoteEdits({});
       setMatchDecisions({});
       setFile(null);
       upload.reset();
@@ -246,6 +255,7 @@ export function ImportBankTransactionsDialog({
     setBatch(null);
     setSelections({});
     setPayeeEdits({});
+    setNoteEdits({});
     setMatchDecisions({});
     setUploadAccountId("");
     upload.reset();
@@ -537,18 +547,19 @@ export function ImportBankTransactionsDialog({
                       <span style={{ font: "500 12.5px var(--font-sans)", color: "var(--text-muted)" }}>
                         {formatDate(t.date)}
                       </span>
-                      <span
-                        style={{
-                          font: "600 13.5px var(--font-sans)",
-                          color: "var(--text-strong)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
+                      {/* The note is the row's description: the bank text
+                          comes prefilled and any edit replaces it. */}
+                      <Input
+                        aria-label="Note"
+                        placeholder="Add a note"
                         title={t.description ?? undefined}
-                      >
-                        {t.description}
-                      </span>
+                        disabled={adopted}
+                        value={noteEdits[t.id] ?? t.description ?? ""}
+                        maxLength={500}
+                        onChange={(e) =>
+                          setNoteEdits((prev) => ({ ...prev, [t.id]: e.target.value }))
+                        }
+                      />
                       {isTransfer || adopted ? (
                         <span />
                       ) : (

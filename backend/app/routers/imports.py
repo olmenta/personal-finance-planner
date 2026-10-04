@@ -148,6 +148,7 @@ def confirm_import(
             payload.payee_overrides,
             payload.transfer_overrides,
             payload.accept_matches,
+            payload.note_overrides,
         )
     except service.BatchNotStagedError as exc:
         raise HTTPException(status_code=409, detail={"code": "batch_not_staged"}) from exc

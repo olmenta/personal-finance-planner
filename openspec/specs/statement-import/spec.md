@@ -79,7 +79,7 @@ Each imported row SHALL be hashed over `(account, date, amount, external_ref or 
 
 ### Requirement: Review, confirm, and discard
 
-The API SHALL expose `GET /imports/{id}` returning the batch (status, `row_count`, `skipped_duplicates`, staged rows), `POST /imports/{id}/confirm` accepting per-row category overrides and flipping the batch's staged rows to `confirmed`, and `DELETE /imports/{id}` deleting the staged rows and marking the batch `discarded`. Per-row category selection SHALL be available for positive rows as well as negative ones: a positive row defaults to uncategorized ("Ready to assign" — it confirms as income) and MAY be assigned a category during review, which confirms it as a refund (category activity). AI category suggestions MAY propose a category for a positive row whose cleaned payee matches the user's categorization history, and SHALL leave unmatched positive rows unsuggested. Confirmed rows SHALL immediately count in budget, summary, and the transactions list. Confirming or discarding a batch that is not `staged` SHALL return 409 with a machine-readable code.
+The API SHALL expose `GET /imports/{id}` returning the batch (status, `row_count`, `skipped_duplicates`, staged rows), `POST /imports/{id}/confirm` accepting per-row category overrides and flipping the batch's staged rows to `confirmed`, and `DELETE /imports/{id}` deleting the staged rows and marking the batch `discarded`. Per-row category selection SHALL be available for positive rows as well as negative ones: a positive row defaults to uncategorized ("Ready to assign" — it confirms as income) and MAY be assigned a category during review, which confirms it as a refund (category activity). AI category suggestions MAY propose a category for a positive row whose cleaned payee matches the user's categorization history, and SHALL leave unmatched positive rows unsuggested. Confirm SHALL also accept per-row note overrides (`note_overrides`: row id → note); the note is the row's description, so an override replaces the bank text, and an empty or null note clears it. The row's dedupe hash SHALL NOT change, so a re-import still skips the row. A row marked as a transfer SHALL carry its note onto the twin. Confirmed rows SHALL immediately count in budget, summary, and the transactions list. Confirming or discarding a batch that is not `staged` SHALL return 409 with a machine-readable code.
 
 #### Scenario: Confirm with override
 
@@ -95,6 +95,11 @@ The API SHALL expose `GET /imports/{id}` returning the batch (status, `row_count
 
 - **WHEN** a staged positive row is confirmed without a category
 - **THEN** it counts in the month's `income_cents` (To Be Assigned)
+
+#### Scenario: Note edited at review
+
+- **WHEN** the user replaces a staged row's bank text `COMPRA TARJ. RESTAURANTE` with the note "Cena con Ana", clears another row's note, and confirms
+- **THEN** the first confirmed row's description is "Cena con Ana", the second's is null, and re-uploading the same file stages zero rows
 
 #### Scenario: Discard a batch
 
