@@ -8,7 +8,7 @@ Next.js Route Handlers acting as a backend-for-frontend: the browser talks only 
 
 ### Requirement: Route Handlers proxy the backend API
 
-The webapp SHALL expose Next.js Route Handlers under `/api/*` that forward requests to the FastAPI backend for every endpoint the UI consumes: `GET /api/categories`, `POST /api/categories`, `PATCH /api/categories/{id}`, `POST /api/categories/groups`, `PATCH /api/categories/groups/{id}`, `DELETE /api/categories/groups/{id}`, `GET /api/payees`, `GET /api/transactions` (with query string), `POST /api/transactions`, `PATCH /api/transactions/{id}`, `DELETE /api/transactions/{id}`, `POST /api/transactions/suggest-categories`, `POST /api/transactions/apply-categories`, `GET /api/budget/{month}`, `PUT /api/budget/{month}/assignments/{categoryId}`, `POST /api/budget/{month}/confirm-suggestions`, `POST /api/budget/{month}/moves`, `GET /api/summary/{month}`, `POST /api/imports` (multipart upload forwarded with its body and content type), `GET /api/imports/pending`, `GET /api/imports/{id}`, `POST /api/imports/{id}/confirm`, `DELETE /api/imports/{id}`, `POST /api/onboarding/start`, `GET /api/onboarding/session`, `GET /api/onboarding/status`, `POST /api/onboarding/messages`, `POST /api/onboarding/{id}/finalize`, and `POST /api/onboarding/template`. The browser SHALL NOT call the FastAPI backend directly.
+The webapp SHALL expose Next.js Route Handlers under `/api/*` that forward requests to the FastAPI backend for every endpoint the UI consumes: `GET /api/categories`, `POST /api/categories`, `PATCH /api/categories/{id}`, `POST /api/categories/groups`, `PATCH /api/categories/groups/{id}`, `DELETE /api/categories/groups/{id}`, `GET /api/payees`, `GET /api/transactions` (with query string), `POST /api/transactions`, `PATCH /api/transactions/{id}`, `DELETE /api/transactions/{id}`, `POST /api/transactions/suggest-categories`, `POST /api/transactions/apply-categories`, `GET /api/budget/{month}`, `PUT /api/budget/{month}/assignments/{categoryId}`, `POST /api/budget/{month}/confirm-suggestions`, `POST /api/budget/{month}/moves`, `GET /api/categories/{id}/schedules`, `POST /api/categories/{id}/schedules`, `PATCH /api/schedules/{id}`, `DELETE /api/schedules/{id}`, `GET /api/overview/{month}`, `GET /api/plan/upcoming` (with query string), `GET /api/plan/summary` (with query string), `GET /api/plan/income`, `PUT /api/plan/income`, `GET /api/summary/{month}`, `POST /api/imports` (multipart upload forwarded with its body and content type), `GET /api/imports/pending`, `GET /api/imports/{id}`, `POST /api/imports/{id}/confirm`, `DELETE /api/imports/{id}`, `POST /api/onboarding/start`, `GET /api/onboarding/session`, `GET /api/onboarding/status`, `POST /api/onboarding/messages`, `POST /api/onboarding/{id}/finalize`, and `POST /api/onboarding/template`. The browser SHALL NOT call the FastAPI backend directly.
 
 #### Scenario: Budget view proxied
 
@@ -69,6 +69,16 @@ The webapp SHALL expose Next.js Route Handlers under `/api/*` that forward reque
 
 - **WHEN** the browser sends `POST /api/budget/2026-10/moves` with a JSON body
 - **THEN** the backend receives the same body at `POST {BACKEND_URL}/budget/2026-10/moves` and the month view (or the 422 with its code) passes through unchanged
+
+#### Scenario: Overview proxied
+
+- **WHEN** the browser requests `GET /api/overview/2026-10`
+- **THEN** the Route Handler fetches `GET {BACKEND_URL}/overview/2026-10` and returns the backend's JSON body unchanged
+
+#### Scenario: Schedule created through the proxy
+
+- **WHEN** the browser posts a schedule to `/api/categories/{id}/schedules`
+- **THEN** the backend receives the same body and the 201 (or 422 `invalid_schedule`) passes through unchanged
 
 ### Requirement: Backend base URL from server environment
 
