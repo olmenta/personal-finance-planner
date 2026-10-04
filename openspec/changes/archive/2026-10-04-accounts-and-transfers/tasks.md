@@ -71,5 +71,4 @@
 
 - [x] 8.1 `uv run pytest` green in `backend/`
 - [x] 8.2 `volta run npm run build` + lint green in `webapp/`
-- [x] 8.3 Manual: create second account + credit card with debt (TBA unchanged, debt shown uncovered), card purchase moves money to "Pago <card>", card payment as transfer empties it, overspend on the card and see it as debt next month, manual transfer — budget totals never move for transfers
-  - Deferred (2026-10-04): manual check of the import side — import into chosen account, mark transfer at review, import counterpart statement and accept the match. Covered by `tests/test_import_transfers.py`; walk it through in the app in a later session.
+- [x] 8.3 Manual: create second account + credit card with debt (TBA unchanged, debt shown uncovered), card purchase moves money to "Pago <card>", card payment as transfer empties it, overspend on the card and see it as debt next month, manual transfer, import into chosen account, mark transfer at review, import counterpart statement and accept the match — budget totals never move for transfers
