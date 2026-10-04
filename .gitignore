@@ -26,3 +26,4 @@ node_modules/
 *.xlsx
 # Prototypes built with real personal data — local only
 *.local.html
+.neon
