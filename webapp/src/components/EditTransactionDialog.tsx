@@ -23,13 +23,18 @@ import { Input } from "@/components/ui/Input";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Switch } from "@/components/ui/Switch";
 import { PayeeField } from "@/components/PayeeField";
+import { AccountSelect, useAccounts } from "@/components/AccountPicker";
 import { invalidateMoneyQueries } from "@/lib/planQueries";
 import { useCoverPrompt } from "@/components/budget/CoverPrompt";
 import {
   fetchCategories,
   fetchPayees,
+  fetchTransfer,
+  unlinkTransfer,
   updateTransaction,
+  updateTransfer,
   type TransactionOut,
+  type TransferOut,
 } from "@/lib/api";
 import { money, parseEuroToCents } from "@/lib/format";
 
@@ -46,7 +51,15 @@ export function EditTransactionDialog({
     <Dialog open={transaction !== null} onOpenChange={(o) => !o && onClose()}>
       {transaction && (
         // Keyed by row so state re-initializes per transaction, no effects.
-        <EditForm key={transaction.id} transaction={transaction} onClose={onClose} />
+        transaction.transfer_pair_id ? (
+          <TransferEditLoader
+            key={transaction.id}
+            pairId={transaction.transfer_pair_id}
+            onClose={onClose}
+          />
+        ) : (
+          <EditForm key={transaction.id} transaction={transaction} onClose={onClose} />
+        )
       )}
     </Dialog>
   );
@@ -69,8 +82,10 @@ function EditForm({
   const [note, setNote] = React.useState(transaction.description ?? "");
   const [category, setCategory] = React.useState(transaction.category_id ?? "");
   const [date, setDate] = React.useState(transaction.date);
+  const [accountId, setAccountId] = React.useState(transaction.account_id);
 
   const queryClient = useQueryClient();
+  const { active: accounts } = useAccounts();
   const { data: groups } = useQuery({ queryKey: ["categories"], queryFn: fetchCategories });
   const { data: payees } = useQuery({ queryKey: ["payees"], queryFn: fetchPayees });
 
@@ -91,6 +106,7 @@ function EditForm({
         payee: payee.trim(), // "" clears
         note: note || null, // cleared text clears the description
         date,
+        account_id: accountId !== transaction.account_id ? accountId : undefined,
       });
     },
     onSuccess: (updated) => {
@@ -247,7 +263,7 @@ function EditForm({
                   boxShadow: "var(--shadow-lg)",
                 }}
               >
-                {(groups ?? []).map((g) => (
+                {(groups ?? []).filter((g) => !g.system).map((g) => (
                   <SelectGroup key={g.id}>
                     <SelectLabel>{g.name}</SelectLabel>
                     {g.categories.filter((c) => !c.archived).map((c) => (
@@ -260,6 +276,15 @@ function EditForm({
               </SelectContent>
             </Select>
           </label>
+          )}
+
+          {accounts.length > 1 && (
+            <AccountSelect
+              label="Account"
+              value={accountId}
+              onChange={setAccountId}
+              accounts={accounts}
+            />
           )}
 
           <Input
@@ -296,6 +321,182 @@ function EditForm({
             gap: 10,
           }}
         >
+          <Button variant="ghost" size="sm" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" size="sm" type="submit" disabled={!canSubmit}>
+            Save changes
+          </Button>
+        </div>
+      </form>
+    </DialogContent>
+  );
+}
+
+const contentStyle: React.CSSProperties = {
+  borderRadius: "var(--r-2xl)",
+  maxWidth: 480,
+  border: "1px solid var(--border-hairline)",
+  boxShadow: "var(--shadow-xl)",
+};
+
+const titleStyle: React.CSSProperties = {
+  font: "700 19px var(--font-sans)",
+  letterSpacing: "-0.4px",
+  color: "var(--text-strong)",
+};
+
+/* Either twin opens the same pair: the transfer contract edits both. */
+function TransferEditLoader({
+  pairId,
+  onClose,
+}: Readonly<{ pairId: string; onClose: () => void }>) {
+  const { data: transfer, isError } = useQuery({
+    queryKey: ["transfer", pairId],
+    queryFn: () => fetchTransfer(pairId),
+  });
+  if (!transfer) {
+    return (
+      <DialogContent className="p-0 gap-0 overflow-hidden" style={contentStyle}>
+        <DialogHeader style={{ padding: "22px 24px" }}>
+          <DialogTitle style={titleStyle}>Edit transfer</DialogTitle>
+          <p style={{ font: "500 14px var(--font-sans)", color: "var(--text-muted)", margin: 0 }}>
+            {isError ? "That transfer couldn't load — try again." : "Loading…"}
+          </p>
+        </DialogHeader>
+      </DialogContent>
+    );
+  }
+  return <TransferEditForm transfer={transfer} onClose={onClose} />;
+}
+
+function TransferEditForm({
+  transfer,
+  onClose,
+}: Readonly<{ transfer: TransferOut; onClose: () => void }>) {
+  const [amount, setAmount] = React.useState(money(transfer.amount_cents / 100));
+  const [note, setNote] = React.useState(transfer.note ?? "");
+  const [date, setDate] = React.useState(transfer.date);
+  const { all: accounts } = useAccounts();
+  const queryClient = useQueryClient();
+
+  function refresh() {
+    queryClient.invalidateQueries({ queryKey: ["transactions"] });
+    queryClient.invalidateQueries({ queryKey: ["transfer", transfer.pair_id] });
+    invalidateMoneyQueries(queryClient);
+    onClose();
+  }
+
+  const save = useMutation({
+    mutationFn: () =>
+      updateTransfer(transfer.pair_id, {
+        amount_cents: parseEuroToCents(amount) ?? undefined,
+        note: note || null,
+        date,
+      }),
+    onSuccess: refresh,
+  });
+  // A mistaken pair splits back into two ordinary rows that count again.
+  const unlink = useMutation({
+    mutationFn: () => unlinkTransfer(transfer.pair_id),
+    onSuccess: refresh,
+  });
+
+  const amountCents = parseEuroToCents(amount);
+  const pending = save.isPending || unlink.isPending;
+  const canSubmit = amountCents !== null && amountCents > 0 && !pending;
+
+  return (
+    <DialogContent className="p-0 gap-0 overflow-hidden" style={contentStyle}>
+      <DialogHeader
+        style={{ padding: "22px 24px 18px", borderBottom: "1px solid var(--border-hairline)" }}
+      >
+        <DialogTitle style={titleStyle}>Edit transfer</DialogTitle>
+      </DialogHeader>
+
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (canSubmit) save.mutate();
+        }}
+      >
+        <div style={{ padding: "22px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
+          <Input
+            label="Amount"
+            prefix="€"
+            inputMode="decimal"
+            placeholder="0,00"
+            autoFocus
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            inputStyle={{
+              font: "800 22px var(--font-sans)",
+              letterSpacing: "-0.6px",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          />
+
+          <div style={{ display: "flex", gap: 12 }}>
+            <AccountSelect
+              label="From"
+              value={transfer.from_account_id}
+              onChange={() => undefined}
+              accounts={accounts}
+              disabled
+            />
+            <AccountSelect
+              label="To"
+              value={transfer.to_account_id}
+              onChange={() => undefined}
+              accounts={accounts}
+              disabled
+            />
+          </div>
+
+          <Input
+            label="Note"
+            placeholder="Optional note"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+          />
+
+          <Input
+            label="Date"
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            inputStyle={{ font: "500 15px var(--font-sans)" }}
+          />
+
+          {(save.isError || unlink.isError) && (
+            <div
+              role="alert"
+              style={{
+                font: "600 13px var(--font-sans)",
+                color: "var(--expense)",
+                background: "var(--expense-soft)",
+                borderRadius: "var(--r-md)",
+                padding: "9px 12px",
+              }}
+            >
+              That didn&apos;t save — check the backend is running and try again.
+            </div>
+          )}
+        </div>
+
+        <Separator style={{ background: "var(--border-hairline)" }} />
+
+        <div style={{ padding: "16px 24px", display: "flex", alignItems: "center", gap: 10 }}>
+          <Button
+            variant="ghost"
+            size="sm"
+            type="button"
+            disabled={pending}
+            onClick={() => unlink.mutate()}
+          >
+            Unlink transfer
+          </Button>
+          <div style={{ flex: 1 }} />
           <Button variant="ghost" size="sm" type="button" onClick={onClose}>
             Cancel
           </Button>

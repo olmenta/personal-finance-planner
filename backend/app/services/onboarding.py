@@ -1,7 +1,7 @@
 """AI onboarding interview engine (spec: ai-onboarding, design D1–D5).
 
 The interview script lives in a versioned prompt config
-(app/prompts/onboarding_v1.md): YAML front matter declares the prompt
+(app/prompts/onboarding_v2.md): YAML front matter declares the prompt
 version and the extraction-field schema; the markdown body is the system
 prompt. Each turn is one LiteLLM structured-output call (provider stays
 configuration, never code). Extraction deltas are validated against the
@@ -28,10 +28,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ..clock import today_madrid
 from ..config import get_settings
 from ..models import OnboardingSession, Payee
 from ..schemas import OnboardingFinalizeRequest
 from ..telemetry import set_llm_conversation
+from .accounts import create_account, find_by_name, write_opening_balance
 from .category_setup import ensure_category, ensure_group
 from .payees import resolve_payee
 from .preferences import PreferencesStore
@@ -39,7 +41,7 @@ from .preferences import PreferencesStore
 logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
-ACTIVE_PROMPT_FILE = "onboarding_v1.md"
+ACTIVE_PROMPT_FILE = "onboarding_v2.md"
 
 LOCALE_NAMES = {"es": "Spanish", "en": "English"}
 
@@ -72,7 +74,15 @@ class ProposalIncome(BaseModel):
     income_day: int | None = None
 
 
+class ProposedAccount(BaseModel):
+    name: str
+    # Credit cards are accounts (with their payment category); loans stay
+    # debt-paydown categories — tracking accounts are out of v1 scope.
+    type: Literal["bank", "credit"] = "bank"
+
+
 class SetupProposal(BaseModel):
+    accounts: list[ProposedAccount] = []
     category_groups: list[ProposedGroup]
     payers: list[str] = []
     payees: list[str] = []
@@ -347,12 +357,14 @@ def advance(
 def finalize(
     db: Session, session: OnboardingSession, payload: OnboardingFinalizeRequest
 ) -> tuple[int, int]:
-    """Apply the reviewed proposal: categories (case-insensitive reuse),
-    accepted payees/payers, preferences document, session completed.
+    """Apply the reviewed proposal: accounts and categories (case-insensitive
+    reuse), accepted payees/payers, the opening balance, preferences
+    document, session completed.
 
     Runs inside the request transaction (get_db commits/rolls back), so a
     failure anywhere persists nothing. Returns (categories, payees) created.
     """
+    _create_accounts(db, session, payload)
     categories_created = 0
     for group_in in payload.category_groups:
         group, _ = ensure_group(db, session.user_id, group_in.name)
@@ -384,3 +396,24 @@ def finalize(
     session.completed_at = datetime.now(timezone.utc)
     db.flush()
     return categories_created, payees_created
+
+
+def _create_accounts(
+    db: Session, session: OnboardingSession, payload: OnboardingFinalizeRequest
+) -> None:
+    """Accepted accounts through the account-creation path (cards get their
+    payment category, at zero balance), then the opening balance — when the
+    user gave one — into the primary (first) bank account."""
+    today = today_madrid()
+    primary = None
+    for account_in in payload.accounts:
+        account = find_by_name(db, session.user_id, account_in.name)
+        if account is None:
+            account = create_account(
+                db, session.user_id, name=account_in.name, type=account_in.type, today=today
+            )
+        if primary is None and account.type == "bank":
+            primary = account
+    balance = (session.extracted_json.get("accounts") or {}).get("main_balance_cents")
+    if primary is not None and isinstance(balance, int) and balance:
+        write_opening_balance(db, primary, balance, today)

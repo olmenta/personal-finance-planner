@@ -8,6 +8,7 @@ import { SuggestCategoriesDialog } from "@/components/SuggestCategoriesDialog";
 import { DeleteTransactionDialog } from "@/components/DeleteTransactionDialog";
 import { EditTransactionDialog } from "@/components/EditTransactionDialog";
 import { ImportBankTransactionsDialog } from "@/components/ImportBankTransactionsDialog";
+import { accountName, transferTitle, useAccounts } from "@/components/AccountPicker";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,6 +28,7 @@ import {
   fetchTransactions,
   suggestCategories,
   toneForCategory,
+  type AccountOut,
   type CategoryOut,
   type CategoryProposal,
   type TransactionOut,
@@ -43,14 +45,22 @@ function formatDate(iso: string): string {
 
 const TX_GRID = "2fr 1.2fr 1fr 0.9fr 40px";
 
+function sourceLabel(source: string): string {
+  if (source === "manual") return "Manual entry";
+  if (source === "opening_balance") return "Opening balance";
+  return source;
+}
+
 function TxTable({
   rows,
   categories,
+  accounts,
   onEdit,
   onDelete,
 }: Readonly<{
   rows: TransactionOut[];
   categories: Map<string, CategoryOut>;
+  accounts: AccountOut[];
   onEdit: (t: TransactionOut) => void;
   onDelete: (t: TransactionOut) => void;
 }>) {
@@ -77,7 +87,16 @@ function TxTable({
       </div>
       {rows.map((r, i) => {
         const category = r.category_id ? categories.get(r.category_id) : undefined;
-        const isIncome = r.amount_cents > 0;
+        const isTransfer = r.transfer_pair_id !== null;
+        const isIncome = r.amount_cents > 0 && !isTransfer;
+        // With several accounts, each row says which register it lives in.
+        const account = accounts.length > 1 ? accountName(accounts, r.account_id) : null;
+        let icon = category?.icon ?? "circle";
+        if (isTransfer) icon = "arrow-left-right";
+        else if (isIncome && !category) icon = "dollar-sign";
+        let tone = toneForCategory(category?.icon ?? "circle");
+        if (isTransfer) tone = "neutral";
+        else if (isIncome) tone = "income";
         return (
           <div
             key={r.id}
@@ -93,11 +112,7 @@ function TxTable({
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               {/* A categorized inflow is a refund — show its category, not the
                   generic income glyph. */}
-              <IconChip
-                icon={isIncome && !category ? "dollar-sign" : (category?.icon ?? "circle")}
-                tone={isIncome ? "income" : toneForCategory(category?.icon ?? "circle")}
-                size={40}
-              />
+              <IconChip icon={icon} tone={tone} size={40} />
               <div>
                 <div
                   style={{
@@ -107,12 +122,15 @@ function TxTable({
                   }}
                 >
                   {/* Payee leads when present; the note drops to the secondary line. */}
-                  {r.payee_name ?? r.description ?? category?.name ?? "Transaction"}
+                  {isTransfer
+                    ? transferTitle(r, accounts)
+                    : (r.payee_name ?? r.description ?? category?.name ?? "Transaction")}
                 </div>
                 <div style={{ font: "500 12px var(--font-mono)", color: "var(--text-subtle)" }}>
                   {[
-                    r.payee_name ? r.description : null,
-                    r.source === "manual" ? "Manual entry" : r.source,
+                    r.payee_name || isTransfer ? r.description : null,
+                    account,
+                    sourceLabel(r.source),
                   ]
                     .filter(Boolean)
                     .join(" · ")}
@@ -120,9 +138,16 @@ function TxTable({
               </div>
             </div>
             <div>
-              <Badge tone={isIncome ? "income" : "brand"} dot>
-                {category?.name ?? (isIncome ? "Ready to assign" : "Uncategorized")}
-              </Badge>
+              {!isTransfer && (
+                <Badge tone={isIncome ? "income" : "brand"} dot>
+                  {category?.name ??
+                    (r.source === "opening_balance" && !isIncome
+                      ? "Card debt"
+                      : isIncome
+                        ? "Ready to assign"
+                        : "Uncategorized")}
+                </Badge>
+              )}
             </div>
             <div style={{ font: "500 13.5px var(--font-sans)", color: "var(--text-muted)" }}>
               {formatDate(r.date)}
@@ -135,7 +160,7 @@ function TxTable({
                 color: isIncome ? "var(--income)" : "var(--text-strong)",
               }}
             >
-              {isIncome ? "+" : "−"}
+              {r.amount_cents > 0 ? "+" : "−"}
               {euroCents(Math.abs(r.amount_cents))}
             </div>
             <DropdownMenu>
@@ -218,6 +243,7 @@ export default function TransactionsPage() {
     queryFn: () => fetchTransactions(month),
   });
   const catQuery = useQuery({ queryKey: ["categories"], queryFn: fetchCategories });
+  const { all: accounts } = useAccounts();
   // Pending staged import — drives the resume banner (spec: statement import flow).
   const pendingQuery = useQuery({
     queryKey: ["imports", "pending"],
@@ -233,9 +259,10 @@ export default function TransactionsPage() {
     return map;
   }, [catQuery.data]);
 
+  // Transfers are neither expenses nor income — only "All" lists them.
   const rows = (txQuery.data ?? []).filter((t) => {
-    if (filter === "Expenses") return t.amount_cents < 0;
-    if (filter === "Income") return t.amount_cents > 0;
+    if (filter === "Expenses") return t.amount_cents < 0 && !t.transfer_pair_id;
+    if (filter === "Income") return t.amount_cents > 0 && !t.transfer_pair_id;
     return true;
   });
 
@@ -271,6 +298,7 @@ export default function TransactionsPage() {
           <TxTable
             rows={rows}
             categories={categories}
+            accounts={accounts}
             onEdit={setEditing}
             onDelete={setDeleting}
           />
@@ -306,7 +334,9 @@ export default function TransactionsPage() {
             <Button variant="ghost" size="sm" iconLeft="filter">
               Filter
             </Button>
-            {(txQuery.data ?? []).some((t) => !t.category_id) && (
+            {(txQuery.data ?? []).some(
+              (t) => !t.category_id && !t.transfer_pair_id && t.source !== "opening_balance",
+            ) && (
               // Plain verb, no sparkle — that icon is the coach's (design D4).
               <Button
                 variant="secondary"

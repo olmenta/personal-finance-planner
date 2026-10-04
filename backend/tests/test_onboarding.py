@@ -7,13 +7,22 @@ from unittest.mock import MagicMock, patch
 import pytest
 from sqlalchemy import select
 
-from app.models import Category, CategoryGroup, OnboardingSession, Payee, UserPreferences
+from app.models import (
+    Account,
+    Category,
+    CategoryGroup,
+    OnboardingSession,
+    Payee,
+    Transaction,
+    UserPreferences,
+)
 from app.services import onboarding
 from app.services.category_setup import DEFAULT_CATEGORY_TREE
 from app.services.onboarding import (
     InterviewTurn,
     OnboardingUnavailable,
     ProposalIncome,
+    ProposedAccount,
     ProposedCategory,
     ProposedGroup,
     SetupProposal,
@@ -38,6 +47,10 @@ def _opening_turn() -> InterviewTurn:
 
 def _proposal() -> SetupProposal:
     return SetupProposal(
+        accounts=[
+            ProposedAccount(name="BBVA", type="bank"),
+            ProposedAccount(name="Visa BBVA", type="credit"),
+        ],
         category_groups=[
             ProposedGroup(
                 name="Vivienda",
@@ -104,7 +117,7 @@ class TestSessionLifecycle:
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "active"
-        assert body["prompt_version"] == "onboarding_v1"
+        assert body["prompt_version"] == "onboarding_v2"
         assert body["transcript"][0]["role"] == "assistant"
         assert body["transcript"][0]["input_kind"] == "chips"
         assert body["transcript"][0]["options"] == ["Alone", "Jointly"]
@@ -157,6 +170,10 @@ class TestTurns:
         body = response.json()
         assert body["transcript"][-1]["done"] is True
         assert body["proposal"]["payees"] == ["Netflix", "Gimnasio"]
+        assert body["proposal"]["accounts"] == [
+            {"name": "BBVA", "type": "bank"},
+            {"name": "Visa BBVA", "type": "credit"},
+        ]
         assert body["proposal"]["income"]["income_day"] == 27
 
     def test_done_without_proposal_reasked_once(self, client, db, user):
@@ -262,12 +279,51 @@ class TestFinalize:
         client.post(f"/onboarding/{session_id}/finalize", json=payload)
         record = PreferencesStore(db).get(user.id)
         assert record is not None
-        assert record.prompt_version == "onboarding_v1"
+        assert record.prompt_version == "onboarding_v2"
         assert record.preferences["income"]["expected_monthly_cents"] == 240000
         assert record.preferences["income"]["income_day"] == 27
         session = db.get(OnboardingSession, session_id)
         assert session.status == "completed"
         assert session.completed_at is not None
+
+    def test_accounts_created_with_card_payment_category(self, client, db, user):
+        session_id = self._finish(client)
+        payload = {
+            "accounts": [{"name": "BBVA", "type": "bank"}, {"name": "Visa BBVA", "type": "credit"}],
+            "category_groups": [],
+        }
+        assert client.post(f"/onboarding/{session_id}/finalize", json=payload).status_code == 200
+        accounts = {a["name"]: a for a in client.get("/accounts").json()}
+        assert accounts["BBVA"]["type"] == "bank"
+        assert accounts["Visa BBVA"]["type"] == "credit"
+        assert accounts["Visa BBVA"]["balance_cents"] == 0
+        payment = db.scalar(
+            select(Category).where(Category.payment_account_id == accounts["Visa BBVA"]["id"])
+        )
+        assert payment is not None and payment.name == "Pago Visa BBVA"
+        assert db.get(CategoryGroup, payment.group_id).system is True
+        # No balance given in the interview: nothing written.
+        assert db.scalar(
+            select(Transaction).where(Transaction.account_id == accounts["BBVA"]["id"])
+        ) is None
+
+    def test_existing_account_reused_and_opening_balance_written(self, client, db, user):
+        session_id = self._finish(client)
+        session = db.get(OnboardingSession, session_id)
+        session.extracted_json = {"accounts": {"main_balance_cents": 180000}}
+        db.flush()
+        payload = {
+            "accounts": [{"name": "efectivo", "type": "bank"}, {"name": "Cuenta nómina", "type": "bank"}],
+            "category_groups": [],
+        }
+        assert client.post(f"/onboarding/{session_id}/finalize", json=payload).status_code == 200
+        names = list(db.scalars(select(Account.name).where(Account.user_id == user.id)))
+        assert sorted(names) == ["Cuenta nómina", "Efectivo"]  # seeded one reused
+        nomina = db.scalar(select(Account).where(Account.name == "Cuenta nómina"))
+        opening = db.scalar(select(Transaction).where(Transaction.account_id == nomina.id))
+        assert opening.amount_cents == 180000
+        assert opening.source == "opening_balance"
+        assert opening.category_id is None and opening.status == "confirmed"
 
     def test_finalize_twice_is_409(self, client, db, user):
         session_id = self._finish(client)

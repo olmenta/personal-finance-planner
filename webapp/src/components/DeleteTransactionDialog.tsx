@@ -10,7 +10,8 @@ import {
 } from "@/components/shadcn/dialog";
 import { Separator } from "@/components/shadcn/separator";
 import { Button } from "@/components/ui/Button";
-import { deleteTransaction, type TransactionOut } from "@/lib/api";
+import { deleteTransaction, deleteTransfer, type TransactionOut } from "@/lib/api";
+import { invalidateMoneyQueries } from "@/lib/planQueries";
 import { euroCents } from "@/lib/format";
 
 export interface DeleteTransactionDialogProps {
@@ -25,13 +26,13 @@ export function DeleteTransactionDialog({
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: (id: string) => deleteTransaction(id),
+    // A transfer row deletes through the transfer contract — both twins go.
+    mutationFn: (txn: TransactionOut) =>
+      txn.transfer_pair_id ? deleteTransfer(txn.transfer_pair_id) : deleteTransaction(txn.id),
     onSuccess: () => {
-      const month = transaction!.date.slice(0, 7);
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       queryClient.invalidateQueries({ queryKey: ["payees"] });
-      queryClient.invalidateQueries({ queryKey: ["budget", month] });
-      queryClient.invalidateQueries({ queryKey: ["summary", month] });
+      invalidateMoneyQueries(queryClient);
       onClose();
     },
   });
@@ -76,7 +77,9 @@ export function DeleteTransactionDialog({
               <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
                 {euroCents(Math.abs(transaction.amount_cents))}
               </span>{" "}
-              will be removed permanently and your totals will update.
+              {transaction.transfer_pair_id
+                ? "will be removed from both accounts."
+                : "will be removed permanently and your totals will update."}
             </p>
 
             {mutation.isError && (
@@ -114,7 +117,7 @@ export function DeleteTransactionDialog({
               size="sm"
               type="button"
               disabled={mutation.isPending}
-              onClick={() => mutation.mutate(transaction.id)}
+              onClick={() => mutation.mutate(transaction)}
               style={{ background: "var(--expense)" }}
             >
               Delete transaction

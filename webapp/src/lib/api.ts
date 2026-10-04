@@ -20,7 +20,9 @@ export interface BudgetCategoryView {
   id: string;
   name: string;
   icon: string;
-  kind: CategoryKind;
+  /** credit_payment: a card's payment category (spent = payments to the card). */
+  kind: CategoryKind | "credit_payment";
+  payment_account_id: string | null;
   /** Computed from payment schedules; null when the category has none. */
   normal_cents: number | null;
   catch_up_cents: number | null;
@@ -31,6 +33,8 @@ export interface BudgetCategoryView {
   overspent_cents: number;
   /** Last month's overspending of this category, reset instead of carried. */
   rollover_reset_cents: number;
+  /** Card spending not covered by the available — stays as card debt. */
+  credit_overspent_cents: number;
   cover_suggestion: CoverSuggestion | null;
   suggestion_cents: number | null;
   suggestion_state: SuggestionState;
@@ -53,7 +57,7 @@ export interface BudgetMonthView {
   to_be_assigned_cents: number;
   /** Previous month's To Be Assigned. */
   carried_in_cents: number;
-  /** Previous month's uncovered overspending, deducted from this month. */
+  /** Previous month's uncovered cash overspending, deducted from this month. */
   overspent_deducted_cents: number;
   groups: BudgetGroupView[];
 }
@@ -80,6 +84,8 @@ export interface CategoryOut {
   /** Derived: scheduled (has payments) | savings (flag) | flexible. */
   kind: CategoryKind;
   savings: boolean;
+  /** Set on a credit card's system payment category. */
+  payment_account_id: string | null;
 }
 
 // ---- Payment schedules, month overview, plan (category-targets) -----------
@@ -212,6 +218,8 @@ export interface CategoryGroupOut {
   id: string;
   name: string;
   sort_order: number;
+  /** "Tarjetas de crédito": not editable via category CRUD. */
+  system: boolean;
   categories: CategoryOut[];
 }
 
@@ -254,6 +262,7 @@ export interface TransactionCreate {
   payee?: string; // find-or-create by trimmed name, case-insensitive
   note?: string;
   date?: string; // "YYYY-MM-DD"
+  account_id?: string; // omitted = the main account
 }
 
 export interface TransactionUpdate {
@@ -263,6 +272,7 @@ export interface TransactionUpdate {
   payee?: string; // "" clears the payee
   note?: string | null; // null clears the description
   date?: string; // "YYYY-MM-DD"
+  account_id?: string; // moves the row between registers
 }
 
 export interface TransactionOut {
@@ -277,6 +287,85 @@ export interface TransactionOut {
   description: string | null;
   source: string;
   status: string;
+  /** Transfer twins share a pair id; null for ordinary rows. */
+  transfer_pair_id: string | null;
+  /** The other side's account (transfers only). */
+  transfer_account_id: string | null;
+}
+
+// ---- Accounts & transfers ---------------------------------------------------
+
+export type AccountType = "cash" | "bank" | "credit";
+
+export interface AccountOut {
+  id: string;
+  name: string;
+  type: AccountType;
+  institution: string | null;
+  archived: boolean;
+  /** Derived: sum of confirmed transactions. Credit balances are negative. */
+  balance_cents: number;
+  /** Oldest active account — the default for new entries. */
+  is_main: boolean;
+  // Credit accounts only (null otherwise).
+  payment_day: number | null;
+  suggested_payment_day: number | null;
+  payment_category_id: string | null;
+  payment_available_cents: number | null;
+  uncovered_debt_cents: number | null;
+}
+
+export interface AccountCreate {
+  name: string;
+  type: AccountType;
+  institution?: string;
+  /** Signed: positive cash on hand, negative pre-existing card debt. */
+  opening_balance_cents?: number;
+  payment_day?: number; // credit only
+}
+
+export interface AccountUpdate {
+  name?: string;
+  institution?: string | null;
+  archived?: boolean;
+  payment_day?: number | null; // null clears
+}
+
+export interface TransferCreate {
+  from_account_id: string;
+  to_account_id: string;
+  amount_cents: number;
+  date?: string;
+  note?: string;
+}
+
+export interface TransferUpdate {
+  amount_cents?: number;
+  date?: string;
+  note?: string | null; // null clears
+}
+
+export interface TransferOut {
+  pair_id: string;
+  from_account_id: string;
+  to_account_id: string;
+  amount_cents: number;
+  date: string;
+  note: string | null;
+  out_transaction_id: string;
+  in_transaction_id: string;
+}
+
+/** An existing transfer twin a staged row seems to mirror — never applied silently. */
+export interface TwinMatch {
+  transaction_id: string;
+  pair_id: string;
+  other_account_id: string;
+  date: string;
+}
+
+export interface StagedTransactionOut extends TransactionOut {
+  match: TwinMatch | null;
 }
 
 export type SuggestionConfidence = "high" | "medium" | "low";
@@ -303,7 +392,7 @@ export interface ImportBatchView {
   status: "staged" | "confirmed" | "discarded";
   row_count: number;
   skipped_duplicates: number;
-  transactions: TransactionOut[];
+  transactions: StagedTransactionOut[];
 }
 
 export interface SummaryWeek {
@@ -456,6 +545,52 @@ export const fetchTransactions = (month?: string) =>
     month ? `/transactions?month=${month}` : "/transactions",
   );
 
+async function requestVoid(path: string, init?: RequestInit): Promise<void> {
+  const res = await fetch(`/api${path}`, init);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new ApiError(
+      body?.detail?.code ?? body?.code ?? "unknown_error",
+      res.status,
+    );
+  }
+}
+
+export const fetchAccounts = () => request<AccountOut[]>("/accounts");
+
+export const createAccount = (input: AccountCreate) =>
+  request<AccountOut>("/accounts", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+export const updateAccount = (id: string, patch: AccountUpdate) =>
+  request<AccountOut>(`/accounts/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+
+export const fetchTransfer = (pairId: string) =>
+  request<TransferOut>(`/transfers/${pairId}`);
+
+export const createTransfer = (input: TransferCreate) =>
+  request<TransferOut>("/transfers", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+export const updateTransfer = (pairId: string, patch: TransferUpdate) =>
+  request<TransferOut>(`/transfers/${pairId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+
+export const deleteTransfer = (pairId: string) =>
+  requestVoid(`/transfers/${pairId}`, { method: "DELETE" });
+
+export const unlinkTransfer = (pairId: string) =>
+  requestVoid(`/transfers/${pairId}/unlink`, { method: "POST" });
+
 export const createTransaction = (input: TransactionCreate) =>
   request<TransactionOut>("/transactions", {
     method: "POST",
@@ -498,10 +633,12 @@ export const deleteTransaction = async (id: string): Promise<void> => {
 export async function uploadImport(
   file: File,
   bank: ImportBank,
+  accountId?: string, // omitted = the main account
 ): Promise<ImportBatchView> {
   const form = new FormData();
   form.append("file", file);
   form.append("bank", bank);
+  if (accountId) form.append("account_id", accountId);
   // No Content-Type header — fetch sets the multipart boundary.
   const res = await fetch("/api/imports", { method: "POST", body: form });
   if (!res.ok) {
@@ -532,10 +669,19 @@ export const confirmImport = (
   overrides: Record<string, string | null>,
   // txn_id -> payee name ("" clears; backend resolves find-or-create)
   payeeOverrides: Record<string, string> = {},
+  // txn_id -> other account: the row is a transfer, twin created on confirm
+  transferOverrides: Record<string, string> = {},
+  // staged rows whose match suggestion was accepted (existing twin adopted)
+  acceptMatches: string[] = [],
 ) =>
   request<ImportBatchView>(`/imports/${id}/confirm`, {
     method: "POST",
-    body: JSON.stringify({ overrides, payee_overrides: payeeOverrides }),
+    body: JSON.stringify({
+      overrides,
+      payee_overrides: payeeOverrides,
+      transfer_overrides: transferOverrides,
+      accept_matches: acceptMatches,
+    }),
   });
 
 export const discardImport = async (id: string): Promise<void> => {
@@ -578,7 +724,13 @@ export interface OnboardingIncome {
   income_day: number | null;
 }
 
+export interface OnboardingProposedAccount {
+  name: string;
+  type: "bank" | "credit";
+}
+
 export interface OnboardingProposal {
+  accounts?: OnboardingProposedAccount[];
   category_groups: OnboardingProposedGroup[];
   payers: string[];
   payees: string[];
@@ -595,6 +747,7 @@ export interface OnboardingSessionView {
 
 /** The reviewed proposal: checked items only, renames applied, additions included. */
 export interface OnboardingFinalizePayload {
+  accounts: OnboardingProposedAccount[];
   category_groups: OnboardingProposedGroup[];
   payers: string[];
   payees: string[];

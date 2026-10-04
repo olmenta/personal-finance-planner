@@ -3,6 +3,11 @@
 Archiving is the only retire path (design D1): transactions and budget
 assignments reference categories, so nothing is ever hard-deleted. Groups
 delete only when empty (design D2) — archived members count.
+
+Credit cards' payment categories and their "Tarjetas de crédito" system
+group are managed by the accounts API (they follow the card's rename and
+archive): category CRUD may not archive, re-parent or delete them, nor put
+other categories into the system group (409 `payment_category_locked`).
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -22,6 +27,10 @@ from ..schemas import (
 )
 
 router = APIRouter(prefix="/categories", tags=["categories"])
+
+
+def locked() -> HTTPException:
+    return HTTPException(status_code=409, detail={"code": "payment_category_locked"})
 
 
 @router.get("", response_model=list[CategoryGroupOut])
@@ -85,6 +94,8 @@ def create_category(
     user: User = Depends(current_user),
 ) -> Category:
     group = get_group_or_404(db, user.id, payload.group_id)
+    if group.system:
+        raise locked()
     name = payload.name.strip()
     ensure_name_free_in_group(db, user.id, group.id, name)
 
@@ -112,7 +123,13 @@ def update_category(
 
     target_group_id = category.group_id
     if payload.group_id is not None:
-        target_group_id = get_group_or_404(db, user.id, payload.group_id).id
+        target = get_group_or_404(db, user.id, payload.group_id)
+        if target.id != category.group_id and (category.payment_account_id or target.system):
+            raise locked()
+        target_group_id = target.id
+    if category.payment_account_id and payload.archived is not None:
+        if payload.archived != category.archived:
+            raise locked()
 
     if payload.name is not None or payload.group_id is not None:
         name = (payload.name or category.name).strip()
@@ -176,6 +193,8 @@ def delete_group(
     user: User = Depends(current_user),
 ) -> None:
     group = get_group_or_404(db, user.id, group_id)
+    if group.system:
+        raise locked()
     # Archived members count: the group must be truly empty (design D2).
     member = db.scalar(select(Category).where(Category.group_id == group.id))
     if member is not None:

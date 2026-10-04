@@ -3,23 +3,44 @@
 available(c, M)      = assigned + rollover − spent
 rollover(c, M)       = max(0, available(c, M−1))      overspending resets…
 overspent(M)         = Σ max(0, −available(c, M))
-to_be_assigned(M)    = TBA(M−1) + unbudgeted(M) − Σ assigned(M) − overspent(M−1)
-                                                     …and is paid from TBA
-TBA(start−1)         = signed sum of confirmed activity before the budget start
+to_be_assigned(M)    = TBA(M−1) + unbudgeted(M) − Σ assigned(M) − cash_overspent(M−1)
+                                                     …cash part paid from TBA
+TBA(start−1)         = signed sum of cash/bank activity before the budget start
 
-One forward pass over calendar months from the first materialized month;
-unopened months count as zero assignments and are never materialized here.
-Invariant: TBA(M) + Σ available(M) = Σ confirmed activity up to the end of M.
-Nothing here is persisted.
+Transfer rows (`transfer_pair_id`) never enter the budget plane. Credit
+cards follow YNAB (accounts-and-transfers design D6): card spending counts
+in its category at purchase and the funded part moves — derived, never
+stored — to the card's payment category:
+
+pool(c)              = max(0, assigned + rollover − cash_spent + card_refunds)
+funded(c, K)         = min(card_spend(c, K), pool left)   cards in creation order
+move(c → Pago K)     = funded(c, K) − card_refunds(c, K)
+credit_overspent(c)  = Σ card_spend − Σ funded            stays as card debt
+available(Pago K)    = assigned + rollover + Σ moves − payments(K)
+
+Uncategorized non-transfer rows on a card (e.g. its opening debt) are card
+debt, never To Be Assigned. One forward pass over calendar months from the
+first materialized month; unopened months count as zero assignments and are
+never materialized here.
+Invariant: TBA(M) + Σ available(M) + Σ credit_overspent(M) = Σ confirmed
+cash/bank activity up to the end of M. Nothing here is persisted.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from ..models import BudgetAssignment, BudgetMonth, Category, CategoryGroup, Transaction, User
+from ..models import (
+    Account,
+    BudgetAssignment,
+    BudgetMonth,
+    Category,
+    CategoryGroup,
+    Transaction,
+    User,
+)
 from ..schemas import (
     BudgetCategoryView,
     BudgetGroupView,
@@ -187,21 +208,31 @@ def spent_by_category(db: Session, user: User, month: str) -> dict[str, int]:
             Transaction.status == "confirmed",
             Transaction.date >= start,
             Transaction.date < end,
+            Transaction.transfer_pair_id.is_(None),
         )
         .group_by(Transaction.category_id)
     ).all()
     return {category_id: -total for category_id, total in rows if category_id}
 
 
+def budget_account_ids(user: User):
+    """Cash and bank accounts — the money To Be Assigned is made of. Credit
+    accounts hold debt, not money (design D6)."""
+    return select(Account.id).where(Account.user_id == user.id, Account.type != "credit")
+
+
 def income_filters(user: User) -> tuple:
-    """What counts as income: confirmed, positive, and uncategorized —
-    a categorized inflow is a refund (category activity), not income.
+    """What counts as income: confirmed, positive, uncategorized, not a
+    transfer twin, on a cash/bank account — a categorized inflow is a refund
+    (category activity) and a credit account's opening balance is debt.
     Shared with the summary so dashboard and budget can never disagree."""
     return (
         Transaction.user_id == user.id,
         Transaction.status == "confirmed",
         Transaction.amount_cents > 0,
         Transaction.category_id.is_(None),
+        Transaction.transfer_pair_id.is_(None),
+        Transaction.account_id.in_(budget_account_ids(user)),
     )
 
 
@@ -227,48 +258,168 @@ def _month_from_index(index: int) -> str:
 
 
 @dataclass
+class MonthActivity:
+    """One month's confirmed, non-transfer activity split by account kind."""
+
+    cash_net: dict[str, int] = field(default_factory=dict)  # category -> signed
+    card_spend: dict[str, dict[str, int]] = field(default_factory=dict)  # cat -> card -> cents
+    card_refund: dict[str, dict[str, int]] = field(default_factory=dict)  # cat -> card -> cents
+    payments: dict[str, int] = field(default_factory=dict)  # card -> net transfers in
+    unbudgeted: int = 0  # signed uncategorized cash/bank activity
+
+
+@dataclass
+class MonthResult:
+    spent: dict[str, int]
+    available: dict[str, int]
+    credit_overspent: dict[str, int]
+
+
+@dataclass
+class CardSetup:
+    order: list[str]  # credit account ids, creation order
+    payment_category: dict[str, str]  # credit account id -> payment category id
+
+
+def card_setup(db: Session, user: User) -> CardSetup:
+    order = list(
+        db.scalars(
+            select(Account.id)
+            .where(Account.user_id == user.id, Account.type == "credit")
+            .order_by(Account.created_at, Account.id)
+        )
+    )
+    payment_category = {
+        account_id: category_id
+        for category_id, account_id in db.execute(
+            select(Category.id, Category.payment_account_id).where(
+                Category.user_id == user.id, Category.payment_account_id.is_not(None)
+            )
+        )
+    }
+    return CardSetup(order=order, payment_category=payment_category)
+
+
+def month_math(
+    assigned: dict[str, int],
+    rollover: dict[str, int],
+    act: MonthActivity,
+    cards: CardSetup,
+) -> MonthResult:
+    """Spent / available / credit overspending for one month (design D6).
+
+    Cash activity is applied first, so card spending is what ends up
+    overspent — a month-level simplification of YNAB's chronological rule.
+    """
+    categories = (
+        assigned.keys()
+        | rollover.keys()
+        | act.cash_net.keys()
+        | act.card_spend.keys()
+        | act.card_refund.keys()
+        | set(cards.payment_category.values())
+    )
+    spent: dict[str, int] = {}
+    available: dict[str, int] = {}
+    credit_overspent: dict[str, int] = {}
+    moves: dict[str, int] = {}  # card -> money moved into its payment category
+    rank = {card: i for i, card in enumerate(cards.order)}
+    for category_id in categories:
+        cash_spent = -act.cash_net.get(category_id, 0)
+        spends = act.card_spend.get(category_id, {})
+        refunds = act.card_refund.get(category_id, {})
+        base = assigned.get(category_id, 0) + rollover.get(category_id, 0)
+        pool = max(0, base - cash_spent + sum(refunds.values()))
+        unfunded = 0
+        for card in sorted(spends, key=lambda k: (rank.get(k, len(rank)), k)):
+            funded = min(spends[card], pool)
+            pool -= funded
+            unfunded += spends[card] - funded
+            moves[card] = moves.get(card, 0) + funded
+        for card, refund in refunds.items():
+            moves[card] = moves.get(card, 0) - refund
+        spent[category_id] = cash_spent + sum(spends.values()) - sum(refunds.values())
+        available[category_id] = base - spent[category_id]
+        if unfunded:
+            credit_overspent[category_id] = unfunded
+    for card, category_id in cards.payment_category.items():
+        payments = act.payments.get(card, 0)
+        spent[category_id] += payments
+        available[category_id] += moves.get(card, 0) - payments
+    return MonthResult(spent=spent, available=available, credit_overspent=credit_overspent)
+
+
+def _activity_by_month(
+    db: Session, user: User, range_start: date, range_end: date, credit: set[str]
+) -> dict[str, MonthActivity]:
+    """One grouped query: month × category × account × sign × transfer."""
+    month_col = func.to_char(Transaction.date, "YYYY-MM")
+    positive = case((Transaction.amount_cents > 0, True), else_=False)
+    is_transfer = Transaction.transfer_pair_id.is_not(None)
+    result: dict[str, MonthActivity] = {}
+    for m, category_id, account_id, is_positive, transfer, total in db.execute(
+        select(
+            month_col,
+            Transaction.category_id,
+            Transaction.account_id,
+            positive,
+            is_transfer,
+            func.sum(Transaction.amount_cents),
+        )
+        .where(
+            Transaction.user_id == user.id,
+            Transaction.status == "confirmed",
+            Transaction.date >= range_start,
+            Transaction.date < range_end,
+        )
+        .group_by(month_col, Transaction.category_id, Transaction.account_id, positive, is_transfer)
+    ):
+        act = result.setdefault(m, MonthActivity())
+        total = int(total)
+        on_card = account_id in credit
+        if transfer:
+            if on_card:
+                act.payments[account_id] = act.payments.get(account_id, 0) + total
+        elif category_id is None:
+            if not on_card:
+                act.unbudgeted += total
+        elif not on_card:
+            act.cash_net[category_id] = act.cash_net.get(category_id, 0) + total
+        elif is_positive:
+            by_card = act.card_refund.setdefault(category_id, {})
+            by_card[account_id] = by_card.get(account_id, 0) + total
+        else:
+            by_card = act.card_spend.setdefault(category_id, {})
+            by_card[account_id] = by_card.get(account_id, 0) - total
+    return result
+
+
+@dataclass
 class MonthChain:
-    """Where month M starts: per-category rollover and the TBA carry-in."""
+    """Where month M starts: per-category rollover and the TBA carry-in —
+    plus month M's own activity, so the view needs no second pass."""
 
     rollover: dict[str, int]
     reset: dict[str, int]  # per-category overspending of M−1 that didn't carry
     carried_in: int  # TBA(M−1)
-    overspent_deducted: int  # overspent(M−1)
-    unbudgeted: int  # signed uncategorized activity in M
+    overspent_deducted: int  # cash overspending of M−1
+    unbudgeted: int  # signed uncategorized cash/bank activity in M
+    activity: MonthActivity
+    cards: CardSetup
 
 
 def month_chain(db: Session, user: User, month: str) -> MonthChain:
     """Forward pass from the budget start to `month` (design D1–D5).
 
-    Three grouped queries over the whole range, then a pass in Python.
+    A few grouped queries over the whole range, then a pass in Python.
     """
     first = db.scalar(select(func.min(BudgetMonth.month)).where(BudgetMonth.user_id == user.id))
     start = first if first is not None and first < month else month
     range_start, _ = month_bounds(start)
     _, range_end = month_bounds(month)
 
-    month_col = func.to_char(Transaction.date, "YYYY-MM")
-    in_range = (
-        Transaction.user_id == user.id,
-        Transaction.status == "confirmed",
-        Transaction.date >= range_start,
-        Transaction.date < range_end,
-    )
-    spent: dict[str, dict[str, int]] = {}
-    for m, category_id, total in db.execute(
-        select(month_col, Transaction.category_id, func.sum(Transaction.amount_cents))
-        .where(*in_range, Transaction.category_id.is_not(None))
-        .group_by(month_col, Transaction.category_id)
-    ):
-        spent.setdefault(m, {})[category_id] = -int(total)
-    unbudgeted = {
-        m: int(total)
-        for m, total in db.execute(
-            select(month_col, func.sum(Transaction.amount_cents))
-            .where(*in_range, Transaction.category_id.is_(None))
-            .group_by(month_col)
-        )
-    }
+    cards = card_setup(db, user)
+    activity = _activity_by_month(db, user, range_start, range_end, set(cards.order))
     assigned: dict[str, dict[str, int]] = {}
     for m, category_id, cents in db.execute(
         select(BudgetMonth.month, BudgetAssignment.category_id, BudgetAssignment.assigned_cents)
@@ -281,6 +432,7 @@ def month_chain(db: Session, user: User, month: str) -> MonthChain:
             Transaction.user_id == user.id,
             Transaction.status == "confirmed",
             Transaction.date < range_start,
+            Transaction.account_id.in_(budget_account_ids(user)),
         )
     )
 
@@ -291,45 +443,50 @@ def month_chain(db: Session, user: User, month: str) -> MonthChain:
     for index in range(_month_index(start), _month_index(month)):
         m = _month_from_index(index)
         m_assigned = assigned.get(m, {})
-        m_spent = spent.get(m, {})
-        tba += unbudgeted.get(m, 0) - sum(m_assigned.values()) - overspent_prev
+        act = activity.get(m, MonthActivity())
+        tba += act.unbudgeted - sum(m_assigned.values()) - overspent_prev
+        result = month_math(m_assigned, rollover, act, cards)
         overspent_prev = 0
         reset = {}
         next_rollover: dict[str, int] = {}
-        for category_id in rollover.keys() | m_assigned.keys() | m_spent.keys():
-            available = (
-                m_assigned.get(category_id, 0)
-                + rollover.get(category_id, 0)
-                - m_spent.get(category_id, 0)
-            )
+        for category_id, available in result.available.items():
             if available < 0:
-                overspent_prev += -available
                 reset[category_id] = -available
+                # The credit part stays on the card as debt; only the cash
+                # part is paid from next month's To Be Assigned.
+                credit = min(-available, result.credit_overspent.get(category_id, 0))
+                overspent_prev += -available - credit
             next_rollover[category_id] = max(0, available)
         rollover = next_rollover
 
+    current = activity.get(month, MonthActivity())
     return MonthChain(
         rollover=rollover,
         reset=reset,
         carried_in=tba,
         overspent_deducted=overspent_prev,
-        unbudgeted=unbudgeted.get(month, 0),
+        unbudgeted=current.unbudgeted,
+        activity=current,
+        cards=cards,
     )
 
 
 def cover_suggestions(
-    available: dict[str, int], to_be_assigned: int
+    available: dict[str, int], to_be_assigned: int, protected: set[str] | None = None
 ) -> dict[str, CoverSuggestion]:
     """Greedy cover sources, largest overspending first (design D7).
 
     Positive TBA first, then the non-overspent category with the most
     available; sources are consumed so two suggestions never share euros.
+    `protected` categories (card payment money) are never donors.
     """
     overspent = sorted(
         ((cid, -a) for cid, a in available.items() if a < 0), key=lambda item: -item[1]
     )
     tba_left = max(0, to_be_assigned)
-    donors = {cid: a for cid, a in available.items() if a > 0}
+    donors = {
+        cid: a for cid, a in available.items() if a > 0 and cid not in (protected or set())
+    }
     result: dict[str, CoverSuggestion] = {}
     for category_id, amount in overspent:
         if tba_left > 0:
@@ -379,9 +536,12 @@ def quickfill_by_category(
 
 def build_view(db: Session, user: User, month: str) -> BudgetMonthView:
     bm = materialize_month(db, user, month)
-    spent = spent_by_category(db, user, month)
     chain = month_chain(db, user, month)
     rollover = chain.rollover
+    assigned_by_category = {a.category_id: a.assigned_cents for a in bm.assignments}
+    math = month_math(assigned_by_category, rollover, chain.activity, chain.cards)
+    spent = math.spent
+    payment_categories = {cid: acc for acc, cid in chain.cards.payment_category.items()}
     last_assigned, last_spent, avg_3m = quickfill_by_category(db, user, month)
     assignments = {a.category_id: a for a in bm.assignments}
     by_category = sched.schedules_by_category(db, user)
@@ -410,7 +570,7 @@ def build_view(db: Session, user: User, month: str) -> BudgetMonthView:
             # categories design D1); only inactive ones drop out.
             if category.archived and not (assigned or cat_spent or cat_rollover):
                 continue
-            available = assigned + cat_rollover - cat_spent
+            available = math.available.get(category.id, assigned + cat_rollover - cat_spent)
             category_schedules = by_category.get(category.id, [])
             normal_cents = catch_up_cents = None
             if category_schedules:
@@ -422,7 +582,12 @@ def build_view(db: Session, user: User, month: str) -> BudgetMonthView:
                     id=category.id,
                     name=category.name,
                     icon=category.icon,
-                    kind=sched.effective_kind(category.kind, category_schedules),  # type: ignore[arg-type]
+                    kind=(
+                        "credit_payment"
+                        if category.id in payment_categories
+                        else sched.effective_kind(category.kind, category_schedules)
+                    ),  # type: ignore[arg-type]
+                    payment_account_id=payment_categories.get(category.id),
                     normal_cents=normal_cents,
                     catch_up_cents=catch_up_cents,
                     assigned_cents=assigned,
@@ -431,6 +596,7 @@ def build_view(db: Session, user: User, month: str) -> BudgetMonthView:
                     available_cents=available,
                     overspent_cents=max(0, -available),
                     rollover_reset_cents=chain.reset.get(category.id, 0),
+                    credit_overspent_cents=math.credit_overspent.get(category.id, 0),
                     suggestion_cents=assignment.suggestion_cents if assignment else None,
                     suggestion_state=(
                         assignment.suggestion_state if assignment else "confirmed"
@@ -443,7 +609,9 @@ def build_view(db: Session, user: User, month: str) -> BudgetMonthView:
         rows.append((group, cat_views))
 
     suggestions = cover_suggestions(
-        {c.id: c.available_cents for _, cats in rows for c in cats}, to_be_assigned
+        {c.id: c.available_cents for _, cats in rows for c in cats},
+        to_be_assigned,
+        protected=set(payment_categories),
     )
     group_views = [
         BudgetGroupView(
@@ -465,3 +633,18 @@ def build_view(db: Session, user: User, month: str) -> BudgetMonthView:
         overspent_deducted_cents=chain.overspent_deducted,
         groups=group_views,
     )
+
+
+def payment_available_by_card(db: Session, user: User, month: str) -> dict[str, int]:
+    """credit account id -> its payment category's available in `month`,
+    without materializing the month (an unopened month assigns nothing)."""
+    chain = month_chain(db, user, month)
+    if not chain.cards.payment_category:
+        return {}
+    bm = get_budget_month(db, user, month)
+    assigned = {a.category_id: a.assigned_cents for a in bm.assignments} if bm else {}
+    math = month_math(assigned, chain.rollover, chain.activity, chain.cards)
+    return {
+        card: math.available.get(category_id, 0)
+        for card, category_id in chain.cards.payment_category.items()
+    }

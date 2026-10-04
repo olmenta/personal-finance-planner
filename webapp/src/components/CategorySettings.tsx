@@ -307,7 +307,8 @@ function CategoryForm({
               boxShadow: "var(--shadow-lg)",
             }}
           >
-            {groups.map((g) => (
+            {/* System groups ("Tarjetas de crédito") only hold card payment categories. */}
+            {groups.filter((g) => !g.system).map((g) => (
               <SelectItem key={g.id} value={g.id}>
                 {g.name}
               </SelectItem>
@@ -537,6 +538,7 @@ export function CategorySettings() {
               <span className="ol-eyebrow" style={{ color: "var(--text-subtle)" }}>
                 {group.name}
               </span>
+              {!group.system && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <IconButton
@@ -559,6 +561,7 @@ export function CategorySettings() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              )}
             </div>
 
             {group.categories.length === 0 && (
@@ -605,6 +608,13 @@ export function CategorySettings() {
                   </span>
                 </div>
                 {category.archived && <Badge tone="neutral">Archived</Badge>}
+                {/* A card's payment category follows its account (rename,
+                    archive) — managed from the Accounts screen. */}
+                {category.payment_account_id ? (
+                  <Badge tone="neutral" icon="credit-card">
+                    Card payment
+                  </Badge>
+                ) : (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <IconButton
@@ -637,6 +647,7 @@ export function CategorySettings() {
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                )}
               </div>
             ))}
           </div>

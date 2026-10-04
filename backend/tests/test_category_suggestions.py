@@ -17,7 +17,9 @@ from app.services.category_suggestions import (
 
 
 def _category(category_id: str, name: str) -> SimpleNamespace:
-    return SimpleNamespace(id=category_id, name=name, group=SimpleNamespace(name="Esenciales"))
+    return SimpleNamespace(
+        id=category_id, name=name, group=SimpleNamespace(name="Esenciales"), payment_account_id=None
+    )
 
 
 def _row(

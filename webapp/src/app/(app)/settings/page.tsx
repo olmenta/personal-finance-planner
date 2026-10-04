@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import React from "react";
+import { useAccounts } from "@/components/AccountPicker";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Icon } from "@/components/ui/Icon";
@@ -71,6 +73,9 @@ const groupStyle: React.CSSProperties = {
 };
 
 export default function SettingsPage() {
+  const { active: accounts, isSuccess } = useAccounts();
+  let accountsSub: string | undefined;
+  if (isSuccess) accountsSub = accounts.length === 1 ? "1 account" : `${accounts.length} accounts`;
   return (
     <>
       <TopBar title="Settings" sub="Your profile, preferences and coach controls." />
@@ -140,13 +145,15 @@ export default function SettingsPage() {
             Account
           </div>
           <div style={groupStyle}>
-            <Row
-              icon="wallet"
-              tone="violet"
-              label="Accounts & cards"
-              sub="3 linked"
-              right={<Icon name="chevron-right" size={18} color="var(--text-subtle)" />}
-            />
+            <Link href="/accounts" style={{ display: "block", color: "inherit", textDecoration: "none" }}>
+              <Row
+                icon="wallet"
+                tone="violet"
+                label="Accounts & cards"
+                sub={accountsSub}
+                right={<Icon name="chevron-right" size={18} color="var(--text-subtle)" />}
+              />
+            </Link>
             <Row
               icon="target"
               tone="mint"

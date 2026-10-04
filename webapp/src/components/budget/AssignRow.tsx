@@ -77,12 +77,22 @@ export function AssignRow({
 
   const available = availableCents(c);
   const over = available < 0;
+  // Card spending the category couldn't cover is new card debt, not a cash
+  // hole: it gets a warning style, never the expense red (credit-cards D6).
+  const creditOver = c.credit_overspent_cents;
+  const cashOver = over && -available > creditOver;
+  const isPayment = c.kind === "credit_payment";
+  // Money set aside from this month's budgeted card purchases.
+  const funded = isPayment ? available - c.assigned_cents - c.rollover_cents + c.spent_cents : 0;
 
   let availColor = "var(--mint-700)";
   let availBg = "var(--mint-50)";
-  if (over) {
+  if (cashOver) {
     availColor = "var(--expense)";
     availBg = "var(--expense-soft)";
+  } else if (over) {
+    availColor = "var(--warning)";
+    availBg = "var(--warning-soft)";
   } else if (available === 0) {
     availColor = "var(--text-muted)";
     availBg = "var(--gray-100)";
@@ -104,7 +114,11 @@ export function AssignRow({
   return (
     <div data-testid={`category-row-${c.name}`} style={{ padding: "13px 0", borderBottom: "1px solid var(--border-hairline)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 13 }}>
-        <IconChip icon={c.icon} tone={over ? "expense" : toneForCategory(c.icon)} size={42} />
+        <IconChip
+          icon={c.icon}
+          tone={cashOver ? "expense" : over ? "warning" : toneForCategory(c.icon)}
+          size={42}
+        />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
             <span
@@ -161,7 +175,8 @@ export function AssignRow({
               fontVariantNumeric: "tabular-nums",
             }}
           >
-            Spent {euroCents(c.spent_cents)}
+            {isPayment ? "Paid" : "Spent"} {euroCents(c.spent_cents)}
+            {funded > 0 && <> · set aside {euroCents(funded)} from card purchases</>}
             {c.normal_cents !== null && c.catch_up_cents !== null && (
               <>
                 {" · "}normal {euroCents(c.normal_cents)}
@@ -255,6 +270,7 @@ export function AssignRow({
       </div>
 
       <div style={{ paddingLeft: 55 }}>
+        {!isPayment && (
         <div
           style={{
             marginTop: 10,
@@ -270,11 +286,25 @@ export function AssignRow({
               width: `${Math.min(pct, 100)}%`,
               height: "100%",
               borderRadius: "var(--r-full)",
-              background: over ? "var(--expense)" : "var(--violet-500)",
+              background: cashOver ? "var(--expense)" : over ? "var(--warning)" : "var(--violet-500)",
               transition: "width var(--dur-slow) var(--ease-out)",
             }}
           />
         </div>
+        )}
+        {creditOver > 0 && (
+          <div
+            style={{
+              marginTop: 8,
+              font: "600 12.5px var(--font-sans)",
+              color: "var(--warning)",
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {euroCents(creditOver)} on the card isn&apos;t covered — it&apos;s new card debt
+            unless you cover it this month.
+          </div>
+        )}
         {c.cover_suggestion && (
           <button
             onClick={() => onCover(c)}
@@ -312,17 +342,20 @@ export function AssignRow({
                 fontVariantNumeric: "tabular-nums",
               }}
             >
-              Rollover {euroCents(c.rollover_cents)} + assigned {euroCents(c.assigned_cents)} −
-              spent {euroCents(c.spent_cents)} ={" "}
+              Rollover {euroCents(c.rollover_cents)} + assigned {euroCents(c.assigned_cents)}
+              {isPayment && <> + set aside {euroCents(funded)}</>} −{" "}
+              {isPayment ? "paid" : "spent"} {euroCents(c.spent_cents)} ={" "}
               <b style={{ color: availColor }}>{euroCents(available)}</b> available
               {c.rollover_reset_cents > 0 && (
                 <div style={{ marginTop: 4 }}>
                   Started this month clean: last month&apos;s {euroCents(c.rollover_reset_cents)}{" "}
-                  overspending came out of To Be Assigned.
+                  overspending was reset — cash overspending came out of To Be Assigned,
+                  card overspending stays on the card as debt.
                 </div>
               )}
             </div>
             {!fromPayments && <QuickFill category={c} onPick={(cents) => onAssign(c.id, cents)} />}
+            {!isPayment && (
             <button
               onClick={() => onSchedule(c)}
               style={{
@@ -343,6 +376,7 @@ export function AssignRow({
               <Icon name="calendar" size={13} />
               {c.normal_cents !== null ? "Edit payments" : "Set up payments"}
             </button>
+            )}
             {available > 0 && (
               <button
                 onClick={() => onMove(c)}

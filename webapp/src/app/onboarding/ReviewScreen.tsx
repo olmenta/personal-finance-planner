@@ -4,9 +4,11 @@ import React from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { Panel } from "@/components/ui/Panel";
+import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import type {
   OnboardingFinalizePayload,
   OnboardingProposal,
+  OnboardingProposedAccount,
 } from "@/lib/api";
 
 export interface ReviewScreenProps {
@@ -20,6 +22,17 @@ interface EditableItem {
   icon: string;
   checked: boolean;
 }
+
+interface EditableAccount {
+  name: string;
+  type: OnboardingProposedAccount["type"];
+  checked: boolean;
+}
+
+const ACCOUNT_TYPES = [
+  { value: "bank", label: "Bank" },
+  { value: "credit", label: "Card" },
+];
 
 interface EditableGroup {
   name: string;
@@ -106,6 +119,11 @@ function AddNewButton({ label, onClick }: Readonly<{ label: string; onClick: () 
 /* Post-interview verification: everything the AI proposed, editable before
    anything is persisted (spec: review before anything is created). */
 export function ReviewScreen({ proposal, submitting, onConfirm }: ReviewScreenProps) {
+  const [accounts, setAccounts] = React.useState<EditableAccount[]>(() =>
+    (proposal.accounts ?? []).map((account) => ({ ...account, checked: true })),
+  );
+  const updateAccount = (index: number, patch: Partial<EditableAccount>) =>
+    setAccounts((prev) => prev.map((a, i) => (i === index ? { ...a, ...patch } : a)));
   const [groups, setGroups] = React.useState<EditableGroup[]>(() =>
     proposal.category_groups.map((group) => ({
       name: group.name,
@@ -146,6 +164,9 @@ export function ReviewScreen({ proposal, submitting, onConfirm }: ReviewScreenPr
     );
 
   const buildPayload = (): OnboardingFinalizePayload => ({
+    accounts: accounts
+      .filter((account) => account.checked && account.name.trim())
+      .map((account) => ({ name: account.name.trim(), type: account.type })),
     category_groups: groups
       .filter((group) => group.checked)
       .map((group) => ({
@@ -166,6 +187,45 @@ export function ReviewScreen({ proposal, submitting, onConfirm }: ReviewScreenPr
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <Panel title="Your accounts">
+        <p style={{ font: "500 14px var(--font-sans)", color: "var(--text-muted)", margin: "0 0 14px" }}>
+          Where your money sits. Each card gets its own line in the budget to
+          set aside what you&apos;ll pay it.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {accounts.map((account, index) => (
+            <div
+              key={`account-${index}`}
+              style={{ display: "flex", alignItems: "center", gap: 10 }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <EditableRow
+                  item={account}
+                  onToggle={() => updateAccount(index, { checked: !account.checked })}
+                  onRename={(name) => updateAccount(index, { name })}
+                />
+              </div>
+              {account.checked && (
+                <SegmentedControl
+                  size="sm"
+                  options={ACCOUNT_TYPES}
+                  value={account.type}
+                  onChange={(type) =>
+                    updateAccount(index, { type: type as EditableAccount["type"] })
+                  }
+                />
+              )}
+            </div>
+          ))}
+        </div>
+        <AddNewButton
+          label="Add account"
+          onClick={() =>
+            setAccounts((prev) => [...prev, { name: "New account", type: "bank", checked: true }])
+          }
+        />
+      </Panel>
+
       <Panel title="Your categories">
         <p style={{ font: "500 14px var(--font-sans)", color: "var(--text-muted)", margin: "0 0 14px" }}>
           Built from your answers. Uncheck what you don&apos;t need, click a name

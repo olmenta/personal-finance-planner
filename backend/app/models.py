@@ -50,8 +50,13 @@ class Account(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
-    type: Mapped[str] = mapped_column(String(16), default="cash")  # cash | bank
+    # cash | bank | credit — credit balances are naturally negative (debt).
+    type: Mapped[str] = mapped_column(String(16), default="cash")
     institution: Mapped[str | None] = mapped_column(String(120))
+    # Hidden from pickers; its transactions keep counting (no account delete).
+    archived: Mapped[bool] = mapped_column(default=False, server_default="false")
+    # Credit only: day of the month the card is charged to the bank (1–31).
+    payment_day: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
@@ -62,6 +67,8 @@ class CategoryGroup(Base):
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    # System-managed (e.g. "Tarjetas de crédito"): not deletable/renamable by CRUD.
+    system: Mapped[bool] = mapped_column(default=False, server_default="false")
 
     categories: Mapped[list["Category"]] = relationship(back_populates="group")
 
@@ -79,6 +86,10 @@ class Category(Base):
     # "flexible" otherwise. The effective kind is derived (see `effective_kind`):
     # any payment schedule makes the category "scheduled".
     kind: Mapped[str] = mapped_column(String(12), default="flexible", server_default="flexible")
+    # Set on a credit card's system payment category ("Pago <card>").
+    payment_account_id: Mapped[str | None] = mapped_column(
+        ForeignKey("accounts.id"), unique=True
+    )
 
     group: Mapped[CategoryGroup] = relationship(back_populates="categories")
     schedules: Mapped[list["PaymentSchedule"]] = relationship(
@@ -175,16 +186,23 @@ class Transaction(Base):
     amount_cents: Mapped[int] = mapped_column(Integer)
     currency: Mapped[str] = mapped_column(String(3), default="EUR")
     description: Mapped[str | None] = mapped_column(String(500))
+    # manual | import_bbva | import_sabadell | import_custom | opening_balance
     source: Mapped[str] = mapped_column(String(24), default="manual")
     import_batch_id: Mapped[str | None] = mapped_column(
         ForeignKey("import_batches.id"), index=True
     )
     dedupe_hash: Mapped[str] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(12), default="confirmed")  # staged | confirmed
+    # Shared by the two twin rows of a transfer (design D1); NULL otherwise.
+    transfer_pair_id: Mapped[str | None] = mapped_column(String(36), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     # selectin: payee_name ships on every listed row (TransactionOut) without N+1.
     payee: Mapped[Payee | None] = relationship(lazy="selectin")
+
+    # Not a column: the other twin's account, filled in by readers that
+    # render transfers (see services/transfers.annotate_counterparts).
+    transfer_account_id = None  # str | None
 
     @property
     def payee_name(self) -> str | None:

@@ -9,11 +9,29 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps import current_user
 from ..ingestion import StatementFormatError
-from ..models import Account, ImportBatch, User
-from ..schemas import ImportBatchView, ConfirmImportRequest
+from ..models import ImportBatch, User
+from ..schemas import ConfirmImportRequest, ImportBatchView, StagedTransactionOut, TwinMatch
 from ..services import import_batch as service
+from ..services.accounts import resolve_account
 
 router = APIRouter(prefix="/imports", tags=["imports"])
+
+
+def _staged(db: Session, batch: ImportBatch) -> list[StagedTransactionOut]:
+    matches = service.match_suggestions(db, batch)
+    rows = []
+    for txn in service.staged_rows(db, batch):
+        row = StagedTransactionOut.model_validate(txn)
+        match = matches.get(txn.id)
+        if match is not None:
+            row.match = TwinMatch(
+                transaction_id=match.twin.id,
+                pair_id=match.twin.transfer_pair_id or "",
+                other_account_id=match.other_account_id or "",
+                date=match.twin.date,
+            )
+        rows.append(row)
+    return rows
 
 
 def _view(db: Session, batch: ImportBatch) -> ImportBatchView:
@@ -25,7 +43,7 @@ def _view(db: Session, batch: ImportBatch) -> ImportBatchView:
         status=batch.status,
         row_count=batch.row_count,
         skipped_duplicates=batch.skipped_duplicates,
-        transactions=service.staged_rows(db, batch) if batch.status == "staged" else [],
+        transactions=_staged(db, batch) if batch.status == "staged" else [],
     )
 
 
@@ -50,11 +68,16 @@ def _pending_batch(db: Session, user: User) -> ImportBatch | None:
     "",
     response_model=ImportBatchView,
     status_code=201,
-    responses={409: {"description": "A staged batch already exists (import_pending)"}},
+    responses={
+        409: {"description": "A staged batch already exists (import_pending)"},
+        404: {"description": "Unknown or foreign account (account_not_found)"},
+    },
 )
 async def upload_import(
     file: UploadFile = File(...),
     bank: Literal["bbva", "sabadell", "custom"] = Form(...),
+    # Omitted = the user's main account.
+    account_id: str | None = Form(default=None),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> ImportBatchView:
@@ -70,9 +93,7 @@ async def upload_import(
     if len(content) > service.MAX_FILE_BYTES:
         raise HTTPException(status_code=413, detail={"code": "file_too_large"})
 
-    account = db.scalar(select(Account).where(Account.user_id == user.id))
-    if account is None:
-        raise HTTPException(status_code=503, detail={"code": "account_not_seeded"})
+    account = resolve_account(db, user.id, account_id or None)
 
     try:
         batch = service.create_batch(
@@ -119,7 +140,15 @@ def confirm_import(
 ) -> ImportBatchView:
     batch = _get_batch(db, user, batch_id)
     try:
-        service.confirm_batch(db, user, batch, payload.overrides, payload.payee_overrides)
+        service.confirm_batch(
+            db,
+            user,
+            batch,
+            payload.overrides,
+            payload.payee_overrides,
+            payload.transfer_overrides,
+            payload.accept_matches,
+        )
     except service.BatchNotStagedError as exc:
         raise HTTPException(status_code=409, detail={"code": "batch_not_staged"}) from exc
     return _view(db, batch)

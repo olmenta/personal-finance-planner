@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { PayeeField } from "@/components/PayeeField";
+import { AccountSelect, accountName, useAccounts } from "@/components/AccountPicker";
 import {
   ApiError,
   confirmImport,
@@ -39,6 +40,8 @@ import { invalidateMoneyQueries } from "@/lib/planQueries";
 import { useCoverPrompt } from "@/components/budget/CoverPrompt";
 
 const UNCATEGORIZED = "none";
+// Select value for "Transfer → <account>": the row's twin lands there on confirm.
+const TRANSFER_PREFIX = "transfer:";
 
 interface SourceOption {
   id: ImportBank;
@@ -98,6 +101,12 @@ export function ImportBankTransactionsDialog({
   const [selections, setSelections] = React.useState<Record<string, string>>({});
   // Row payee edits; absent key = keep the AI-staged payee untouched.
   const [payeeEdits, setPayeeEdits] = React.useState<Record<string, string>>({});
+  // Twin-match suggestions the user answered; unanswered ones stay suggestions.
+  const [matchDecisions, setMatchDecisions] = React.useState<
+    Record<string, "accept" | "ignore">
+  >({});
+  // "" = the main account.
+  const [uploadAccountId, setUploadAccountId] = React.useState("");
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const queryClient = useQueryClient();
@@ -116,6 +125,7 @@ export function ImportBankTransactionsDialog({
     queryFn: fetchPendingImport,
     enabled: open,
   });
+  const { all: allAccounts, active: accounts, main } = useAccounts(open);
 
   // Resume mode (design D3): with a pending batch and no fresh upload, the
   // dialog reviews the pending one — whatever opened it lands on the review
@@ -124,11 +134,12 @@ export function ImportBankTransactionsDialog({
 
   const upload = useMutation({
     mutationFn: ({ file, bank }: { file: File; bank: ImportBank }) =>
-      uploadImport(file, bank),
+      uploadImport(file, bank, uploadAccountId || undefined),
     onSuccess: (view) => {
       setBatch(view);
       setSelections({});
       setPayeeEdits({});
+      setMatchDecisions({});
       // Staging may have created AI-proposed payees.
       queryClient.invalidateQueries({ queryKey: ["payees"] });
       queryClient.setQueryData(["imports", "pending"], view);
@@ -152,14 +163,31 @@ export function ImportBankTransactionsDialog({
     mutationFn: () => {
       const overrides: Record<string, string | null> = {};
       const payeeOverrides: Record<string, string> = {};
+      const transferOverrides: Record<string, string> = {};
+      const acceptMatches: string[] = [];
       for (const t of activeBatch?.transactions ?? []) {
+        if (t.match && matchDecisions[t.id] === "accept") {
+          // The existing twin is adopted; the staged row is dropped.
+          acceptMatches.push(t.id);
+          continue;
+        }
         const picked = selectionFor(t);
+        if (picked.startsWith(TRANSFER_PREFIX)) {
+          transferOverrides[t.id] = picked.slice(TRANSFER_PREFIX.length);
+          continue;
+        }
         const pickedId = picked === UNCATEGORIZED ? null : picked;
         if (pickedId !== t.category_id) overrides[t.id] = pickedId;
         const edited = (payeeEdits[t.id] ?? t.payee_name ?? "").trim();
         if (edited !== (t.payee_name ?? "").trim()) payeeOverrides[t.id] = edited;
       }
-      return confirmImport(activeBatch!.id, overrides, payeeOverrides);
+      return confirmImport(
+        activeBatch!.id,
+        overrides,
+        payeeOverrides,
+        transferOverrides,
+        acceptMatches,
+      );
     },
     onSuccess: (confirmed) => {
       // Imports span months, unlike single adds — invalidate each one.
@@ -206,6 +234,7 @@ export function ImportBankTransactionsDialog({
       setBatch(null);
       setSelections({});
       setPayeeEdits({});
+      setMatchDecisions({});
       setFile(null);
       upload.reset();
     },
@@ -217,6 +246,8 @@ export function ImportBankTransactionsDialog({
     setBatch(null);
     setSelections({});
     setPayeeEdits({});
+    setMatchDecisions({});
+    setUploadAccountId("");
     upload.reset();
     confirm.reset();
     discard.reset();
@@ -233,6 +264,8 @@ export function ImportBankTransactionsDialog({
   const uploadError = uploadErrorCode(upload.error, upload.isError);
 
   const reviewing = activeBatch !== null && activeBatch.status === "staged";
+  // Transfer targets: every other active account of the user.
+  const transferTargets = accounts.filter((a) => a.id !== activeBatch?.account_id);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -365,6 +398,15 @@ export function ImportBankTransactionsDialog({
               })}
             </div>
 
+            {accounts.length > 1 && (
+              <AccountSelect
+                label="Import into"
+                value={uploadAccountId || main?.id || ""}
+                onChange={setUploadAccountId}
+                accounts={accounts}
+              />
+            )}
+
             <input
               ref={fileInputRef}
               type="file"
@@ -473,10 +515,14 @@ export function ImportBankTransactionsDialog({
                   const isIncome = t.amount_cents > 0;
                   const suggested =
                     t.category_id !== null && selectionFor(t) === t.category_id;
+                  const isTransfer = selectionFor(t).startsWith(TRANSFER_PREFIX);
+                  const decision = t.match ? matchDecisions[t.id] : undefined;
+                  const adopted = decision === "accept";
                   return (
                     <div
                       key={t.id}
                       style={{
+                        opacity: adopted ? 0.55 : 1,
                         display: "grid",
                         gridTemplateColumns: "58px minmax(0, 1fr) 190px 96px 180px",
                         gap: 10,
@@ -503,6 +549,9 @@ export function ImportBankTransactionsDialog({
                       >
                         {t.description}
                       </span>
+                      {isTransfer || adopted ? (
+                        <span />
+                      ) : (
                       <PayeeField
                         label=""
                         value={payeeEdits[t.id] ?? t.payee_name ?? ""}
@@ -514,12 +563,17 @@ export function ImportBankTransactionsDialog({
                           setPayeeEdits((prev) => ({ ...prev, [t.id]: p.name }))
                         }
                       />
+                      )}
                       <span
                         style={{
                           textAlign: "right",
                           font: "700 13.5px var(--font-sans)",
                           fontVariantNumeric: "tabular-nums",
-                          color: isIncome ? "var(--income)" : "var(--text-strong)",
+                          // Transfers are neutral: money moving between pockets.
+                          color:
+                            isIncome && !isTransfer && !adopted
+                              ? "var(--income)"
+                              : "var(--text-strong)",
                         }}
                       >
                         {isIncome ? "+" : "−"}
@@ -531,6 +585,7 @@ export function ImportBankTransactionsDialog({
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <Select
                           value={selectionFor(t)}
+                          disabled={adopted}
                           onValueChange={(value) =>
                             setSelections((prev) => ({ ...prev, [t.id]: value }))
                           }
@@ -559,7 +614,7 @@ export function ImportBankTransactionsDialog({
                             <SelectItem value={UNCATEGORIZED}>
                               {isIncome ? "Ready to assign" : "Uncategorized"}
                             </SelectItem>
-                            {(groups ?? []).map((g) => (
+                            {(groups ?? []).filter((g) => !g.system).map((g) => (
                               <SelectGroup key={g.id}>
                                 <SelectLabel>{g.name}</SelectLabel>
                                 {g.categories.filter((c) => !c.archived).map((c) => (
@@ -569,10 +624,83 @@ export function ImportBankTransactionsDialog({
                                 ))}
                               </SelectGroup>
                             ))}
+                            {transferTargets.length > 0 && (
+                              <SelectGroup>
+                                <SelectLabel>Transfers →</SelectLabel>
+                                {transferTargets.map((a) => (
+                                  <SelectItem key={a.id} value={`${TRANSFER_PREFIX}${a.id}`}>
+                                    {isIncome ? `Transfer ← ${a.name}` : `Transfer → ${a.name}`}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            )}
                           </SelectContent>
                         </Select>
-                        {suggested && <Badge tone="brand">Suggested</Badge>}
+                        {suggested && !isTransfer && <Badge tone="brand">Suggested</Badge>}
                       </div>
+                      {t.match && decision !== "ignore" && (
+                        <div
+                          style={{
+                            gridColumn: "2 / -1",
+                            display: "flex",
+                            alignItems: "center",
+                            flexWrap: "wrap",
+                            gap: 8,
+                            font: "500 12.5px var(--font-sans)",
+                            color: "var(--text-muted)",
+                          }}
+                        >
+                          <Icon name="arrow-left-right" size={14} />
+                          <span>
+                            {adopted ? "Linked to the" : "Looks like the"} transfer{" "}
+                            {isIncome ? "from" : "to"}{" "}
+                            <strong style={{ color: "var(--text-strong)" }}>
+                              {accountName(allAccounts, t.match.other_account_id)}
+                            </strong>{" "}
+                            on {formatDate(t.match.date)}
+                            {adopted ? " — this row won't be added twice." : "."}
+                          </span>
+                          {adopted ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              type="button"
+                              onClick={() =>
+                                setMatchDecisions((prev) => {
+                                  const next = { ...prev };
+                                  delete next[t.id];
+                                  return next;
+                                })
+                              }
+                            >
+                              Undo
+                            </Button>
+                          ) : (
+                            <>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                type="button"
+                                onClick={() =>
+                                  setMatchDecisions((prev) => ({ ...prev, [t.id]: "accept" }))
+                                }
+                              >
+                                Link them
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                type="button"
+                                onClick={() =>
+                                  setMatchDecisions((prev) => ({ ...prev, [t.id]: "ignore" }))
+                                }
+                              >
+                                Keep separate
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })

@@ -2,7 +2,10 @@
 
 Partitions Σ available exactly into covered payments, left to spend and
 saved (minus overspent), so with To Be Assigned it adds up to the money in
-the accounts: accounts = covered + left + saved + TBA − overspent.
+the cash and bank accounts: accounts = covered + left + saved + TBA −
+overspent. Card payment categories count as saved (money set aside for the
+card); credit overspending is card debt, not missing cash, so it is left out
+of `overspent`.
 """
 
 from dataclasses import dataclass, field
@@ -24,7 +27,7 @@ from ..schemas import (
     OverviewView,
 )
 from . import schedules as sched
-from .budget_view import build_view, month_bounds
+from .budget_view import budget_account_ids, build_view, month_bounds
 
 @dataclass
 class Occurrence:
@@ -136,7 +139,7 @@ def build_overview(
                         category_id=c.id, name=c.name, group=group_name, amount_cents=a - pending
                     )
                 )
-        elif c.kind == "savings":
+        elif c.kind in ("savings", "credit_payment"):
             if a < 0:
                 overspent += -a
             else:
@@ -156,12 +159,14 @@ def build_overview(
                 )
             )
 
+    overspent -= sum(c.credit_overspent_cents for _, c in _categories(view))
     _, end = month_bounds(month)
     accounts = db.scalar(
         select(func.coalesce(func.sum(Transaction.amount_cents), 0)).where(
             Transaction.user_id == user.id,
             Transaction.status == "confirmed",
             Transaction.date < end,
+            Transaction.account_id.in_(budget_account_ids(user)),
         )
     )
     paid_items.sort(key=lambda p: (p.day is None, p.day or 0))

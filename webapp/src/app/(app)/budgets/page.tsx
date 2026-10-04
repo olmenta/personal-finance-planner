@@ -16,7 +16,7 @@ import { MoveMoneySheet } from "@/components/budget/MoveMoneySheet";
 import { ScheduleEditor } from "@/components/plan/ScheduleEditor";
 import { TopBar } from "@/components/shell/TopBar";
 import { euroCents } from "@/lib/format";
-import type { BudgetCategoryView } from "@/lib/api";
+import type { BudgetCategoryView, BudgetGroupView } from "@/lib/api";
 import { useBudgetMonth } from "@/lib/useBudgetMonth";
 import { budgets, chartLegend } from "@/lib/mock-data";
 
@@ -302,6 +302,8 @@ function AssignMode() {
         </div>
       )}
 
+      <CardMoveNote groups={month.groups} />
+
       <AssignGroups
         groups={month.groups}
         onAssign={assign}
@@ -361,5 +363,44 @@ export default function BudgetsPage() {
         {mode === "assign" ? <AssignMode /> : <ReportMode />}
       </div>
     </>
+  );
+}
+
+const CARD_MOVE_EXPLAINED_KEY = "olmenta-card-move-explained";
+
+/* First card purchase: the money "moving" to the card's payment category is
+   the least intuitive part of the YNAB card model — the coach explains it
+   once (design D6, risks). */
+function CardMoveNote({ groups }: Readonly<{ groups: BudgetGroupView[] }>) {
+  // Lazy init is safe: the budget only renders once client data has loaded.
+  const [explained, setExplained] = React.useState(() => {
+    try {
+      return globalThis.localStorage?.getItem(CARD_MOVE_EXPLAINED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const funded = groups
+    .flatMap((g) => g.categories)
+    .filter((c) => c.kind === "credit_payment")
+    .map((c) => ({
+      name: c.name,
+      cents: c.available_cents - c.assigned_cents - c.rollover_cents + c.spent_cents,
+    }))
+    .find((c) => c.cents > 0);
+  if (explained || !funded) return null;
+  return (
+    <CoachCapsule
+      message={`You paid with a card, so I set aside ${euroCents(funded.cents)} in "${funded.name}" — the bill is already covered by your budget.`}
+      cta="Got it"
+      onClick={() => {
+        try {
+          globalThis.localStorage?.setItem(CARD_MOVE_EXPLAINED_KEY, "1");
+        } catch {
+          // Storage blocked: the note just shows again next time.
+        }
+        setExplained(true);
+      }}
+    />
   );
 }

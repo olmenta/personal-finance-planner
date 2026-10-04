@@ -24,9 +24,11 @@ import { Input } from "@/components/ui/Input";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Switch } from "@/components/ui/Switch";
 import { PayeeField } from "@/components/PayeeField";
+import { AccountSelect, useAccounts } from "@/components/AccountPicker";
 import { useCoverPrompt } from "@/components/budget/CoverPrompt";
 import {
   createTransaction,
+  createTransfer,
   fetchCategories,
   fetchPayees,
 } from "@/lib/api";
@@ -47,8 +49,19 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
   const [note, setNote] = React.useState("");
   const today = new Date().toISOString().split("T")[0];
   const [date, setDate] = React.useState(today);
+  // "" = the main account (resolved at render, so it follows the first load).
+  const [accountId, setAccountId] = React.useState("");
+  const [toAccountId, setToAccountId] = React.useState("");
 
   const queryClient = useQueryClient();
+  const { active: accounts, main } = useAccounts(open);
+  const fromId = accountId || main?.id || "";
+  const toId =
+    toAccountId && toAccountId !== fromId
+      ? toAccountId
+      : (accounts.find((a) => a.id !== fromId)?.id ?? "");
+  // One account: no picker, no transfers — entry stays as fast as before.
+  const multiAccount = accounts.length > 1;
   const { data: groups } = useQuery({
     queryKey: ["categories"],
     queryFn: fetchCategories,
@@ -80,6 +93,25 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
     }
   }
 
+  function reset() {
+    setOpen(false);
+    setAmount("");
+    setPayee("");
+    setNote("");
+    setCategory("");
+    setIsRefund(false);
+    setDate(today);
+  }
+
+  const transferMutation = useMutation({
+    mutationFn: createTransfer,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      invalidateMoneyQueries(queryClient);
+      reset();
+    },
+  });
+
   const promptCover = useCoverPrompt();
   const mutation = useMutation({
     mutationFn: createTransaction,
@@ -92,31 +124,38 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
       invalidateMoneyQueries(queryClient);
       // A new payee may have been born from this write.
       queryClient.invalidateQueries({ queryKey: ["payees"] });
-      setOpen(false);
-      setAmount("");
-      setPayee("");
-      setNote("");
-      setCategory("");
-      setIsRefund(false);
-      setDate(today);
+      reset();
     },
   });
 
+  const isTransfer = direction === "Transfer" && multiAccount;
   const isIncome = direction === "Income";
   // A refund is an inflow that restores its category instead of counting as
   // income (spec: budget-api) — the category becomes required again.
   const needsCategory = !isIncome || isRefund;
   const amountCents = parseEuroToCents(amount);
+  const pending = mutation.isPending || transferMutation.isPending;
   const canSubmit =
-    (!needsCategory || !!category) &&
+    (isTransfer ? !!fromId && !!toId && fromId !== toId : !needsCategory || !!category) &&
     amountCents !== null &&
     amountCents > 0 &&
-    !mutation.isPending;
+    !pending;
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!canSubmit || amountCents === null) return;
+    if (isTransfer) {
+      transferMutation.mutate({
+        from_account_id: fromId,
+        to_account_id: toId,
+        amount_cents: amountCents,
+        note: note || undefined,
+        date,
+      });
+      return;
+    }
     mutation.mutate({
+      account_id: fromId || undefined,
       amount_cents: amountCents,
       category_id: needsCategory ? category : undefined,
       kind: isIncome ? "income" : "expense",
@@ -154,9 +193,9 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
           >
             Add transaction
           </DialogTitle>
-          <div style={{ marginTop: 12, width: 280 }}>
+          <div style={{ marginTop: 12, width: multiAccount ? 360 : 280, maxWidth: "100%" }}>
             <SegmentedControl
-              options={["Expense", "Income"]}
+              options={multiAccount ? ["Expense", "Income", "Transfer"] : ["Expense", "Income"]}
               defaultValue="Expense"
               onChange={setDirection}
             />
@@ -180,13 +219,30 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
               }}
             />
 
-            <PayeeField
-              label={direction === "Income" ? "Payer" : "Payee"}
-              value={payee}
-              payees={payees ?? []}
-              onChange={setPayee}
-              onPick={(p) => pickPayee(p.name, p.last_category_id)}
-            />
+            {isTransfer ? (
+              <div style={{ display: "flex", gap: 12 }}>
+                <AccountSelect
+                  label="From"
+                  value={fromId}
+                  onChange={setAccountId}
+                  accounts={accounts}
+                />
+                <AccountSelect
+                  label="To"
+                  value={toId}
+                  onChange={setToAccountId}
+                  accounts={accounts.filter((a) => a.id !== fromId)}
+                />
+              </div>
+            ) : (
+              <PayeeField
+                label={direction === "Income" ? "Payer" : "Payee"}
+                value={payee}
+                payees={payees ?? []}
+                onChange={setPayee}
+                onPick={(p) => pickPayee(p.name, p.last_category_id)}
+              />
+            )}
 
             <Input
               label="Note"
@@ -195,7 +251,7 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
               onChange={(e) => setNote(e.target.value)}
             />
 
-            {isIncome && (
+            {!isTransfer && isIncome && (
               <label
                 style={{
                   display: "flex",
@@ -225,7 +281,7 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
                 <Switch checked={isRefund} onChange={setIsRefund} />
               </label>
             )}
-            {needsCategory && (
+            {!isTransfer && needsCategory && (
             <label style={{ display: "flex", flexDirection: "column", gap: 7 }}>
               <span
                 style={{
@@ -257,7 +313,7 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
                     boxShadow: "var(--shadow-lg)",
                   }}
                 >
-                  {(groups ?? []).map((g) => (
+                  {(groups ?? []).filter((g) => !g.system).map((g) => (
                     <SelectGroup key={g.id}>
                       <SelectLabel>{g.name}</SelectLabel>
                       {g.categories.filter((c) => !c.archived).map((c) => (
@@ -272,6 +328,15 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
             </label>
             )}
 
+            {!isTransfer && multiAccount && (
+              <AccountSelect
+                label="Account"
+                value={fromId}
+                onChange={setAccountId}
+                accounts={accounts}
+              />
+            )}
+
             <Input
               label="Date"
               type="date"
@@ -280,7 +345,7 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
               inputStyle={{ font: "500 15px var(--font-sans)" }}
             />
 
-            {mutation.isError && (
+            {(mutation.isError || transferMutation.isError) && (
               <div
                 role="alert"
                 style={{
@@ -315,13 +380,13 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
               Cancel
             </Button>
             <Button
-              variant={direction === "Income" ? "accent" : "primary"}
+              variant={isIncome ? "accent" : "primary"}
               size="sm"
               type="submit"
               disabled={!canSubmit}
-              iconLeft={direction === "Income" ? "trending-up" : "plus"}
+              iconLeft={isTransfer ? "arrow-left-right" : isIncome ? "trending-up" : "plus"}
             >
-              {direction === "Income" ? "Add income" : "Add expense"}
+              {isTransfer ? "Add transfer" : isIncome ? "Add income" : "Add expense"}
             </Button>
           </div>
         </form>

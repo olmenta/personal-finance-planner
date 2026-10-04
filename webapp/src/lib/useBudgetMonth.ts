@@ -23,8 +23,11 @@ import { useSelectedMonth } from "./selectedMonth";
    as the old mock hook, queries/mutations inside. Assign is optimistic with
    rollback; the server view always wins on settle. */
 
+/* Server-derived: a card's payment category also holds the funded moves from
+   budgeted card spending, so assigned + rollover − spent is not enough. The
+   optimistic patches keep available_cents in step. */
 export function availableCents(c: BudgetCategoryView): number {
-  return c.assigned_cents + c.rollover_cents - c.spent_cents;
+  return c.available_cents;
 }
 
 function patchAssignment(

@@ -1,6 +1,5 @@
 """Manual transaction entry and listing."""
 
-import hashlib
 import uuid
 from datetime import date as date_type
 
@@ -12,7 +11,7 @@ from ..clock import today_madrid
 from ..db import get_db
 from ..deps import current_user
 from ..ingestion import NormalizedTransaction
-from ..models import Account, Category, Transaction, User
+from ..models import Category, Transaction, User
 from ..schemas import (
     ApplyCategoriesRequest,
     ApplyCategoriesResponse,
@@ -24,17 +23,12 @@ from ..schemas import (
     TransactionUpdate,
 )
 from ..services import category_suggestions
+from ..services.accounts import resolve_account
+from ..services.hashing import dedupe_hash
 from ..services.payees import resolve_payee
+from ..services.transfers import annotate_counterparts
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
-
-def dedupe_hash(
-    account_id: str, txn_date: date_type, amount_cents: int, description: str | None, salt: str = ""
-) -> str:
-    raw = f"{account_id}|{txn_date.isoformat()}|{amount_cents}|{description or ''}|{salt}"
-    return hashlib.sha256(raw.encode()).hexdigest()
-
-
 
 
 @router.post("", response_model=TransactionOut, status_code=201)
@@ -56,9 +50,7 @@ def create_transaction(
         if category is None:
             raise HTTPException(status_code=404, detail={"code": "category_not_found"})
 
-    account = db.scalar(select(Account).where(Account.user_id == user.id))
-    if account is None:
-        raise HTTPException(status_code=503, detail={"code": "account_not_seeded"})
+    account = resolve_account(db, user.id, payload.account_id)
 
     txn_date = payload.date or today_madrid()
     signed = payload.amount_cents if payload.kind == "income" else -payload.amount_cents
@@ -97,8 +89,12 @@ def suggest_categories(
     POST despite being a read: one model call, seconds of latency — keep it
     out of caches and prefetchers. AI failure degrades to an empty list.
     """
+    # Transfer twins and opening balances are never categorized.
     query = select(Transaction).where(
-        Transaction.user_id == user.id, Transaction.status == "confirmed"
+        Transaction.user_id == user.id,
+        Transaction.status == "confirmed",
+        Transaction.transfer_pair_id.is_(None),
+        Transaction.source != "opening_balance",
     )
     if payload.transaction_ids:
         query = query.where(Transaction.id.in_(payload.transaction_ids))
@@ -162,8 +158,8 @@ def apply_categories(
                 Transaction.status == "confirmed",
             )
         )
-        if txn is None:
-            continue  # vanished or foreign row — skip, never fail the batch
+        if txn is None or txn.transfer_pair_id:
+            continue  # vanished, foreign or transfer row — skip, never fail the batch
         if assignment.category_id is not None and assignment.category_id not in valid_category_ids:
             continue
         if assignment.category_id is None and assignment.payee is None:
@@ -203,6 +199,12 @@ def update_transaction(
     user: User = Depends(current_user),
 ) -> Transaction:
     txn = get_confirmed_or_404(db, user.id, txn_id)
+    if txn.transfer_pair_id:
+        # Twin invariants live in the transfer contract (PATCH /transfers).
+        raise HTTPException(status_code=409, detail={"code": "is_transfer"})
+
+    if payload.account_id is not None:
+        txn.account_id = resolve_account(db, user.id, payload.account_id).id
 
     # Explicit null clears the category (un-marks a refund); absent leaves it.
     if "category_id" in payload.model_fields_set:
@@ -258,6 +260,8 @@ def delete_transaction(
     # Hard delete (design D4): totals are computed on read, nothing references
     # confirmed rows, and GDPR favors actual removal.
     txn = get_confirmed_or_404(db, user.id, txn_id)
+    if txn.transfer_pair_id:
+        raise HTTPException(status_code=409, detail={"code": "is_transfer"})
     db.delete(txn)
     db.flush()
 
@@ -278,4 +282,4 @@ def list_transactions(
         end = date_type(year + 1, 1, 1) if mon == 12 else date_type(year, mon + 1, 1)
         query = query.where(Transaction.date >= start, Transaction.date < end)
     query = query.order_by(Transaction.date.desc(), Transaction.created_at.desc())
-    return list(db.scalars(query))
+    return annotate_counterparts(db, list(db.scalars(query)))

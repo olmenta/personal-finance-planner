@@ -12,6 +12,7 @@ import { Icon } from "@/components/ui/Icon";
 import { Panel } from "@/components/ui/Panel";
 import { ErrorPanel, SkeletonPanel } from "@/components/ui/QueryStates";
 import { TransactionRow } from "@/components/ui/TransactionRow";
+import { transferTitle, useAccounts } from "@/components/AccountPicker";
 import { TopBar } from "@/components/shell/TopBar";
 import { ThisMonthPanel, ThisMonthSide } from "@/components/plan/ThisMonth";
 import {
@@ -22,6 +23,7 @@ import {
   fetchTransactions,
   fetchUpcoming,
   toneForCategory,
+  type AccountOut,
   type CategoryOut,
   type SummaryView,
   type TransactionOut,
@@ -128,7 +130,12 @@ function SpendChart({ summary }: Readonly<{ summary: SummaryView }>) {
 function RecentTransactions({
   rows,
   categories,
-}: Readonly<{ rows: TransactionOut[]; categories: Map<string, CategoryOut> }>) {
+  accounts,
+}: Readonly<{
+  rows: TransactionOut[];
+  categories: Map<string, CategoryOut>;
+  accounts: AccountOut[];
+}>) {
   if (rows.length === 0) {
     return (
       <div style={{ textAlign: "center", padding: "26px 0 10px" }}>
@@ -145,7 +152,29 @@ function RecentTransactions({
     <div style={{ display: "flex", flexDirection: "column" }}>
       {rows.map((t, i) => {
         const category = t.category_id ? categories.get(t.category_id) : undefined;
+        const isTransfer = t.transfer_pair_id !== null;
         const isIncome = t.amount_cents > 0;
+        const day = `${t.date.slice(8)}/${t.date.slice(5, 7)}`;
+        if (isTransfer) {
+          return (
+            <div
+              key={t.id}
+              style={{
+                borderBottom: i < rows.length - 1 ? "1px solid var(--border-hairline)" : "none",
+              }}
+            >
+              <TransactionRow
+                icon="arrow-left-right"
+                tone="neutral"
+                title={transferTitle(t, accounts)}
+                subtitle={t.description ? `${t.description} · ${day}` : day}
+                amount={`${isIncome ? "+" : "−"}${euroCents(Math.abs(t.amount_cents))}`}
+                direction="none"
+                card={false}
+              />
+            </div>
+          );
+        }
         return (
           <div
             key={t.id}
@@ -240,6 +269,7 @@ export default function OverviewPage() {
     queryFn: () => fetchTransactions(month),
   });
   const catQuery = useQuery({ queryKey: ["categories"], queryFn: fetchCategories });
+  const { all: accounts } = useAccounts();
 
   const categories = React.useMemo(() => {
     const map = new Map<string, CategoryOut>();
@@ -310,7 +340,7 @@ export default function OverviewPage() {
               </div>
             }
           >
-            <RecentTransactions rows={txQuery.data.slice(0, 4)} categories={categories} />
+            <RecentTransactions rows={txQuery.data.slice(0, 4)} categories={categories} accounts={accounts} />
           </Panel>
         ) : (
           <SkeletonPanel rows={4} rowHeight={48} />

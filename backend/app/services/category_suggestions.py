@@ -135,6 +135,9 @@ def _build_prompt(
         "regular income (salary, benefits) must get category_id null.",
         "Some rows carry a user-written category hint — it may not match any",
         "category name exactly; map it onto the closest category in the tree.",
+        "Card interest and fee rows (descriptions with INTERESES, COMISION or",
+        'COMISIÓN) belong in an "Intereses y comisiones"-style category when the',
+        "tree has one.",
     ]
     for index, row in enumerate(rows):
         line = f"{index} | {row.date.isoformat()} | {row.amount_cents} | {row.description}"
@@ -181,6 +184,9 @@ def suggest(
     call degrades only its own chunk to EMPTY, not the whole batch.
     """
     empty: dict[int, Suggestion] = {i: EMPTY for i in range(len(rows))}
+    # Card payment categories are funded by moves and transfers, never by
+    # categorizing a row into them.
+    categories = [c for c in categories if c.payment_account_id is None]
     if not rows or not categories:
         return empty
     if not get_settings().anthropic_api_key:

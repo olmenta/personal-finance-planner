@@ -7,6 +7,7 @@ Run locally with:
 from fastapi import FastAPI
 
 from .routers import (
+    accounts,
     budget,
     categories,
     imports,
@@ -16,6 +17,7 @@ from .routers import (
     schedules,
     summary,
     transactions,
+    transfers,
 )
 from .telemetry import configure_sentry
 
@@ -23,10 +25,12 @@ configure_sentry()
 
 app = FastAPI(title="Personal Finance Planner API")
 
+app.include_router(accounts.router)
 app.include_router(categories.router)
 app.include_router(schedules.router)
 app.include_router(payees.router)
 app.include_router(transactions.router)
+app.include_router(transfers.router)
 app.include_router(imports.router)
 app.include_router(budget.router)
 app.include_router(summary.router)

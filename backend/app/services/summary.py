@@ -1,8 +1,9 @@
 """Month summary aggregation for the dashboard.
 
-balance = all-time sum of confirmed transaction amounts (signed cents);
-income = uncategorized positive rows (shared filter with the budget view —
-categorized inflows are refunds and net the expense side instead); week
+balance = all-time sum of confirmed transaction amounts (signed cents;
+transfer twins cancel out); income = uncategorized positive rows (shared
+filter with the budget view — categorized inflows are refunds and net the
+expense side instead, transfer twins never count); week
 buckets are Monday-based calendar weeks clamped to the month. Aggregation
 happens in SQL grouped by date — the date→bucket mapping stays in Python so
 the SQL is dialect-portable.
@@ -49,7 +50,9 @@ def build_summary(db: Session, user: User, month: str) -> SummaryView:
         .group_by(Transaction.date)
     ).all()
     # Expense side: all expenses plus categorized inflows (refunds), which
-    # net the day's spending down instead of counting as income.
+    # net the day's spending down instead of counting as income. Transfer
+    # twins and opening balances (e.g. a card's pre-existing debt) are not
+    # spending.
     daily_spent = db.execute(
         select(Transaction.date, func.sum(Transaction.amount_cents))
         .where(
@@ -57,6 +60,8 @@ def build_summary(db: Session, user: User, month: str) -> SummaryView:
             Transaction.status == "confirmed",
             Transaction.date >= start,
             Transaction.date < end,
+            Transaction.transfer_pair_id.is_(None),
+            Transaction.source != "opening_balance",
             or_(
                 Transaction.amount_cents < 0,
                 and_(Transaction.amount_cents > 0, Transaction.category_id.is_not(None)),

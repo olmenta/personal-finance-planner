@@ -281,7 +281,7 @@ function ReviewContent({
                       boxShadow: "var(--shadow-lg)",
                     }}
                   >
-                    {(groups ?? []).map((g) => (
+                    {(groups ?? []).filter((g) => !g.system).map((g) => (
                       <SelectGroup key={g.id}>
                         <SelectLabel>{g.name}</SelectLabel>
                         {g.categories.filter((c) => !c.archived).map((c) => (

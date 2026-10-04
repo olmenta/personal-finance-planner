@@ -23,6 +23,8 @@ class TransactionCreate(BaseModel):
     payee: str | None = Field(default=None, max_length=120)
     note: str | None = Field(default=None, max_length=500)
     date: date_type | None = None
+    # Omitted = the user's main account (oldest active).
+    account_id: str | None = None
 
 
 class TransactionUpdate(BaseModel):
@@ -39,6 +41,8 @@ class TransactionUpdate(BaseModel):
     payee: str | None = Field(default=None, max_length=120)
     note: str | None = Field(default=None, max_length=500)
     date: date_type | None = None
+    # Moves the row between registers.
+    account_id: str | None = None
 
 
 class TransactionOut(BaseModel):
@@ -53,8 +57,79 @@ class TransactionOut(BaseModel):
     description: str | None
     source: str
     status: str
+    # Transfer twins share a pair id; transfer_account_id is the other side's
+    # account (null for ordinary rows).
+    transfer_pair_id: str | None = None
+    transfer_account_id: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+# ---- Accounts (spec: accounts-api, credit-cards) ------------------------------
+
+AccountType = Literal["cash", "bank", "credit"]
+
+
+class AccountCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    type: AccountType = "bank"
+    institution: str | None = Field(default=None, max_length=120)
+    # Signed: positive cash on hand; negative pre-existing card debt.
+    opening_balance_cents: int | None = None
+    payment_day: int | None = Field(default=None, ge=1, le=31)  # credit only
+
+
+class AccountUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    institution: str | None = Field(default=None, max_length=120)
+    archived: bool | None = None
+    payment_day: int | None = Field(default=None, ge=1, le=31)  # null clears
+
+
+class AccountOut(BaseModel):
+    id: str
+    name: str
+    type: AccountType
+    institution: str | None
+    archived: bool
+    balance_cents: int  # derived: sum of confirmed transactions
+    is_main: bool
+    # Credit accounts only (null otherwise).
+    payment_day: int | None = None
+    suggested_payment_day: int | None = None
+    payment_category_id: str | None = None
+    payment_available_cents: int | None = None
+    uncovered_debt_cents: int | None = None
+
+
+# ---- Transfers (spec: transfers) ---------------------------------------------
+
+
+class TransferCreate(BaseModel):
+    from_account_id: str
+    to_account_id: str
+    amount_cents: int = Field(gt=0)
+    date: date_type | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+
+class TransferUpdate(BaseModel):
+    """Mirrored edit; `note: null` clears it, absent leaves it."""
+
+    amount_cents: int | None = Field(default=None, gt=0)
+    date: date_type | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+
+class TransferOut(BaseModel):
+    pair_id: str
+    from_account_id: str
+    to_account_id: str
+    amount_cents: int
+    date: date_type
+    note: str | None
+    out_transaction_id: str
+    in_transaction_id: str
 
 
 # ---- AI categorization review (spec: category-suggestions) -------------------
@@ -96,6 +171,20 @@ class ApplyCategoriesResponse(BaseModel):
 # ---- Imports ----------------------------------------------------------------
 
 
+class TwinMatch(BaseModel):
+    """An existing confirmed transfer twin a staged row seems to mirror —
+    a non-binding suggestion (design D5)."""
+
+    transaction_id: str
+    pair_id: str
+    other_account_id: str  # where the transfer came from / went to
+    date: date_type
+
+
+class StagedTransactionOut(TransactionOut):
+    match: TwinMatch | None = None
+
+
 class ImportBatchView(BaseModel):
     id: str
     account_id: str
@@ -104,7 +193,7 @@ class ImportBatchView(BaseModel):
     status: Literal["staged", "confirmed", "discarded"]
     row_count: int
     skipped_duplicates: int
-    transactions: list[TransactionOut]
+    transactions: list[StagedTransactionOut]
 
 
 class ConfirmImportRequest(BaseModel):
@@ -112,6 +201,12 @@ class ConfirmImportRequest(BaseModel):
     overrides: dict[str, str | None] = Field(default_factory=dict)
     # txn_id -> payee name ("" clears; resolves find-or-create on confirm)
     payee_overrides: dict[str, str] = Field(default_factory=dict)
+    # txn_id -> other account: the row is a transfer, its twin is created on
+    # confirm (wins over a category override for the same row).
+    transfer_overrides: dict[str, str] = Field(default_factory=dict)
+    # Staged rows whose match suggestion was accepted: the existing twin is
+    # adopted and the staged row dropped.
+    accept_matches: list[str] = Field(default_factory=list)
 
 
 # ---- Payees -----------------------------------------------------------------
@@ -167,6 +262,8 @@ class CategoryOut(BaseModel):
     # Derived: scheduled (has payments) | savings (flag) | flexible.
     kind: CategoryKind = Field(validation_alias="effective_kind")
     savings: bool
+    # Set on a credit card's system payment category.
+    payment_account_id: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -175,6 +272,7 @@ class CategoryGroupOut(BaseModel):
     id: str
     name: str
     sort_order: int
+    system: bool = False  # "Tarjetas de crédito": not editable via CRUD
     categories: list[CategoryOut]
 
     model_config = {"from_attributes": True}
@@ -287,7 +385,9 @@ class BudgetCategoryView(BaseModel):
     id: str
     name: str
     icon: str
-    kind: CategoryKind
+    # credit_payment: a card's payment category (spent = payments to the card).
+    kind: CategoryKind | Literal["credit_payment"]
+    payment_account_id: str | None = None
     # Computed from payment schedules; null when the category has none.
     normal_cents: int | None = None
     catch_up_cents: int | None = None
@@ -299,6 +399,9 @@ class BudgetCategoryView(BaseModel):
     # Last month's overspending of this category, reset instead of carried
     # (deducted from To Be Assigned).
     rollover_reset_cents: int
+    # Card spending this month not covered by the category's available: it
+    # stays as card debt instead of moving to the payment category.
+    credit_overspent_cents: int = 0
     cover_suggestion: CoverSuggestion | None = None
     suggestion_cents: int | None
     suggestion_state: Literal["draft", "confirmed", "edited"]
@@ -321,7 +424,7 @@ class BudgetMonthView(BaseModel):
     # Cumulative: carried_in + unbudgeted − assigned − overspent_deducted.
     to_be_assigned_cents: int
     carried_in_cents: int  # previous month's To Be Assigned
-    overspent_deducted_cents: int  # previous month's uncovered overspending
+    overspent_deducted_cents: int  # previous month's uncovered cash overspending
     groups: list[BudgetGroupView]
 
 
@@ -504,10 +607,16 @@ class OnboardingIncomeIn(BaseModel):
     income_day: int | None = Field(default=None, ge=1, le=31)
 
 
+class OnboardingAccountIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    type: Literal["bank", "credit"] = "bank"
+
+
 class OnboardingFinalizeRequest(BaseModel):
     """The reviewed proposal: checked items only, renames applied,
     user-added entries included."""
 
+    accounts: list[OnboardingAccountIn] = []
     category_groups: list[OnboardingGroupIn] = []
     payers: list[str] = []
     payees: list[str] = []

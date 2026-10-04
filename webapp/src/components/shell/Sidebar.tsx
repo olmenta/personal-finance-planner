@@ -9,6 +9,7 @@ import { Icon } from "@/components/ui/Icon";
 const items = [
   { href: "/", icon: "dashboard", label: "Overview" },
   { href: "/transactions", icon: "receipt", label: "Transactions" },
+  { href: "/accounts", icon: "wallet", label: "Accounts" },
   { href: "/budgets", icon: "pie-chart", label: "Budgets" },
   { href: "/upcoming", icon: "calendar", label: "Upcoming" },
   { href: "/goals", icon: "target", label: "Goals" },
