@@ -8,7 +8,7 @@ Next.js Route Handlers acting as a backend-for-frontend: the browser talks only 
 
 ### Requirement: Route Handlers proxy the backend API
 
-The webapp SHALL expose Next.js Route Handlers under `/api/*` that forward requests to the FastAPI backend for every endpoint the UI consumes: `GET /api/categories`, `POST /api/categories`, `PATCH /api/categories/{id}`, `POST /api/categories/groups`, `PATCH /api/categories/groups/{id}`, `DELETE /api/categories/groups/{id}`, `GET /api/payees`, `GET /api/transactions` (with query string), `POST /api/transactions`, `PATCH /api/transactions/{id}`, `DELETE /api/transactions/{id}`, `POST /api/transactions/suggest-categories`, `POST /api/transactions/apply-categories`, `GET /api/budget/{month}`, `PUT /api/budget/{month}/assignments/{categoryId}`, `POST /api/budget/{month}/confirm-suggestions`, `POST /api/budget/{month}/moves`, `GET /api/categories/{id}/schedules`, `POST /api/categories/{id}/schedules`, `PATCH /api/schedules/{id}`, `DELETE /api/schedules/{id}`, `GET /api/overview/{month}`, `GET /api/plan/upcoming` (with query string), `GET /api/plan/summary` (with query string), `GET /api/plan/income`, `PUT /api/plan/income`, `GET /api/summary/{month}`, `POST /api/imports` (multipart upload forwarded with its body and content type), `GET /api/imports/pending`, `GET /api/imports/{id}`, `POST /api/imports/{id}/confirm`, `DELETE /api/imports/{id}`, `POST /api/onboarding/start`, `GET /api/onboarding/session`, `GET /api/onboarding/status`, `POST /api/onboarding/messages`, `POST /api/onboarding/{id}/finalize`, and `POST /api/onboarding/template`. The browser SHALL NOT call the FastAPI backend directly.
+The webapp SHALL expose Next.js Route Handlers under `/api/*` that forward requests to the FastAPI backend for every endpoint the UI consumes: `GET /api/categories`, `POST /api/categories`, `PATCH /api/categories/{id}`, `POST /api/categories/groups`, `PATCH /api/categories/groups/{id}`, `DELETE /api/categories/groups/{id}`, `GET /api/payees`, `GET /api/accounts`, `POST /api/accounts`, `PATCH /api/accounts/{id}`, `POST /api/transfers`, `GET /api/transfers/{pairId}`, `PATCH /api/transfers/{pairId}`, `DELETE /api/transfers/{pairId}`, `POST /api/transfers/{pairId}/unlink`, `GET /api/transactions` (with query string), `POST /api/transactions`, `PATCH /api/transactions/{id}`, `DELETE /api/transactions/{id}`, `POST /api/transactions/suggest-categories`, `POST /api/transactions/apply-categories`, `GET /api/budget/{month}`, `PUT /api/budget/{month}/assignments/{categoryId}`, `POST /api/budget/{month}/confirm-suggestions`, `POST /api/budget/{month}/moves`, `GET /api/categories/{id}/schedules`, `POST /api/categories/{id}/schedules`, `PATCH /api/schedules/{id}`, `DELETE /api/schedules/{id}`, `GET /api/overview/{month}`, `GET /api/plan/upcoming` (with query string), `GET /api/plan/summary` (with query string), `GET /api/plan/income`, `PUT /api/plan/income`, `GET /api/summary/{month}`, `POST /api/imports` (multipart upload forwarded with its body and content type, including the optional `account_id` field), `GET /api/imports/pending`, `GET /api/imports/{id}`, `POST /api/imports/{id}/confirm`, `DELETE /api/imports/{id}`, `POST /api/onboarding/start`, `GET /api/onboarding/session`, `GET /api/onboarding/status`, `POST /api/onboarding/messages`, `POST /api/onboarding/{id}/finalize`, and `POST /api/onboarding/template`. The browser SHALL NOT call the FastAPI backend directly.
 
 #### Scenario: Budget view proxied
 
@@ -28,7 +28,7 @@ The webapp SHALL expose Next.js Route Handlers under `/api/*` that forward reque
 #### Scenario: Statement upload forwarded
 
 - **WHEN** the browser posts a multipart form with a bank statement file to `/api/imports`
-- **THEN** the backend receives the same file and `bank` field, and the response body and status pass through unchanged
+- **THEN** the backend receives the same file, `bank` field, and optional `account_id` field, and the response body and status pass through unchanged
 
 #### Scenario: Pending import proxied
 
@@ -74,6 +74,21 @@ The webapp SHALL expose Next.js Route Handlers under `/api/*` that forward reque
 
 - **WHEN** the browser requests `GET /api/overview/2026-10`
 - **THEN** the Route Handler fetches `GET {BACKEND_URL}/overview/2026-10` and returns the backend's JSON body unchanged
+
+#### Scenario: Accounts proxied
+
+- **WHEN** the browser requests `GET /api/accounts`
+- **THEN** the Route Handler fetches `GET {BACKEND_URL}/accounts` and returns the accounts list with derived balances unchanged
+
+#### Scenario: Transfer mutation proxied
+
+- **WHEN** the browser sends `PATCH /api/transfers/{pairId}` with a JSON body
+- **THEN** the backend receives the same body at `PATCH {BACKEND_URL}/transfers/{pairId}` and the transfer (or the 404 with `transfer_not_found`) passes through unchanged
+
+#### Scenario: Transfer unlink proxied
+
+- **WHEN** the browser sends `POST /api/transfers/{pairId}/unlink`
+- **THEN** the Route Handler forwards it and passes the backend's 204 (or error) through unchanged
 
 #### Scenario: Schedule created through the proxy
 

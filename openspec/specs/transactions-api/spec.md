@@ -8,12 +8,17 @@ HTTP API surface for transactions: creating manual entries and listing transacti
 
 ### Requirement: Create a manual transaction
 
-The API SHALL expose `POST /transactions` accepting `amount_cents` (positive integer), `category_id` (required for expenses, 422 `category_required` when missing; optional for income — uncategorized income funds To Be Assigned), optional `payee` (trimmed name ≤120 chars, resolved find-or-create against the user's payees), optional `note`, and optional `date` defaulting to today. The created transaction SHALL have `source = "manual"` and `status = "confirmed"`. Validation errors SHALL return machine-readable error codes (i18n-ready, no human-language coupling).
+The API SHALL expose `POST /transactions` accepting `amount_cents` (positive integer), `category_id` (required for expenses, 422 `category_required` when missing; optional for income — uncategorized income funds To Be Assigned), optional `account_id` (defaulting to the user's main account; a foreign or unknown account returns 404 `account_not_found`), optional `payee` (trimmed name ≤120 chars, resolved find-or-create against the user's payees), optional `note`, and optional `date` defaulting to today. The created transaction SHALL have `source = "manual"` and `status = "confirmed"`. Validation errors SHALL return machine-readable error codes (i18n-ready, no human-language coupling).
 
 #### Scenario: Minimal entry
 
 - **WHEN** a client posts `{ "amount_cents": 1249, "category_id": "<id>" }`
-- **THEN** the API returns 201 with the transaction dated today, source `manual`, status `confirmed`, and no payee
+- **THEN** the API returns 201 with the transaction dated today, source `manual`, status `confirmed`, no payee, and the user's main account
+
+#### Scenario: Entry into a chosen account
+
+- **WHEN** a client posts an expense with `account_id` of a second bank account
+- **THEN** the transaction lands in that account and its derived balance reflects it
 
 #### Scenario: Entry with payee
 
@@ -42,7 +47,7 @@ The API SHALL expose `POST /transactions` accepting `amount_cents` (positive int
 
 ### Requirement: List transactions
 
-The API SHALL expose `GET /transactions` returning confirmed transactions only, ordered by date descending, filterable by month (`?month=YYYY-MM`), with each row carrying `payee_id` and `payee_name` (null when the transaction has no payee). Staged transactions (pending import review) SHALL be visible only through the import batch view, never in this list.
+The API SHALL expose `GET /transactions` returning confirmed transactions only, ordered by date descending, filterable by month (`?month=YYYY-MM`), with each row carrying `account_id`, `payee_id` and `payee_name` (null when the transaction has no payee), plus `transfer_pair_id` and `transfer_account_id` (the twin's account) on transfer rows — both null for ordinary rows. Staged transactions (pending import review) SHALL be visible only through the import batch view, never in this list.
 
 #### Scenario: Month filter
 
@@ -59,9 +64,14 @@ The API SHALL expose `GET /transactions` returning confirmed transactions only, 
 - **WHEN** a listed transaction references a payee
 - **THEN** the row includes the payee's id and name
 
+#### Scenario: Transfer row identifies its twin's account
+
+- **WHEN** a listed transaction is the outflow half of a transfer from Banco A to Banco B
+- **THEN** the row carries the pair's `transfer_pair_id` and `transfer_account_id` = Banco B's id
+
 ### Requirement: Update a transaction
 
-The API SHALL expose `PATCH /transactions/{id}` to partially update a confirmed transaction owned by the user. Editable fields: `amount_cents` (positive magnitude) with `kind` (`expense` | `income`) signing it server-side — when `amount_cents` is sent without `kind`, the row's current sign is kept; `category_id` (validated against the user's categories; an **explicit `null` clears the category** — un-marking a refund so the inflow counts as income again — while an absent field leaves it untouched); `note` (`null` clears the description); `payee` (trimmed name resolved find-or-create against the user's payees, empty string clears it); and `date`. Omitted fields SHALL stay unchanged, and the row's `dedupe_hash` SHALL remain immutable so re-imports keep colliding with edited rows. Budget and summary reads SHALL reflect the edit immediately. A transaction that does not exist, belongs to another user, or is not `confirmed` SHALL return 404 with code `transaction_not_found`.
+The API SHALL expose `PATCH /transactions/{id}` to partially update a confirmed transaction owned by the user. Editable fields: `amount_cents` (positive magnitude) with `kind` (`expense` | `income`) signing it server-side — when `amount_cents` is sent without `kind`, the row's current sign is kept; `category_id` (validated against the user's categories; an explicit `null` clears the category — un-marking a refund so the inflow counts as income again — while an absent field leaves it untouched); `account_id` (validated against the user's accounts, moving the row between registers); `note` (`null` clears the description); `payee` (trimmed name resolved find-or-create against the user's payees, empty string clears it); and `date`. Omitted fields SHALL stay unchanged, and the row's `dedupe_hash` SHALL remain immutable so re-imports keep colliding with edited rows. A row carrying a `transfer_pair_id` SHALL return 409 `is_transfer` (transfer rows are edited through the transfer contract). Budget and summary reads SHALL reflect the edit immediately. A transaction that does not exist, belongs to another user, or is not `confirmed` SHALL return 404 with code `transaction_not_found`.
 
 #### Scenario: Amount and category corrected
 
@@ -82,6 +92,16 @@ The API SHALL expose `PATCH /transactions/{id}` to partially update a confirmed 
 
 - **WHEN** a categorized inflow is patched changing only the note
 - **THEN** its category is unchanged
+
+#### Scenario: Moved between accounts
+
+- **WHEN** a confirmed expense is patched with another owned `account_id`
+- **THEN** both accounts' derived balances reflect the move on the next read
+
+#### Scenario: Transfer row rejected
+
+- **WHEN** a client PATCHes a row that is half of a transfer pair
+- **THEN** the API returns 409 with code `is_transfer`
 
 #### Scenario: Imported row keeps its dedupe identity
 
@@ -105,7 +125,7 @@ The API SHALL expose `PATCH /transactions/{id}` to partially update a confirmed 
 
 ### Requirement: Delete a transaction
 
-The API SHALL expose `DELETE /transactions/{id}` to permanently remove a confirmed transaction owned by the user, returning 204. Budget and summary reads SHALL reflect the removal immediately. The same 404 `transaction_not_found` rule as update SHALL apply to missing, foreign, or staged rows.
+The API SHALL expose `DELETE /transactions/{id}` to permanently remove a confirmed transaction owned by the user, returning 204. Budget and summary reads SHALL reflect the removal immediately. The same 404 `transaction_not_found` rule as update SHALL apply to missing, foreign, or staged rows. A row carrying a `transfer_pair_id` SHALL return 409 `is_transfer` (transfers are deleted through the transfer contract, which removes both twins).
 
 #### Scenario: Deleted row leaves the totals
 
@@ -116,3 +136,8 @@ The API SHALL expose `DELETE /transactions/{id}` to permanently remove a confirm
 
 - **WHEN** an imported row is deleted and the same bank file is uploaded again
 - **THEN** that row is staged again for review instead of being skipped
+
+#### Scenario: Transfer row not deletable here
+
+- **WHEN** a client DELETEs a row that is half of a transfer pair through `/transactions/{id}`
+- **THEN** the API returns 409 with code `is_transfer` and both twins remain

@@ -71,3 +71,17 @@ The API SHALL expose `POST /categories/groups` (name, appended at the end of the
 
 - **WHEN** a client patches a category with `savings = "maybe"`
 - **THEN** the API returns 422
+
+### Requirement: Credit-card payment categories are locked
+
+`GET /categories` SHALL flag each group's `system` boolean and each category's nullable `payment_account_id` (set on a credit card's payment category, see credit-cards). Payment categories and the "Tarjetas de crédito" system group are managed by the accounts API — they follow the card's rename and archive — so category CRUD SHALL return 409 `payment_category_locked` when a request would archive/unarchive or re-parent a payment category, create a category in or move one into a system group, or delete a system group.
+
+#### Scenario: Payment category cannot be archived directly
+
+- **WHEN** a client patches "Pago Visa BBVA" with `archived = true`
+- **THEN** the API returns 409 with code `payment_category_locked` and the category is unchanged
+
+#### Scenario: System group accepts no ordinary categories
+
+- **WHEN** a client creates a category with the "Tarjetas de crédito" group as `group_id`
+- **THEN** the API returns 409 with code `payment_category_locked`

@@ -8,7 +8,7 @@ Backend contract for the month summary that feeds the dashboard: all-time balanc
 
 ### Requirement: Month summary view
 
-The API SHALL expose `GET /summary/{month}` returning, in integer cents: `balance_cents` (all-time sum of confirmed transaction amounts across the user's accounts), `income_cents` (sum of positive confirmed transactions **without a category** in the month — categorized inflows are refunds, not income), `expense_cents` (absolute net of categorized confirmed activity in the month: expenses minus categorized inflows), and `weeks` — one bucket per calendar week overlapping the month, each with `start` (ISO date of the bucket's first day, clamped to the month), `spent_cents`, and `income_cents` following the same categorization rule. Income SHALL be derived from the same shared aggregation the budget view uses, so the dashboard and the budget can never disagree. Staged transactions SHALL be excluded everywhere. Aggregation SHALL happen in the database, not by shipping the transaction list.
+The API SHALL expose `GET /summary/{month}` returning, in integer cents: `balance_cents` (all-time sum of confirmed transaction amounts across the user's accounts — transfer twins cancel out and need no exclusion), `income_cents` (sum of positive confirmed transactions in cash or bank accounts **without a category and without a `transfer_pair_id`** in the month — categorized inflows are refunds, transfer rows never enter the budget plane), `expense_cents` (absolute net of categorized confirmed activity in the month: expenses minus categorized inflows, transfer rows and opening-balance rows excluded — a card's pre-existing debt is not spending), and `weeks` — one bucket per calendar week overlapping the month, each with `start` (ISO date of the bucket's first day, clamped to the month), `spent_cents`, and `income_cents` following the same rules. Income SHALL be derived from the same shared aggregation the budget view uses, so the dashboard and the budget can never disagree. Staged transactions SHALL be excluded everywhere. Aggregation SHALL happen in the database, not by shipping the transaction list.
 
 #### Scenario: Month totals
 
@@ -19,6 +19,11 @@ The API SHALL expose `GET /summary/{month}` returning, in integer cents: `balanc
 
 - **WHEN** June additionally has a confirmed +12,50 € inflow categorized to Supermercado
 - **THEN** the summary reports `expense_cents = 192550` and `income_cents` unchanged at `235000`
+
+#### Scenario: Transfer invisible to monthly totals
+
+- **WHEN** June additionally contains a 200,00 € transfer from Banco A to Banco B
+- **THEN** `income_cents`, `expense_cents`, and every week bucket are unchanged, while `balance_cents` is also unchanged (the twins cancel)
 
 #### Scenario: All-time balance
 
