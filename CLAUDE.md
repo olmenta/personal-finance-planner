@@ -40,6 +40,8 @@ Webapp (run inside `webapp/`):
 - `volta run npm run dev` — dev server
 - `volta run npm run build` — production build (run before committing significant changes)
 - `volta run npm run lint` — lint
+- `volta run npm run e2e` — Playwright suite (`webapp/e2e/`). Starts its own API on :8100 against the Neon `e2e` branch (`E2E_*` in `backend/.env`) and its own Next dev server on :3100 (`.next-e2e`), so it runs next to your dev servers. "Today" is pinned to 2026-10-14 (`FIXED_TODAY` + `page.clock`); each spec file starts with `resetDb()`
+- `volta run npm run e2e:reset-db` — reset the e2e branch (migrate, truncate, seed)
 
 Backend (run inside `backend/`):
 

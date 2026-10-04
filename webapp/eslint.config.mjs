@@ -6,7 +6,7 @@ export default defineConfig([
   ...nextCoreWebVitals,
   ...nextTypescript,
   {
-    ignores: [".next/**", "node_modules/**", "next-env.d.ts"],
+    ignores: [".next/**", ".next-e2e/**", "playwright-report/**", "test-results/**", "node_modules/**", "next-env.d.ts"],
   },
   {
     rules: {
