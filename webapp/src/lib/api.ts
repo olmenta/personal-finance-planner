@@ -14,10 +14,16 @@ export interface CoverSuggestion {
   amount_cents: number;
 }
 
+export type CategoryKind = "flexible" | "scheduled" | "savings";
+
 export interface BudgetCategoryView {
   id: string;
   name: string;
   icon: string;
+  kind: CategoryKind;
+  /** Computed from payment schedules; null when the category has none. */
+  normal_cents: number | null;
+  catch_up_cents: number | null;
   assigned_cents: number;
   spent_cents: number;
   rollover_cents: number;
@@ -71,6 +77,135 @@ export interface CategoryOut {
   name: string;
   icon: string;
   archived: boolean;
+  /** Derived: scheduled (has payments) | savings (flag) | flexible. */
+  kind: CategoryKind;
+  savings: boolean;
+}
+
+// ---- Payment schedules, month overview, plan (category-targets) -----------
+
+export type SchedulePattern =
+  | "monthly"
+  | "some_months"
+  | "annual"
+  | "every_n"
+  | "once"
+  | "no_date";
+
+export interface ScheduleIn {
+  name: string;
+  amount_cents: number;
+  pattern: SchedulePattern;
+  months?: number[];
+  month?: number;
+  every_n?: number;
+  start_month?: string; // "YYYY-MM"
+  count?: number;
+  once_month?: string; // "YYYY-MM"
+  day?: number | null;
+  estimated?: boolean;
+}
+
+export interface ScheduleOut {
+  id: string;
+  category_id: string;
+  name: string;
+  amount_cents: number;
+  pattern: SchedulePattern;
+  months: number[] | null;
+  month: number | null;
+  every_n: number | null;
+  start_month: string | null;
+  count: number | null;
+  once_month: string | null;
+  day: number | null;
+  estimated: boolean;
+}
+
+export interface OverviewPaidItem {
+  category_id: string;
+  category_name: string;
+  /** Schedule name; null = the category's other spending. */
+  name: string | null;
+  day: number | null;
+  amount_cents: number;
+}
+
+export interface OverviewAmountItem {
+  category_id: string;
+  name: string;
+  group: string;
+  amount_cents: number;
+  spent_cents: number | null;
+}
+
+export interface OverviewPending {
+  category_id: string;
+  category_name: string;
+  schedule_id: string;
+  name: string;
+  day: number | null;
+  amount_cents: number;
+  covered_cents: number;
+  short_cents: number;
+  estimated: boolean;
+}
+
+export interface OverviewView {
+  month: string;
+  today: string;
+  paid: { total_cents: number; items: OverviewPaidItem[] };
+  to_pay: OverviewPending[];
+  to_pay_total_cents: number;
+  covered_cents: number;
+  left_to_spend: { total_cents: number; items: OverviewAmountItem[] };
+  saved: { total_cents: number; items: OverviewAmountItem[] };
+  overspent_cents: number;
+  to_be_assigned_cents: number;
+  /** = covered + left_to_spend + saved + to_be_assigned − overspent */
+  accounts_cents: number;
+}
+
+export interface UpcomingOccurrence {
+  category_id: string;
+  category_name: string;
+  schedule_id: string;
+  name: string;
+  day: number | null;
+  amount_cents: number;
+  estimated: boolean;
+  covered: boolean | null;
+  short_cents: number | null;
+}
+
+export interface UpcomingMonth {
+  month: string;
+  occurrences: UpcomingOccurrence[];
+  payments_cents: number;
+  short_cents: number | null;
+  flexible_budget_cents: number | null;
+  flexible_funded_cents: number | null;
+  set_aside_wanted_cents: number | null;
+  set_aside_funded_cents: number | null;
+  unassigned_cents: number | null;
+}
+
+export interface UpcomingView {
+  income_known: boolean;
+  income_cents: number | null;
+  months: UpcomingMonth[];
+}
+
+export interface PlanSummary {
+  month: string;
+  income_known: boolean;
+  income_cents: number | null;
+  scheduled_cents: number;
+  flexible_cents: number;
+  goals_cents: number;
+  costs_cents: number;
+  gap_cents: number | null;
+  gap_monthly_cents: number | null;
 }
 
 export interface CategoryGroupOut {
@@ -84,6 +219,7 @@ export interface CategoryCreate {
   name: string;
   icon?: string;
   group_id: string;
+  savings?: boolean;
 }
 
 export interface CategoryUpdate {
@@ -91,6 +227,7 @@ export interface CategoryUpdate {
   icon?: string;
   group_id?: string; // move between groups
   archived?: boolean;
+  savings?: boolean;
 }
 
 export interface GroupCreate {
@@ -235,6 +372,40 @@ export const confirmSuggestions = (month: string, categoryIds: string[]) =>
   request<BudgetMonthView>(`/budget/${month}/confirm-suggestions`, {
     method: "POST",
     body: JSON.stringify({ category_ids: categoryIds }),
+  });
+
+export const fetchSchedules = (categoryId: string) =>
+  request<ScheduleOut[]>(`/categories/${categoryId}/schedules`);
+
+export const createSchedule = (categoryId: string, body: ScheduleIn) =>
+  request<ScheduleOut>(`/categories/${categoryId}/schedules`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+export const updateSchedule = (id: string, body: Partial<ScheduleIn>) =>
+  request<ScheduleOut>(`/schedules/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+
+export async function deleteSchedule(id: string): Promise<void> {
+  const res = await fetch(`/api/schedules/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new ApiError("delete_failed", res.status);
+}
+
+export const fetchOverview = (month: string) => request<OverviewView>(`/overview/${month}`);
+
+export const fetchUpcoming = (from: string) =>
+  request<UpcomingView>(`/plan/upcoming?from=${from}`);
+
+export const fetchPlanSummary = (from: string) =>
+  request<PlanSummary>(`/plan/summary?from=${from}`);
+
+export const fetchExpectedIncome = () =>
+  request<{ expected_monthly_cents: number | null }>("/plan/income");
+
+export const putExpectedIncome = (cents: number) =>
+  request<{ expected_monthly_cents: number | null }>("/plan/income", {
+    method: "PUT",
+    body: JSON.stringify({ expected_monthly_cents: cents }),
   });
 
 export const fetchCategories = () =>

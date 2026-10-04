@@ -18,7 +18,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -75,8 +75,56 @@ class Category(Base):
     name: Mapped[str] = mapped_column(String(120))
     icon: Mapped[str] = mapped_column(String(40), default="circle")
     archived: Mapped[bool] = mapped_column(default=False)
+    # Stored flag: "savings" when the user marks the category as savings,
+    # "flexible" otherwise. The effective kind is derived (see `effective_kind`):
+    # any payment schedule makes the category "scheduled".
+    kind: Mapped[str] = mapped_column(String(12), default="flexible", server_default="flexible")
 
     group: Mapped[CategoryGroup] = relationship(back_populates="categories")
+    schedules: Mapped[list["PaymentSchedule"]] = relationship(
+        back_populates="category", cascade="all, delete-orphan", order_by="PaymentSchedule.created_at"
+    )
+
+    @property
+    def savings(self) -> bool:
+        return self.kind == "savings"
+
+    @property
+    def effective_kind(self) -> str:
+        if self.schedules:
+            return "scheduled"
+        return "savings" if self.savings else "flexible"
+
+
+class PaymentSchedule(Base):
+    """When a category's money is actually due (category-targets design D2).
+
+    One row per payment; pattern-specific columns are nullable and validated
+    per pattern at the API. Amounts are never derived here — normal and
+    catch-up monthly amounts are computed on read (services/schedules.py).
+    """
+
+    __tablename__ = "payment_schedules"
+    __table_args__ = (Index("ix_payment_schedules_user_category", "user_id", "category_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    category_id: Mapped[str] = mapped_column(ForeignKey("categories.id"))
+    name: Mapped[str] = mapped_column(String(120))
+    amount_cents: Mapped[int] = mapped_column(Integer)
+    # monthly | some_months | annual | every_n | once | no_date
+    pattern: Mapped[str] = mapped_column(String(12))
+    months: Mapped[list[int] | None] = mapped_column(ARRAY(Integer))  # some_months
+    month: Mapped[int | None] = mapped_column(Integer)  # annual
+    every_n: Mapped[int | None] = mapped_column(Integer)  # every_n
+    start_month: Mapped[str | None] = mapped_column(String(7))  # every_n; monthly with count
+    count: Mapped[int | None] = mapped_column(Integer)  # monthly, finite
+    once_month: Mapped[str | None] = mapped_column(String(7))  # once
+    day: Mapped[int | None] = mapped_column(Integer)
+    estimated: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    category: Mapped["Category"] = relationship(back_populates="schedules")
 
 
 class Payee(Base):

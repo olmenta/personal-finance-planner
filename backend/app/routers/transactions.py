@@ -3,13 +3,12 @@
 import hashlib
 import uuid
 from datetime import date as date_type
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..clock import today_madrid
 from ..db import get_db
 from ..deps import current_user
 from ..ingestion import NormalizedTransaction
@@ -28,13 +27,6 @@ from ..services import category_suggestions
 from ..services.payees import resolve_payee
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
-
-MADRID = ZoneInfo("Europe/Madrid")
-
-
-def today_madrid() -> date_type:
-    return datetime.now(MADRID).date()
-
 
 def dedupe_hash(
     account_id: str, txn_date: date_type, amount_cents: int, description: str | None, salt: str = ""

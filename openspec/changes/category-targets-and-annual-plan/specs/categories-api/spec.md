@@ -2,16 +2,16 @@
 
 ## ADDED Requirements
 
-### Requirement: Category kind in the tree and on edit
+### Requirement: Category kind and savings flag
 
-`GET /categories` SHALL include each category's `kind`, and `PATCH /categories/{id}` SHALL accept `kind` (`flexible` | `scheduled` | `savings`); any other value SHALL return 422. `POST /categories` SHALL accept an optional `kind`, defaulting to `flexible`.
+`GET /categories` SHALL include each category's derived `kind` (`scheduled` | `savings` | `flexible`, see payment-schedules) and its `savings` flag. `POST /categories` and `PATCH /categories/{id}` SHALL accept an optional boolean `savings` (default false on create); a non-boolean value SHALL return 422. The kind itself SHALL NOT be writable.
 
-#### Scenario: Mark a category as scheduled
+#### Scenario: Mark a category as savings
 
-- **WHEN** a client patches "Colegio Tomi" with `kind = "scheduled"`
-- **THEN** the tree lists it with `kind = "scheduled"`
+- **WHEN** a client patches "Ahorro Tomy" with `savings = true`
+- **THEN** the tree lists it with `savings = true` and `kind = "savings"`
 
-#### Scenario: Invalid kind rejected
+#### Scenario: Invalid flag rejected
 
-- **WHEN** a client patches a category with `kind = "monthly"`
+- **WHEN** a client patches a category with `savings = "maybe"`
 - **THEN** the API returns 422

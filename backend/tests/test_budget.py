@@ -175,3 +175,18 @@ def test_confirm_preserves_edits(client, category_ids):
     edited = get_category(confirmed, "Restaurantes")
     assert edited["suggestion_state"] == "edited"
     assert edited["assigned_cents"] == 18000
+
+
+def test_assign_to_category_created_after_month_opened(client, category_ids):
+    """PUT upserts: a category added mid-month gets its assignment row."""
+    client.get("/budget/2026-10")
+    groups = client.get("/categories").json()
+    created = client.post(
+        "/categories", json={"name": "Mascotas", "group_id": groups[0]["id"]}
+    ).json()
+    response = client.put(
+        f"/budget/2026-10/assignments/{created['id']}", json={"amount_cents": 3000}
+    )
+    assert response.status_code == 200
+    view = client.get("/budget/2026-10").json()
+    assert get_category(view, "Mascotas")["assigned_cents"] == 3000

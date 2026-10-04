@@ -16,6 +16,7 @@ import {
   type BudgetMonthView,
   type MoveRequest,
 } from "./api";
+import { invalidateMoneyQueries } from "./planQueries";
 import { useSelectedMonth } from "./selectedMonth";
 
 /* Server state over GET /api/budget/{month} (design D3): same public shape
@@ -96,7 +97,10 @@ export function useMoveMoney(month: string) {
       if (previous) queryClient.setQueryData(queryKey, patchMove(previous, move));
       return { previous };
     },
-    onSuccess: (view) => queryClient.setQueryData(queryKey, view),
+    onSuccess: (view) => {
+      queryClient.setQueryData(queryKey, view);
+      invalidateMoneyQueries(queryClient);
+    },
     onError: (_err, _vars, context) => {
       if (context?.previous) queryClient.setQueryData(queryKey, context.previous);
     },
@@ -140,14 +144,14 @@ export function useBudgetMonth() {
         queryClient.setQueryData(queryKey, context.previous);
       }
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+    onSettled: () => invalidateMoneyQueries(queryClient),
   });
 
   const moveMoneyState = useMoveMoney(month);
 
   const confirmMutation = useMutation({
     mutationFn: (categoryIds: string[]) => confirmSuggestionsApi(month, categoryIds),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey }),
+    onSuccess: () => invalidateMoneyQueries(queryClient),
   });
 
   const data = query.data;

@@ -15,6 +15,7 @@ from ..schemas import (
     MoveRequest,
 )
 from ..services import budget_view
+from ..services.schedules import schedules_by_category
 
 router = APIRouter(prefix="/budget", tags=["budget"])
 
@@ -39,14 +40,13 @@ def assign(
     user: User = Depends(current_user),
 ) -> AssignResponse:
     bm = budget_view.materialize_month(db, user, month)
-    assignment = db.scalar(
-        select(BudgetAssignment).where(
-            BudgetAssignment.budget_month_id == bm.id,
-            BudgetAssignment.category_id == category_id,
-        )
-    )
+    assignment = budget_view.ensure_assignment(db, user, bm, category_id)
     if assignment is None:
         raise HTTPException(status_code=404, detail={"code": "category_not_found"})
+    if schedules_by_category(db, user).get(category_id):
+        # Categories with payments are assigned their computed monthly amount;
+        # change the payments (or move money explicitly) instead.
+        raise HTTPException(status_code=409, detail={"code": "assignment_from_payments"})
 
     assignment.assigned_cents = payload.amount_cents
     assignment.suggestion_state = "edited"
@@ -85,9 +85,12 @@ def move_money(
         raise HTTPException(status_code=422, detail={"code": "same_category"})
 
     bm = budget_view.materialize_month(db, user, month)
-    assignments = {a.category_id: a for a in bm.assignments}
-    target = assignments.get(payload.to_category_id)
-    source = assignments.get(payload.from_category_id) if payload.from_category_id else None
+    target = budget_view.ensure_assignment(db, user, bm, payload.to_category_id)
+    source = (
+        budget_view.ensure_assignment(db, user, bm, payload.from_category_id)
+        if payload.from_category_id
+        else None
+    )
     if target is None or (payload.from_category_id and source is None):
         raise HTTPException(status_code=404, detail={"code": "category_not_found"})
 

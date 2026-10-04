@@ -12,11 +12,18 @@ export interface AssignGroupsProps {
   onAssign: (categoryId: string, cents: number) => void;
   onCover: (category: BudgetCategoryView) => void;
   onMove: (category: BudgetCategoryView) => void;
+  onSchedule: (category: BudgetCategoryView) => void;
 }
 
 /* One Panel per CategoryGroup composing AssignRows; assigned/available
    subtotals in the group header (desktop only). */
-export function AssignGroups({ groups, onAssign, onCover, onMove }: Readonly<AssignGroupsProps>) {
+export function AssignGroups({
+  groups,
+  onAssign,
+  onCover,
+  onMove,
+  onSchedule,
+}: Readonly<AssignGroupsProps>) {
   const names = new Map(groups.flatMap((g) => g.categories.map((c) => [c.id, c.name] as const)));
   const nameOf = (id: string) => names.get(id) ?? "another category";
   return (
@@ -59,6 +66,7 @@ export function AssignGroups({ groups, onAssign, onCover, onMove }: Readonly<Ass
                   onCover={onCover}
                   onMove={onMove}
                   nameOf={nameOf}
+                  onSchedule={onSchedule}
                 />
               ))}
             </Panel>

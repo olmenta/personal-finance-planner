@@ -31,15 +31,14 @@ Product decisions this implements (2026-09-30/10-01):
 
 ## Decisions
 
-### D1: Kind is a category attribute that never changes budget math
+### D1: Kind is derived from payments; only "savings" is a user choice
 
-`Category.kind ∈ flexible | scheduled | savings` (default `flexible`, so existing categories are unaffected). Available, rollover and To Be Assigned stay exactly as `budget-rules` defines them. The kind only decides three things:
+Revised on 2026-10-04 after the first manual test: picking a category "type" in the payment editor read as choosing the *payment's* type and confused the model. Now:
 
-- which draft rule applies (D4);
-- which home-screen bucket the category's available lands in (D5);
-- its priority in the projection (D6).
-
-*Alternative:* derive the kind from "has schedules". Rejected; a savings category may have an undated goal, and a user may keep a scheduled category while its schedule is being edited.
+- **The rule belongs to each payment** (`pattern`).
+- **The category's kind is derived:** `scheduled` if it has any payment, else `savings` if the user flagged it, else `flexible`.
+- **Storage:** `Category.kind` stores just that flag (`"savings"` / `"flexible"`), and the API exposes the derived `kind` plus `savings`.
+- **Budget math:** none of this changes it. The kind only decides how the assignment is set (D4), the home-screen bucket (D5) and the projection priority (D6).
 
 ### D2: One `payment_schedules` table with pattern-specific nullable columns
 
@@ -51,7 +50,7 @@ The API validates each pattern with a Pydantic discriminated union, so an `annua
 - RFC 5545 RRULE strings. Rejected; overkill, hard to map to the sentence-style editor, and every pattern here is month-granular.
 - A JSON `spec` column. Rejected; typed columns keep validation and migrations honest.
 
-Patterns: `monthly` (optional `count` from `start_month`), `some_months`, `annual`, `every_n`, `once`, `no_date` (an annual goal: amount per year, no occurrences).
+Patterns: `monthly` (optional `count` from `start_month`), `some_months`, `annual`, `every_n`, `once`, `no_date` (an annual goal: amount per year, no occurrences). A savings goal is always *for a future expense*: it's a `once` payment on its date, never a separate "have X saved by a date" pattern (proposed and rejected on 2026-10-04).
 
 ### D3: Occurrences and amounts are pure functions (`services/schedules.py`)
 
@@ -71,22 +70,26 @@ Patterns: `monthly` (optional `count` from `start_month`), `some_months`, `annua
 - **Catch-up for category c in month M, given `saved` (its rollover at the start of M, from the `budget-rules` chain):**
 
   ```
-  catch_up = max over j in M..M+11 of (Σ payments(M..j) − saved) / (j − M + 1), floored at 0
+  catch_up = max over j in M..H of (Σ payments(M..j) − saved) / (j − M + 1), floored at 0
+  H = max(M + 11, month of the latest `once` payment), capped at 10 years
   ```
 
-  It is the minimum constant monthly set-aside for which no payment in the next 12 months goes uncovered. Once the user catches up, it falls back to the normal amount by itself.
+  It is the minimum constant monthly set-aside for which no payment goes uncovered. A future expense, even years away, is spread over every month until it. Once the user catches up, the amount falls back to the normal amount by itself.
 - **Suggested monthly amount:** `max(normal, catch_up)`, rounded **up** to the cent.
 
 This mirrors the prototype engine, and its fixtures (colegio: normal 582,92 €, catch-up 721,40 € in October with nothing saved) become unit tests.
 
-### D4: Drafts use the computed amount for scheduled categories
+### D4: Categories with payments are assigned their computed amount
 
-When a month is materialized:
+Revised on 2026-10-04: a payment of 40 €/month next to a hand-typed 32 € assignment made no sense. Now:
 
-- **Scheduled categories, and savings categories with a `no_date` goal:** draft = suggested amount (D3), including in the budget's first month. Schedules are real information even without history.
-- **Everything else:** keeps copying the previous month's assignment.
+- **Assigned automatically:** a category with payments is assigned `max(normal, catch_up)` when the month is materialized (state `confirmed`, not a draft), including in the first month.
+- **Kept in sync:** it is recomputed in the current and later materialized months whenever one of its payments changes (walked in order so each month sees the previous balance). Past months keep their history.
+- **Never typed:** `PUT /budget/{month}/assignments/{id}` returns 409 `assignment_from_payments`, and the row shows the amount read-only with "From your payments".
+- **Moving money is still allowed**, as an explicit decision; the projection flags any payment it leaves short.
+- **Everything else** keeps copying the previous month as a draft.
 
-Drafts stay `draft` until confirmed or edited, exactly like today. The view exposes `normal_cents` and `catch_up_cents` (null for categories without schedules), so the UI can show both next to the assignment.
+The view exposes `normal_cents` and `catch_up_cents` (null for categories without payments).
 
 ### D5: The month overview partitions Σ available exactly
 

@@ -24,12 +24,50 @@ The product's core promise: **"Know where your money goes each month, and know w
 2. **Suggested monthly assignments** — each new month, the app proposes the budget allocation based on the previous month's data. Assigning every euro should feel like *confirming suggestions*, not filling in a blank spreadsheet.
 3. **Low-friction capture** — registering an expense takes under 5 seconds; bank CSV import covers the rest.
 ## 3. Budgeting Method
- 
-**Zero-based budgeting** (every euro of income is assigned to a category), simplified for beginners:
- 
-- Monthly budget cycle: income for the month is allocated across categories until "to be assigned" reaches zero.
-- Unspent category balances roll over to the next month (envelope-style carryover).
-- The app always answers two questions on the home screen: *"How much do I have left in each category this month?"* and *"What will my next months roughly cost?"*
+
+**Zero-based budgeting, YNAB-style** (every euro of income gets a job), simplified for beginners: the method stays, the app does the math. Revised 2026-10-04 from a review of a real household budget; each principle below is specified in `openspec/specs/` and the change that introduced it is archived with its rationale.
+
+### 3.1 Principles
+
+1. **Only budget money you already have.** Income enters *To Be Assigned* when it arrives. Probable money (bonuses that depend on company targets) is never part of the plan; when it lands, it is assigned like any other income.
+2. **Every euro has a job, and unassigned money carries over.** The goal is To Be Assigned = 0, but money left unassigned at month end passes to the next month instead of disappearing. This is what lets a salary paid on the 27th fund the next month ("age your money").
+3. **Calendar months, Europe/Madrid.** The budget period is never tied to payday; with several incomes there is no single start date. Carry-over (principle 2) makes calendar months work.
+4. **The budget is not the payment calendar.**
+   - Every cost is budgeted as its monthly amount: annual cost ÷ 12. School fees of 632 € from September to June cost 526,67 € every month, July and August included.
+   - When money actually leaves is a separate calendar, described once per payment with a rule: every month, some months, once a year, every N months, or once on a date.
+   - **The app always computes the monthly amount.** A category with payments is assigned exactly that amount and the user never types it.
+5. **Catch up when behind.** If what's saved isn't enough for the payments ahead, the monthly amount becomes the *catch-up amount*: the minimum to set aside each month so no payment goes uncovered. It drops back to normal by itself once the user is on track. A future expense, even years away, is spread over every month until it; that is how savings for a goal work.
+6. **Coverage of future payments is always visible.** The home screen shows what to solve now: paid, still to pay (covered or short), left to spend. A 12-month projection shows, months ahead, any payment that won't be covered.
+7. **One annual plan.** Expected fixed income for 12 months versus planned costs (payments + day-to-day + goals) gives one honest number: the yearly and monthly gap. When the plan doesn't fit, it is adjusted, not ignored.
+8. **Roll with the punches: cover overspending in the month it happens.**
+   - When a category goes over, the money already left the bank, so it is covered right away by moving money from another category. The app suggests the source in one tap and never blocks expense entry.
+   - Only if the month closes uncovered is the amount deducted from next month's To Be Assigned, and the category starts clean (never a negative carry-over).
+   - If a category overspends month after month, the coach proposes raising its budget.
+9. **Refunds return to their category.** An inflow with a category is a refund: it lowers that category's spending and never counts as income.
+10. **Credit cards the YNAB way** (planned with accounts and transfers).
+    - A card purchase is spending in its category at purchase time.
+    - The budgeted amount moves automatically to the card's payment category.
+    - Paying the card is a transfer, not an expense.
+    - Overspending on credit becomes card debt.
+    - Pre-existing card debt doesn't reduce To Be Assigned; it is shown as uncovered debt.
+11. **Money in the accounts always adds up.**
+    - Money in the accounts = To Be Assigned + everything set aside in categories.
+    - The home screen splits that money into: to pay this month, left to spend, saved for the future, and unassigned.
+
+### 3.2 Category kinds
+
+| Kind | How it's set | Assignment |
+|---|---|---|
+| **With payments** (rent, school, insurance, utilities) | Automatically, by having at least one payment | Computed from its payments; read-only |
+| **Day-to-day** (groceries, restaurants, fuel) | Default | Typed by the user; suggested from the previous month |
+| **Savings** (children's savings, emergency fund) | A "Savings" switch on the category | Typed by the user; shown as saved, never as spendable |
+
+Each payment has its own rule; one category can hold several (school fee monthly from September to June, books once a year in September).
+
+### 3.3 Home-screen questions
+
+The app always answers: *"What do I have to solve this month?"* (paid, still to pay, left to spend), *"Where is the rest of my money?"* (saved for the future, unassigned), and *"Will my next months be covered?"* (upcoming payments and the annual gap).
+
 ## 4. Scope
  
 ### 4.1 MVP Features (v1)
@@ -38,17 +76,19 @@ The product's core promise: **"Know where your money goes each month, and know w
 |---|---------|-------------|
 | 1 | Expense/income entry | Manual entry optimized for mobile; < 5 seconds per transaction. Amount, category, optional note and date (defaults to today). |
 | 2 | Categories + AI onboarding | Conversational onboarding interview driven by a **configurable prompt** (questions are not hard-coded). The interview extracts specific answers we want to persist into a per-user **preferences memory** (see §6.6), then generates a personalized category tree. Categories editable afterwards (create, rename, archive, group). |
-| 3 | Zero-based budget per category | Monthly assignment of every euro. Auto-suggested allocations based on prior months. Rollover of unspent balances. "To be assigned" indicator. |
+| 3 | Zero-based budget per category | Monthly assignment of every euro (§3). Categories with payments assigned their computed monthly amount; day-to-day categories suggested from the previous month. Rollover of unspent balances, To Be Assigned carry-over, one-tap overspending cover and money moves between categories. |
 | 4 | CSV import | Import bank statements from **BBVA Spain** and **Sabadell Spain** CSV exports. Pipeline: parse → normalize → deduplicate → AI category suggestion → user confirmation. |
-| 5 | Monthly summary | Assigned vs. spent vs. available per category. Simple projection of upcoming months' expenses based on history and recurring patterns. |
+| 5 | Monthly summary & plan | Home screen "this month" (paid / to pay / left to spend / saved / unassigned, adding up to the accounts). Payment schedules per category with computed monthly amounts. 12-month upcoming-payments projection with coverage and the annual plan gap against expected fixed income. |
 | 6 | Simple chart | Spending distribution for the current month + spending evolution over time. |
  
 **Cross-cutting (v1):** authentication (Auth0), subscription billing (Stripe: configurable trial + 5 €/month plan), responsive web UI, **Spanish-only launch with i18n-ready architecture** (see §6.7), GDPR-compliant data handling.
  
 ### 4.2 Deferred ("Later" list)
  
-- Multi-currency support
-- Savings goals
+- Multi-currency support (a card billed in another currency is recorded in euros)
+- Multiple budgets per user (e.g. separating personal projects' costs from the household budget)
+- Paying down pre-existing debt (payoff plans for old card balances, loans and informal debts)
+- Coach proposals on the plan (repeated overspending, monthly plan adjustments) and onboarding extraction of payment schedules
 - Advanced reports
 - Reminders / notifications
 - **Expense capture via WhatsApp (AI)** — on roadmap
@@ -214,6 +254,16 @@ Notes:
 - **Language:** v1 launches in Spanish only, with multilanguage-ready architecture (§6.7).
 - **Onboarding:** questions configurable via a versioned prompt; extracted answers persisted in a per-user preferences memory stored as a **`JSONB` document in Neon** (`UserPreferences` table), accessed through a `PreferencesStore` interface (§6.6).
 - **Pricing:** 5 €/month; trial length configured in Stripe, changeable without deployments (§7).
+**Resolved (v0.3, 2026-09-30 → 10-04 — budgeting method, §3):**
+
+- Budget ≠ payment calendar; the app computes every monthly amount (normal and catch-up), and categories with payments are not typed by hand.
+- Unassigned money carries over; calendar months (Europe/Madrid) stay — configurable periods rejected.
+- Overspending: cover within the month; uncovered cash overspending is deducted from next month's To Be Assigned (no negative carry-over).
+- Probable income (bonuses) is never budgeted; expected *fixed* income feeds the annual plan.
+- Savings goals are future expenses (a payment on a date), not "have X by a date" targets.
+- Credit cards follow YNAB (payment category, card debt); multi-currency stays out of v1.
+- Category kind is derived (payments → scheduled); only "savings" is a user choice.
+
 **Still open:**
  
 - Product name and domain.

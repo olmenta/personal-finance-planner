@@ -28,11 +28,16 @@ import { Icon, OLMENTA_ICON_NAMES } from "@/components/ui/Icon";
 import { IconButton } from "@/components/ui/IconButton";
 import { IconChip } from "@/components/ui/IconChip";
 import { Input } from "@/components/ui/Input";
+import { Switch } from "@/components/ui/Switch";
+import { ScheduleEditor } from "@/components/plan/ScheduleEditor";
+import { invalidateMoneyQueries } from "@/lib/planQueries";
+import { useSelectedMonth } from "@/lib/selectedMonth";
 import {
   ApiError,
   createCategory,
   createCategoryGroup,
   deleteCategoryGroup,
+  fetchBudgetMonth,
   fetchCategories,
   toneForCategory,
   updateCategory,
@@ -60,7 +65,7 @@ function useInvalidateCategories() {
   return () => {
     queryClient.invalidateQueries({ queryKey: ["categories"] });
     // Names and icons render in the budget bars too.
-    queryClient.invalidateQueries({ queryKey: ["budget"] });
+    invalidateMoneyQueries(queryClient);
   };
 }
 
@@ -227,13 +232,15 @@ function CategoryForm({
   const [name, setName] = React.useState(editing?.name ?? "");
   const [icon, setIcon] = React.useState(editing?.icon ?? "circle");
   const [groupId, setGroupId] = React.useState(state.groupId);
+  const [savings, setSavings] = React.useState(editing?.savings ?? false);
+  const hasPayments = editing?.kind === "scheduled";
   const invalidate = useInvalidateCategories();
 
   const mutation = useMutation({
     mutationFn: () =>
       editing
-        ? updateCategory(editing.id, { name: name.trim(), icon, group_id: groupId })
-        : createCategory({ name: name.trim(), icon, group_id: groupId }),
+        ? updateCategory(editing.id, { name: name.trim(), icon, group_id: groupId, savings })
+        : createCategory({ name: name.trim(), icon, group_id: groupId, savings }),
     onSuccess: () => {
       invalidate();
       onClose();
@@ -307,6 +314,17 @@ function CategoryForm({
             ))}
           </SelectContent>
         </Select>
+      </label>
+      <label style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+        <span style={{ font: "600 13.5px var(--font-sans)", color: "var(--text-body)" }}>
+          Savings
+          <span style={{ display: "block", font: "500 12px var(--font-sans)", color: "var(--text-muted)" }}>
+            {hasPayments
+              ? "This category has payments, so it's planned from them."
+              : "Money kept here shows as saved for the future, never as left to spend."}
+          </span>
+        </span>
+        <Switch checked={savings} onChange={setSavings} disabled={hasPayments} />
       </label>
       {mutation.isError && <ErrorNote message={errorMessage(mutation.error)} />}
     </DialogShell>
@@ -448,6 +466,12 @@ export function CategorySettings() {
   const [categoryDialog, setCategoryDialog] = React.useState<CategoryDialogState | null>(null);
   const [groupDialog, setGroupDialog] = React.useState<GroupDialogState | null>(null);
   const [deletingGroup, setDeletingGroup] = React.useState<CategoryGroupOut | null>(null);
+  const [scheduling, setScheduling] = React.useState<CategoryOut | null>(null);
+  const [month] = useSelectedMonth();
+  // What the category already holds this month, when the budget is cached.
+  const budget = useQuery({ queryKey: ["budget", month], queryFn: () => fetchBudgetMonth(month) });
+  const savedFor = (id: string) =>
+    budget.data?.groups.flatMap((g) => g.categories).find((c) => c.id === id)?.rollover_cents ?? 0;
 
   const archiveMutation = useMutation({
     mutationFn: ({ id, archived }: { id: string; archived: boolean }) =>
@@ -596,6 +620,11 @@ export function CategorySettings() {
                     >
                       Edit
                     </DropdownMenuItem>
+                    {!category.archived && (
+                      <DropdownMenuItem onSelect={() => setScheduling(category)}>
+                        Payments
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem
                       onSelect={() =>
                         archiveMutation.mutate({
@@ -621,6 +650,16 @@ export function CategorySettings() {
       />
       <GroupDialog state={groupDialog} onClose={() => setGroupDialog(null)} />
       <DeleteGroupDialog group={deletingGroup} onClose={() => setDeletingGroup(null)} />
+      {scheduling && (
+        <ScheduleEditor
+          open
+          onOpenChange={(open) => !open && setScheduling(null)}
+          categoryId={scheduling.id}
+          categoryName={scheduling.name}
+          month={month}
+          savedCents={savedFor(scheduling.id)}
+        />
+      )}
     </div>
   );
 }

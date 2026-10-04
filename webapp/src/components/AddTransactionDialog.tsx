@@ -31,6 +31,7 @@ import {
   fetchPayees,
 } from "@/lib/api";
 import { parseEuroToCents } from "@/lib/format";
+import { invalidateMoneyQueries } from "@/lib/planQueries";
 
 export interface AddTransactionDialogProps {
   children: React.ReactNode;
@@ -88,8 +89,7 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
       // Spent totals changed — list, budget month, and dashboard summary are stale.
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       // Any month: the entry's date may not be the month on screen.
-      queryClient.invalidateQueries({ queryKey: ["budget"] });
-      queryClient.invalidateQueries({ queryKey: ["summary"] });
+      invalidateMoneyQueries(queryClient);
       // A new payee may have been born from this write.
       queryClient.invalidateQueries({ queryKey: ["payees"] });
       setOpen(false);

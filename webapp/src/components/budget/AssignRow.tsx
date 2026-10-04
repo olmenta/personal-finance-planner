@@ -18,6 +18,8 @@ export interface AssignRowProps {
   onMove: (category: BudgetCategoryView) => void;
   /** Category id → name, for the cover button label. */
   nameOf: (categoryId: string) => string;
+  /** Opens the payment-schedule editor for this category. */
+  onSchedule: (category: BudgetCategoryView) => void;
 }
 
 function QuickFill({
@@ -68,6 +70,7 @@ export function AssignRow({
   onCover,
   onMove,
   nameOf,
+  onSchedule,
 }: Readonly<AssignRowProps>) {
   const [expanded, setExpanded] = React.useState(false);
   const [sheetOpen, setSheetOpen] = React.useState(false);
@@ -94,9 +97,12 @@ export function AssignRow({
   }
 
   const isDraft = c.suggestion_state === "draft";
+  // Categories with payments are assigned their computed monthly amount:
+  // shown, never typed (change the payments, or move money explicitly).
+  const fromPayments = c.normal_cents !== null;
 
   return (
-    <div style={{ padding: "13px 0", borderBottom: "1px solid var(--border-hairline)" }}>
+    <div data-testid={`category-row-${c.name}`} style={{ padding: "13px 0", borderBottom: "1px solid var(--border-hairline)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 13 }}>
         <IconChip icon={c.icon} tone={over ? "expense" : toneForCategory(c.icon)} size={42} />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -113,7 +119,23 @@ export function AssignRow({
             >
               {c.name}
             </span>
-            {isDraft && (
+            {fromPayments && (
+              <span
+                style={{
+                  font: "600 10.5px var(--font-sans)",
+                  letterSpacing: "0.4px",
+                  textTransform: "uppercase",
+                  color: "var(--text-muted)",
+                  background: "var(--gray-100)",
+                  borderRadius: "var(--r-full)",
+                  padding: "2px 7px",
+                  flex: "none",
+                }}
+              >
+                From your payments
+              </span>
+            )}
+            {isDraft && !fromPayments && (
               <span
                 style={{
                   font: "600 10.5px var(--font-sans)",
@@ -140,10 +162,33 @@ export function AssignRow({
             }}
           >
             Spent {euroCents(c.spent_cents)}
+            {c.normal_cents !== null && c.catch_up_cents !== null && (
+              <>
+                {" · "}normal {euroCents(c.normal_cents)}
+                {c.catch_up_cents > c.normal_cents && (
+                  <span style={{ color: "#9A5B00" }}> · to be on time {euroCents(c.catch_up_cents)}</span>
+                )}
+              </>
+            )}
           </div>
         </div>
 
-        {/* Assigned — the only editable cell */}
+        {/* Assigned — editable for day-to-day categories only */}
+        {fromPayments ? (
+          <span
+            title="Worked out from this category's payments"
+            style={{
+              padding: "8px 10px",
+              font: "600 14.5px var(--font-sans)",
+              color: "var(--text-strong)",
+              fontVariantNumeric: "tabular-nums",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {euroCents(c.assigned_cents)}
+          </span>
+        ) : (
+        <>
         <div className="assign-edit-desktop">
           <AmountInput
             valueCents={c.assigned_cents}
@@ -170,6 +215,8 @@ export function AssignRow({
         >
           {euroCents(c.assigned_cents)}
         </button>
+        </>
+        )}
 
         <span
           style={{
@@ -275,7 +322,27 @@ export function AssignRow({
                 </div>
               )}
             </div>
-            <QuickFill category={c} onPick={(cents) => onAssign(c.id, cents)} />
+            {!fromPayments && <QuickFill category={c} onPick={(cents) => onAssign(c.id, cents)} />}
+            <button
+              onClick={() => onSchedule(c)}
+              style={{
+                marginTop: 8,
+                marginRight: 6,
+                border: "1px solid var(--border-hairline)",
+                background: "var(--surface)",
+                borderRadius: "var(--r-full)",
+                padding: "6px 11px",
+                font: "600 12px var(--font-sans)",
+                color: "var(--text-body)",
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <Icon name="calendar" size={13} />
+              {c.normal_cents !== null ? "Edit payments" : "Set up payments"}
+            </button>
             {available > 0 && (
               <button
                 onClick={() => onMove(c)}

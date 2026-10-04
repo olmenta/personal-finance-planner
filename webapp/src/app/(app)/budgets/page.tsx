@@ -11,7 +11,9 @@ import { ErrorPanel, SkeletonPanel } from "@/components/ui/QueryStates";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { TbaHero } from "@/components/ui/TbaHero";
 import { AssignGroups } from "@/components/budget/AssignGroups";
+import { IncomeBreakdown } from "@/components/budget/IncomeBreakdown";
 import { MoveMoneySheet } from "@/components/budget/MoveMoneySheet";
+import { ScheduleEditor } from "@/components/plan/ScheduleEditor";
 import { TopBar } from "@/components/shell/TopBar";
 import { euroCents } from "@/lib/format";
 import type { BudgetCategoryView } from "@/lib/api";
@@ -180,6 +182,8 @@ function AssignMode() {
   } = useBudgetMonth();
   const [capsuleDismissed, setCapsuleDismissed] = React.useState(false);
   const [moveFrom, setMoveFrom] = React.useState<string | null>(null);
+  const [scheduling, setScheduling] = React.useState<BudgetCategoryView | null>(null);
+  const [breakdownOpen, setBreakdownOpen] = React.useState(false);
 
   if (isLoading) {
     return (
@@ -214,6 +218,7 @@ function AssignMode() {
           incomeCents={month.income_cents}
           carriedInCents={month.carried_in_cents}
           overspentDeductedCents={month.overspent_deducted_cents}
+          onShowBreakdown={() => setBreakdownOpen(true)}
           action={
             draftIds.length > 0 && !capsuleDismissed ? (
               <Button variant="accent" size="sm" iconLeft="check" onClick={() => confirmSuggestions(draftIds)}>
@@ -309,7 +314,21 @@ function AssignMode() {
           });
         }}
         onMove={(c: BudgetCategoryView) => setMoveFrom(c.id)}
+        onSchedule={(c: BudgetCategoryView) => setScheduling(c)}
       />
+
+      <IncomeBreakdown open={breakdownOpen} onOpenChange={setBreakdownOpen} view={month} />
+
+      {scheduling && (
+        <ScheduleEditor
+          open
+          onOpenChange={(open) => !open && setScheduling(null)}
+          categoryId={scheduling.id}
+          categoryName={scheduling.name}
+          month={month.month}
+          savedCents={scheduling.rollover_cents}
+        />
+      )}
 
       <MoveMoneySheet
         open={moveFrom !== null}

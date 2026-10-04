@@ -26,6 +26,7 @@ from ..schemas import (
     BudgetMonthView,
     CoverSuggestion,
 )
+from . import schedules as sched
 
 
 def prev_month(month: str) -> str:
@@ -47,10 +48,13 @@ def get_budget_month(db: Session, user: User, month: str) -> BudgetMonth | None:
 
 
 def materialize_month(db: Session, user: User, month: str) -> BudgetMonth:
-    """Lazily create the month; drafts copy the previous month's assignments."""
+    """Lazily create the month. Scheduled categories draft their computed
+    monthly amount (category-targets D4); the rest copy the previous month."""
     existing = get_budget_month(db, user, month)
     if existing is not None:
         return existing
+    saved = month_chain(db, user, month).rollover
+    by_category = sched.schedules_by_category(db, user)
 
     bm = BudgetMonth(user_id=user.id, month=month)
     db.add(bm)
@@ -65,6 +69,23 @@ def materialize_month(db: Session, user: User, month: str) -> BudgetMonth:
         select(Category).where(Category.user_id == user.id, Category.archived.is_(False))
     )
     for category in categories:
+        category_schedules = by_category.get(category.id, [])
+        if category_schedules:
+            # Computed, not a draft: categories with payments are assigned
+            # exactly their monthly amount (never typed by hand).
+            _, _, suggested = sched.amounts(
+                category_schedules, month, saved.get(category.id, 0)
+            )
+            db.add(
+                BudgetAssignment(
+                    budget_month_id=bm.id,
+                    category_id=category.id,
+                    assigned_cents=suggested,
+                    suggestion_cents=suggested,
+                    suggestion_state="confirmed",
+                )
+            )
+            continue
         prev_amount = prev_assignments.get(category.id)
         if previous is not None and prev_amount is not None:
             db.add(
@@ -89,6 +110,67 @@ def materialize_month(db: Session, user: User, month: str) -> BudgetMonth:
             )
     db.flush()
     return bm
+
+
+def ensure_assignment(
+    db: Session, user: User, bm: BudgetMonth, category_id: str
+) -> BudgetAssignment | None:
+    """The month's assignment row for a category, created on demand for a
+    category added after the month was materialized (PUT upserts, spec:
+    budget-api). None when the category isn't the user's or is archived."""
+    assignment = db.scalar(
+        select(BudgetAssignment).where(
+            BudgetAssignment.budget_month_id == bm.id,
+            BudgetAssignment.category_id == category_id,
+        )
+    )
+    if assignment is not None:
+        return assignment
+    category = db.scalar(
+        select(Category).where(
+            Category.id == category_id,
+            Category.user_id == user.id,
+            Category.archived.is_(False),
+        )
+    )
+    if category is None:
+        return None
+    assignment = BudgetAssignment(
+        budget_month_id=bm.id,
+        category_id=category.id,
+        assigned_cents=0,
+        suggestion_cents=None,
+        suggestion_state="confirmed",
+    )
+    db.add(assignment)
+    db.flush()
+    db.refresh(bm)
+    return assignment
+
+
+def refresh_computed_assignments(db: Session, user: User, category_id: str) -> None:
+    """After a payment changes, re-set the category's assignment to its
+    computed monthly amount in the current and later materialized months
+    (past months keep their history). Months are walked in order so each
+    one sees the previous month's updated balance."""
+    schedules = sched.schedules_by_category(db, user).get(category_id, [])
+    if not schedules:
+        return  # back to day-to-day: keep what's assigned
+    months = db.scalars(
+        select(BudgetMonth)
+        .where(BudgetMonth.user_id == user.id, BudgetMonth.month >= sched.current_month())
+        .order_by(BudgetMonth.month)
+    )
+    for bm in months:
+        assignment = ensure_assignment(db, user, bm, category_id)
+        if assignment is None:
+            return
+        saved = month_chain(db, user, bm.month).rollover.get(category_id, 0)
+        _, _, suggested = sched.amounts(schedules, bm.month, saved)
+        assignment.assigned_cents = suggested
+        assignment.suggestion_cents = suggested
+        assignment.suggestion_state = "confirmed"
+        db.flush()
 
 
 def spent_by_category(db: Session, user: User, month: str) -> dict[str, int]:
@@ -302,6 +384,7 @@ def build_view(db: Session, user: User, month: str) -> BudgetMonthView:
     rollover = chain.rollover
     last_assigned, last_spent, avg_3m = quickfill_by_category(db, user, month)
     assignments = {a.category_id: a for a in bm.assignments}
+    by_category = sched.schedules_by_category(db, user)
 
     groups = db.scalars(
         select(CategoryGroup)
@@ -328,11 +411,20 @@ def build_view(db: Session, user: User, month: str) -> BudgetMonthView:
             if category.archived and not (assigned or cat_spent or cat_rollover):
                 continue
             available = assigned + cat_rollover - cat_spent
+            category_schedules = by_category.get(category.id, [])
+            normal_cents = catch_up_cents = None
+            if category_schedules:
+                normal_cents, catch_up_cents, _ = sched.amounts(
+                    category_schedules, month, cat_rollover
+                )
             cat_views.append(
                 BudgetCategoryView(
                     id=category.id,
                     name=category.name,
                     icon=category.icon,
+                    kind=sched.effective_kind(category.kind, category_schedules),  # type: ignore[arg-type]
+                    normal_cents=normal_cents,
+                    catch_up_cents=catch_up_cents,
                     assigned_cents=assigned,
                     spent_cents=cat_spent,
                     rollover_cents=cat_rollover,

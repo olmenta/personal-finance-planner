@@ -9,6 +9,8 @@ export interface TbaHeroProps {
   carriedInCents?: number;
   /** Previous month's uncovered overspending, deducted here. */
   overspentDeductedCents?: number;
+  /** Opens the breakdown of where the money to assign comes from. */
+  onShowBreakdown?: () => void;
   action?: React.ReactNode;
 }
 
@@ -19,6 +21,7 @@ export function TbaHero({
   incomeCents,
   carriedInCents = 0,
   overspentDeductedCents = 0,
+  onShowBreakdown,
   action,
 }: TbaHeroProps) {
   // To Be Assigned carries over (budget-rules): say where the number comes from.
@@ -93,7 +96,19 @@ export function TbaHero({
         >
           <Icon name={state.icon} size={21} strokeWidth={2.25} />
         </span>
-        <div style={{ minWidth: 0 }}>
+        <div
+          style={{ minWidth: 0, cursor: onShowBreakdown ? "pointer" : undefined }}
+          role={onShowBreakdown ? "button" : undefined}
+          tabIndex={onShowBreakdown ? 0 : undefined}
+          aria-label={onShowBreakdown ? "See where the money to assign comes from" : undefined}
+          onClick={onShowBreakdown}
+          onKeyDown={(e) => {
+            if (onShowBreakdown && (e.key === "Enter" || e.key === " ")) {
+              e.preventDefault();
+              onShowBreakdown();
+            }
+          }}
+        >
           <div className="ol-eyebrow" style={{ color: "var(--text-subtle)" }}>
             To be assigned
           </div>

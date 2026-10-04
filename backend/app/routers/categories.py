@@ -88,7 +88,10 @@ def create_category(
     name = payload.name.strip()
     ensure_name_free_in_group(db, user.id, group.id, name)
 
-    category = Category(user_id=user.id, group_id=group.id, name=name, icon=payload.icon)
+    category = Category(
+        user_id=user.id, group_id=group.id, name=name, icon=payload.icon,
+        kind="savings" if payload.savings else "flexible",
+    )
     db.add(category)
     db.flush()
     return category
@@ -121,6 +124,8 @@ def update_category(
         category.icon = payload.icon
     if payload.archived is not None:
         category.archived = payload.archived
+    if payload.savings is not None:
+        category.kind = "savings" if payload.savings else "flexible"
 
     db.flush()
     return category

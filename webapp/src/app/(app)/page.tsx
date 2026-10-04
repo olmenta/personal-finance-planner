@@ -6,29 +6,27 @@ import React from "react";
 import { useSelectedMonth } from "@/lib/selectedMonth";
 import { useQuery } from "@tanstack/react-query";
 import { AddTransactionDialog } from "@/components/AddTransactionDialog";
-import { BalanceCard } from "@/components/ui/BalanceCard";
-import { Badge } from "@/components/ui/Badge";
-import { BudgetBar } from "@/components/ui/BudgetBar";
 import { Button } from "@/components/ui/Button";
 import { CoachCapsule } from "@/components/ui/CoachCapsule";
 import { Icon } from "@/components/ui/Icon";
 import { Panel } from "@/components/ui/Panel";
 import { ErrorPanel, SkeletonPanel } from "@/components/ui/QueryStates";
-import { StatCard } from "@/components/ui/StatCard";
 import { TransactionRow } from "@/components/ui/TransactionRow";
 import { TopBar } from "@/components/shell/TopBar";
+import { ThisMonthPanel, ThisMonthSide } from "@/components/plan/ThisMonth";
 import {
-  fetchBudgetMonth,
   fetchCategories,
   fetchOnboardingStatus,
+  fetchOverview,
   fetchSummary,
   fetchTransactions,
+  fetchUpcoming,
   toneForCategory,
   type CategoryOut,
   type SummaryView,
   type TransactionOut,
 } from "@/lib/api";
-import { euroCents, splitEuro } from "@/lib/format";
+import { euroCents } from "@/lib/format";
 
 function SpendChart({ summary }: Readonly<{ summary: SummaryView }>) {
   const max = Math.max(
@@ -126,10 +124,6 @@ function SpendChart({ summary }: Readonly<{ summary: SummaryView }>) {
 }
 
 /* Spent share of the bar's limit; >100 reads as over even with no limit. */
-function spentPercent(spentCents: number, limitCents: number): number {
-  if (limitCents > 0) return Math.round((spentCents / limitCents) * 100);
-  return spentCents > 0 ? 101 : 0;
-}
 
 function RecentTransactions({
   rows,
@@ -233,9 +227,13 @@ export default function OverviewPage() {
     queryKey: ["summary", month],
     queryFn: () => fetchSummary(month),
   });
-  const budgetQuery = useQuery({
-    queryKey: ["budget", month],
-    queryFn: () => fetchBudgetMonth(month),
+  const overviewQuery = useQuery({
+    queryKey: ["overview", month],
+    queryFn: () => fetchOverview(month),
+  });
+  const upcomingQuery = useQuery({
+    queryKey: ["upcoming", month],
+    queryFn: () => fetchUpcoming(month),
   });
   const txQuery = useQuery({
     queryKey: ["transactions", month],
@@ -251,30 +249,18 @@ export default function OverviewPage() {
     return map;
   }, [catQuery.data]);
 
-  /* Budgets panel: top categories by spent; limit = assigned + rollover. */
-  const topBudgets = React.useMemo(() => {
-    const cats = (budgetQuery.data?.groups ?? []).flatMap((g) => g.categories);
-    return cats
-      .filter((c) => c.spent_cents > 0 || c.assigned_cents + c.rollover_cents > 0)
-      .sort((a, b) => b.spent_cents - a.spent_cents)
-      .slice(0, 4);
-  }, [budgetQuery.data]);
-  const activeCount = (budgetQuery.data?.groups ?? [])
-    .flatMap((g) => g.categories)
-    .filter((c) => c.spent_cents > 0 || c.assigned_cents + c.rollover_cents > 0).length;
-
   const summary = summaryQuery.data;
-  const net = summary ? summary.income_cents - summary.expense_cents : 0;
-  const [balanceAmount, balanceCents] = summary ? splitEuro(summary.balance_cents) : ["", ""];
+  const overview = overviewQuery.data;
+  const nextMonths = (upcomingQuery.data?.months ?? []).slice(1, 4);
 
-  if (summaryQuery.isError) {
+  if (overviewQuery.isError) {
     return (
       <>
         <TopBar title="Overview" sub="Welcome back" />
         <div className="app-content">
           <ErrorPanel
             message="We couldn't load your overview."
-            onRetry={() => summaryQuery.refetch()}
+            onRetry={() => overviewQuery.refetch()}
           />
         </div>
       </>
@@ -286,37 +272,16 @@ export default function OverviewPage() {
       <TopBar title="Overview" sub="Welcome back" />
       <div className="app-content">
         <OnboardingNudge />
-        {summary ? (
-          <div className="grid-dash-top">
-            <BalanceCard
-              label="Current balance"
-              amount={balanceAmount}
-              cents={balanceCents}
-              align="left"
-              delta={
-                <>
-                  <Icon name={net >= 0 ? "trending-up" : "trending-down"} size={15} />{" "}
-                  {net >= 0 ? "+" : "−"}
-                  {euroCents(Math.abs(net))} this month
-                </>
-              }
-              style={{ borderRadius: "var(--r-xl)" }}
-            />
-            <StatCard
-              icon="trending-up"
-              tone="income"
-              label="Income"
-              value={euroCents(summary.income_cents)}
-            />
-            <StatCard
-              icon="trending-down"
-              tone="expense"
-              label="Expenses"
-              value={euroCents(summary.expense_cents)}
-            />
+        {overview ? (
+          <div className="grid-dash-mid">
+            <ThisMonthPanel overview={overview} />
+            <ThisMonthSide overview={overview} next={nextMonths} />
           </div>
         ) : (
-          <SkeletonPanel rows={1} rowHeight={120} />
+          <div className="grid-dash-mid">
+            <SkeletonPanel rows={6} rowHeight={40} />
+            <SkeletonPanel rows={4} rowHeight={40} />
+          </div>
         )}
 
         {/* The web reference keeps coach insights in the rail; the capsule
@@ -325,34 +290,7 @@ export default function OverviewPage() {
           <CoachCapsule message="You're spending 18% more on dining this month" cta="See why" />
         </div>
 
-        <div className="grid-dash-mid">
-          {summary ? <SpendChart summary={summary} /> : <SkeletonPanel rows={3} rowHeight={52} />}
-          {budgetQuery.data ? (
-            <Panel
-              title="Budgets"
-              action={<Badge tone="brand">{activeCount} active</Badge>}
-            >
-              <div style={{ display: "flex", flexDirection: "column", gap: 17 }}>
-                {topBudgets.map((c) => {
-                  const limit = c.assigned_cents + c.rollover_cents;
-                  return (
-                    <BudgetBar
-                      key={c.id}
-                      icon={c.icon}
-                      tone={toneForCategory(c.icon)}
-                      label={c.name}
-                      spent={euroCents(c.spent_cents, 0)}
-                      limit={euroCents(limit, 0)}
-                      percent={spentPercent(c.spent_cents, limit)}
-                    />
-                  );
-                })}
-              </div>
-            </Panel>
-          ) : (
-            <SkeletonPanel rows={4} rowHeight={40} />
-          )}
-        </div>
+        {summary ? <SpendChart summary={summary} /> : <SkeletonPanel rows={3} rowHeight={52} />}
 
         {txQuery.data && catQuery.data ? (
           <Panel

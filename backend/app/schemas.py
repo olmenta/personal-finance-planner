@@ -5,9 +5,9 @@ Errors carry machine-readable codes (§6.7): {"code": "<snake_case>"}.
 """
 
 from datetime import date as date_type
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # ---- Transactions ----------------------------------------------------------
 
@@ -128,12 +128,18 @@ class PayeeOut(BaseModel):
 # ---- Categories -------------------------------------------------------------
 
 
+CategoryKind = Literal["flexible", "scheduled", "savings"]
+
+
 class CategoryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     # Any lucide name ≤40 chars; unknown names degrade to a circle in the UI
     # (design D3) so the backend doesn't hard-code the icon list.
     icon: str = Field(default="circle", min_length=1, max_length=40)
     group_id: str
+    # Marks the category as savings (shown as saved, never as spendable).
+    # Categories with payments are "scheduled" automatically.
+    savings: bool = False
 
 
 class CategoryUpdate(BaseModel):
@@ -141,6 +147,7 @@ class CategoryUpdate(BaseModel):
     icon: str | None = Field(default=None, min_length=1, max_length=40)
     group_id: str | None = None
     archived: bool | None = None
+    savings: bool | None = None
 
 
 class GroupCreate(BaseModel):
@@ -157,6 +164,9 @@ class CategoryOut(BaseModel):
     name: str
     icon: str
     archived: bool
+    # Derived: scheduled (has payments) | savings (flag) | flexible.
+    kind: CategoryKind = Field(validation_alias="effective_kind")
+    savings: bool
 
     model_config = {"from_attributes": True}
 
@@ -166,6 +176,100 @@ class CategoryGroupOut(BaseModel):
     name: str
     sort_order: int
     categories: list[CategoryOut]
+
+    model_config = {"from_attributes": True}
+
+
+# ---- Payment schedules ------------------------------------------------------
+# One model per pattern (category-targets design D2); the API validates the
+# body against this union and answers 422 invalid_schedule otherwise.
+
+MonthStr = Annotated[str, Field(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")]
+
+
+class _ScheduleBase(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    amount_cents: int = Field(gt=0)
+    day: int | None = Field(default=None, ge=1, le=31)
+    estimated: bool = False
+
+    model_config = {"extra": "forbid"}
+
+
+class MonthlySchedule(_ScheduleBase):
+    pattern: Literal["monthly"]
+    count: int | None = Field(default=None, ge=1, le=600)
+    start_month: MonthStr | None = None
+
+    @model_validator(mode="after")
+    def _count_needs_start(self) -> "MonthlySchedule":
+        if self.count is not None and self.start_month is None:
+            raise ValueError("count requires start_month")
+        return self
+
+
+class SomeMonthsSchedule(_ScheduleBase):
+    pattern: Literal["some_months"]
+    months: list[Annotated[int, Field(ge=1, le=12)]] = Field(min_length=1, max_length=12)
+
+    @model_validator(mode="after")
+    def _unique_months(self) -> "SomeMonthsSchedule":
+        if len(set(self.months)) != len(self.months):
+            raise ValueError("months must be unique")
+        self.months = sorted(self.months)
+        return self
+
+
+class AnnualSchedule(_ScheduleBase):
+    pattern: Literal["annual"]
+    month: int = Field(ge=1, le=12)
+
+
+class EveryNSchedule(_ScheduleBase):
+    pattern: Literal["every_n"]
+    every_n: int = Field(ge=2, le=12)
+    start_month: MonthStr
+
+
+class OnceSchedule(_ScheduleBase):
+    pattern: Literal["once"]
+    once_month: MonthStr
+
+
+class NoDateSchedule(_ScheduleBase):
+    pattern: Literal["no_date"]
+
+
+ScheduleIn = Annotated[
+    MonthlySchedule
+    | SomeMonthsSchedule
+    | AnnualSchedule
+    | EveryNSchedule
+    | OnceSchedule
+    | NoDateSchedule,
+    Field(discriminator="pattern"),
+]
+
+SCHEDULE_FIELDS = (
+    "name", "amount_cents", "pattern", "months", "month", "every_n",
+    "start_month", "count", "once_month", "day", "estimated",
+)
+
+
+class ScheduleOut(BaseModel):
+    id: str
+    category_id: str
+    name: str
+    amount_cents: int
+    pattern: Literal["monthly", "some_months", "annual", "every_n", "once", "no_date"]
+    months: list[int] | None
+    month: int | None
+    every_n: int | None
+    start_month: str | None
+    count: int | None
+    once_month: str | None
+    day: int | None
+    estimated: bool
 
     model_config = {"from_attributes": True}
 
@@ -183,6 +287,10 @@ class BudgetCategoryView(BaseModel):
     id: str
     name: str
     icon: str
+    kind: CategoryKind
+    # Computed from payment schedules; null when the category has none.
+    normal_cents: int | None = None
+    catch_up_cents: int | None = None
     assigned_cents: int
     spent_cents: int
     rollover_cents: int
@@ -237,6 +345,108 @@ class MoveRequest(BaseModel):
 
 class ConfirmSuggestionsRequest(BaseModel):
     category_ids: list[str]
+
+
+# ---- Month overview ("Este mes") and plan -------------------------------------
+
+
+class OverviewPaidItem(BaseModel):
+    category_id: str
+    category_name: str
+    name: str | None  # schedule name; null = the category's other spending
+    day: int | None
+    amount_cents: int
+
+
+class OverviewAmountItem(BaseModel):
+    category_id: str
+    name: str
+    group: str
+    amount_cents: int
+    spent_cents: int | None = None
+
+
+class OverviewPaidSection(BaseModel):
+    total_cents: int
+    items: list[OverviewPaidItem]
+
+
+class OverviewAmountSection(BaseModel):
+    total_cents: int
+    items: list[OverviewAmountItem]
+
+
+class OverviewPending(BaseModel):
+    category_id: str
+    category_name: str
+    schedule_id: str
+    name: str
+    day: int | None
+    amount_cents: int
+    covered_cents: int
+    short_cents: int
+    estimated: bool
+
+
+class OverviewView(BaseModel):
+    month: str
+    today: date_type
+    paid: OverviewPaidSection
+    to_pay: list[OverviewPending]
+    to_pay_total_cents: int
+    covered_cents: int
+    left_to_spend: OverviewAmountSection
+    saved: OverviewAmountSection
+    overspent_cents: int
+    to_be_assigned_cents: int
+    # accounts = covered + left_to_spend + saved + to_be_assigned − overspent
+    accounts_cents: int
+
+
+class UpcomingOccurrence(BaseModel):
+    category_id: str
+    category_name: str
+    schedule_id: str
+    name: str
+    day: int | None
+    amount_cents: int
+    estimated: bool
+    covered: bool | None = None  # null when expected income is unknown
+    short_cents: int | None = None
+
+
+class UpcomingMonth(BaseModel):
+    month: str
+    occurrences: list[UpcomingOccurrence]
+    payments_cents: int
+    short_cents: int | None = None
+    flexible_budget_cents: int | None = None
+    flexible_funded_cents: int | None = None
+    set_aside_wanted_cents: int | None = None
+    set_aside_funded_cents: int | None = None
+    unassigned_cents: int | None = None
+
+
+class UpcomingView(BaseModel):
+    income_known: bool
+    income_cents: int | None
+    months: list[UpcomingMonth]
+
+
+class PlanSummary(BaseModel):
+    month: str
+    income_known: bool
+    income_cents: int | None  # expected fixed income × 12
+    scheduled_cents: int
+    flexible_cents: int
+    goals_cents: int
+    costs_cents: int
+    gap_cents: int | None
+    gap_monthly_cents: int | None
+
+
+class ExpectedIncome(BaseModel):
+    expected_monthly_cents: int | None = Field(default=None, ge=0)
 
 
 # ---- Month summary (dashboard) ----------------------------------------------

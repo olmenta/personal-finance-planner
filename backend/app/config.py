@@ -5,6 +5,7 @@ App traffic uses the Neon pooler host; Alembic migrations use the direct host
 (MIGRATIONS_DATABASE_URL, falling back to DATABASE_URL).
 """
 
+from datetime import date
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,6 +17,11 @@ class Settings(BaseSettings):
     database_url: str
     migrations_database_url: str | None = None
     test_database_url: str | None = None
+    # Neon "e2e" branch for the Playwright suite (see app/e2e_reset.py).
+    e2e_database_url: str | None = None
+    e2e_migrations_database_url: str | None = None
+    # Pins "today" (app/clock.py) for the e2e suite; ignored in production.
+    fixed_today: date | None = None
 
     # AI category suggestions (import pipeline). Missing key degrades to
     # uncategorized staging — never blocks an import (design D5).

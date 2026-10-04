@@ -10,6 +10,7 @@ import {
   Building2,
   Calendar,
   Check,
+  CircleCheck,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -26,6 +27,7 @@ import {
   Flame,
   Home,
   Info,
+  Landmark,
   LayoutDashboard,
   Lock,
   LogOut,
@@ -44,6 +46,7 @@ import {
   Sparkles,
   Target,
   TrendingDown,
+  TriangleAlert,
   TrendingUp,
   Upload,
   User,
@@ -57,6 +60,7 @@ import {
 /* Olmenta icon language: Lucide, 2px stroke, round caps, currentColor.
    The sparkle is reserved for the AI coach. */
 const OL_ICONS: Record<string, LucideIcon> = {
+  "alert-triangle": TriangleAlert,
   "arrow-down-left": ArrowDownLeft,
   "arrow-left": ArrowLeft,
   "arrow-left-right": ArrowLeftRight,
@@ -68,6 +72,7 @@ const OL_ICONS: Record<string, LucideIcon> = {
   building: Building2,
   calendar: Calendar,
   check: Check,
+  "check-circle": CircleCheck,
   "chevron-down": ChevronDown,
   "chevron-left": ChevronLeft,
   "chevron-right": ChevronRight,
@@ -85,6 +90,7 @@ const OL_ICONS: Record<string, LucideIcon> = {
   flame: Flame,
   home: Home,
   info: Info,
+  landmark: Landmark,
   lock: Lock,
   "log-out": LogOut,
   "more-horizontal": MoreHorizontal,

@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/Input";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Switch } from "@/components/ui/Switch";
 import { PayeeField } from "@/components/PayeeField";
+import { invalidateMoneyQueries } from "@/lib/planQueries";
 import { useCoverPrompt } from "@/components/budget/CoverPrompt";
 import {
   fetchCategories,
@@ -102,6 +103,7 @@ function EditForm({
         queryClient.invalidateQueries({ queryKey: ["budget", m] });
         queryClient.invalidateQueries({ queryKey: ["summary", m] });
       }
+      invalidateMoneyQueries(queryClient);
       onClose();
       // Overspent now? Offer the cover after the dialog closes (budget-rules D8).
       if (updated.category_id) void promptCover(updated.date.slice(0, 7), [updated.category_id]);

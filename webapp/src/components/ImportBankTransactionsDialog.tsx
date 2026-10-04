@@ -35,6 +35,7 @@ import {
   type ImportBatchView,
 } from "@/lib/api";
 import { euroCents } from "@/lib/format";
+import { invalidateMoneyQueries } from "@/lib/planQueries";
 import { useCoverPrompt } from "@/components/budget/CoverPrompt";
 
 const UNCATEGORIZED = "none";
@@ -173,6 +174,7 @@ export function ImportBankTransactionsDialog({
         queryClient.invalidateQueries({ queryKey: ["budget", m] });
         queryClient.invalidateQueries({ queryKey: ["summary", m] });
       }
+      invalidateMoneyQueries(queryClient);
       // Synchronous null first — the resume effect must not re-adopt the
       // just-confirmed batch from stale cache.
       queryClient.setQueryData(["imports", "pending"], null);
