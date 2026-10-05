@@ -128,7 +128,7 @@ Tapping the to-be-assigned amount (or its income line) on the budget screen SHAL
 
 ### Requirement: Uncategorized spending block
 
-When the month's `uncategorized_count` is greater than zero, the budget screen SHALL render a "Sin categorizar" block above the category groups, in warning style (never the expense red reserved for overspending), showing `uncategorized_cents` and the number of movements and stating that they need a category. The block SHALL offer a "Categorizar ahora" action that requests AI categorization proposals and opens the categorization review on the budget screen itself; applying it SHALL refresh the budget month. When AI proposals are unavailable, the review's empty state SHALL point to categorizing manually from the transactions screen. The block SHALL NOT block assigning, moving money, or any other action, and SHALL disappear once nothing in the month is uncategorized.
+When the month's `uncategorized_count` is greater than zero, the budget screen SHALL render a "Sin categorizar" block above the category groups, in warning style (never the expense red reserved for overspending), showing `uncategorized_cents` and the number of movements and stating that they need a category. The block SHALL offer a "Categorizar ahora" action that opens the categorization review (see transaction-review) on the budget screen itself, listing every uncategorized transaction with AI suggestions as defaults where available; applying it SHALL refresh the budget month. When the AI is unavailable the review SHALL still list the transactions so the user categorizes them in place. The block SHALL NOT block assigning, moving money, or any other action, and SHALL disappear once nothing in the month is uncategorized.
 
 #### Scenario: Block shows what needs a category
 
@@ -137,7 +137,7 @@ When the month's `uncategorized_count` is greater than zero, the budget screen S
 
 #### Scenario: Categorize from the budget
 
-- **WHEN** the user taps "Categorizar ahora" and applies the proposed categories
+- **WHEN** the user taps "Categorizar ahora", picks or keeps a category for every listed row, and applies
 - **THEN** the review closes, the categories' spent amounts include those rows, and the block disappears
 
 #### Scenario: Nothing is blocked
