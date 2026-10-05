@@ -3,9 +3,7 @@
 ## Purpose
 
 Zero-based budget assignment surface: the budget screen where the user distributes the month's income across categories, tracks the remaining "to be assigned" amount, and switches between assignment and reporting views.
-
 ## Requirements
-
 ### Requirement: To-be-assigned indicator
 
 The budget screen SHALL display a "to be assigned" hero showing the month's unassigned amount as served by the API (`to_be_assigned_cents`, which carries over between months — never recomputed client-side as income minus assignments), formatted in euros (es-ES, tabular numerals). The indicator SHALL remain visible while the assignment list scrolls (sticky), and SHALL reflect every assignment edit without a page reload.
@@ -127,3 +125,28 @@ Tapping the to-be-assigned amount (or its income line) on the budget screen SHAL
 
 - **WHEN** the month has no confirmed uncategorized inflows
 - **THEN** the breakdown says no income has arrived yet this month and, when expected income is known, shows it as still to come
+
+### Requirement: Uncategorized spending block
+
+When the month's `uncategorized_count` is greater than zero, the budget screen SHALL render a "Sin categorizar" block above the category groups, in warning style (never the expense red reserved for overspending), showing `uncategorized_cents` and the number of movements and stating that they need a category. The block SHALL offer a "Categorizar ahora" action that requests AI categorization proposals and opens the categorization review on the budget screen itself; applying it SHALL refresh the budget month. When AI proposals are unavailable, the review's empty state SHALL point to categorizing manually from the transactions screen. The block SHALL NOT block assigning, moving money, or any other action, and SHALL disappear once nothing in the month is uncategorized.
+
+#### Scenario: Block shows what needs a category
+
+- **WHEN** June has three uncategorized outflows totaling 74,50 €
+- **THEN** the budget screen shows the "Sin categorizar" block with "74,50 €" and "3" above the first group, in warning style
+
+#### Scenario: Categorize from the budget
+
+- **WHEN** the user taps "Categorizar ahora" and applies the proposed categories
+- **THEN** the review closes, the categories' spent amounts include those rows, and the block disappears
+
+#### Scenario: Nothing is blocked
+
+- **WHEN** the block is visible
+- **THEN** the user can still assign, move money, and cover overspending as usual
+
+#### Scenario: No block when everything is categorized
+
+- **WHEN** the month's `uncategorized_count` is 0
+- **THEN** no "Sin categorizar" block is rendered
+

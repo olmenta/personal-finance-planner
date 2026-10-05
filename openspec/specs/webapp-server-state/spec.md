@@ -3,9 +3,7 @@
 ## Purpose
 
 How the webapp reads and mutates server data through TanStack Query: budget month and transactions served by the API instead of mock data, optimistic assignment edits with rollback, cache invalidation after mutations, and loading/error presentation.
-
 ## Requirements
-
 ### Requirement: Budget month served by the API
 
 The budget screen SHALL read its month view from `GET /api/budget/{month}` via TanStack Query instead of mock data. Derived figures (`to_be_assigned_cents`, `available_cents`) SHALL come from the server response, not be recomputed from client state. Presentation-only attributes (chip `tone`) SHALL be derived client-side from the category.
@@ -40,12 +38,17 @@ Editing a category assignment SHALL update the cached month view optimistically 
 
 ### Requirement: Transactions list and creation via API
 
-The transactions screen SHALL list from `GET /api/transactions?month=` joined client-side with `GET /api/categories` for icon and name. Creating a transaction SHALL post to `POST /api/transactions` and on success invalidate both the transactions list and the affected budget month (spent totals change).
+The transactions screen SHALL list from `GET /api/transactions?month=` joined client-side with `GET /api/categories` for icon and name. The Add and Edit transaction dialogs SHALL choose the category with the category picker (see category-picker). Creating a transaction SHALL post to `POST /api/transactions` and on success invalidate both the transactions list and the affected budget month (spent totals change).
 
 #### Scenario: New expense updates budget
 
 - **WHEN** the user registers a 12,49 € expense in Supermercado
 - **THEN** the transaction appears in the list and the budget month's `spent_cents` for Supermercado reflects it after invalidation
+
+#### Scenario: Category found by typing
+
+- **WHEN** the user opens the category picker in Add transaction and types "super"
+- **THEN** the list narrows to matching categories such as "Supermercado" and selecting one fills the field
 
 ### Requirement: Payee entry and rendering
 
@@ -92,7 +95,7 @@ Each row on the transactions screen SHALL offer an actions menu with "Edit" and 
 
 ### Requirement: AI categorization review flow
 
-The transactions screen SHALL offer a "Suggest categories" action when confirmed uncategorized transactions exist. Triggering it SHALL request proposals and open a review dialog listing each proposed row (date, description, amount, editable category select and editable payee input prefilled with the proposals, confidence badge) with per-row checkboxes defaulting to checked and low-confidence rows sorted first. Applying SHALL post only the checked rows (with any overrides) to the apply endpoint and invalidate the transactions query plus the budget and summary queries for every affected month. An empty proposal list (nothing uncategorized, or AI unavailable) SHALL render an actionable empty state, never a dead end, and the AI SHALL never write a category without the user applying it.
+The transactions screen SHALL offer a "Suggest categories" action when confirmed uncategorized transactions exist. Triggering it SHALL request proposals and open a review dialog listing each proposed row (date, description, amount, editable category picker (see category-picker) and editable payee input prefilled with the proposals, confidence badge) with per-row checkboxes defaulting to checked and low-confidence rows sorted first. Applying SHALL post only the checked rows (with any overrides) to the apply endpoint and invalidate the transactions query plus the budget and summary queries for every affected month. An empty proposal list (nothing uncategorized, or AI unavailable) SHALL render an actionable empty state, never a dead end, and the AI SHALL never write a category without the user applying it.
 
 #### Scenario: Bulk categorization applied
 
@@ -158,7 +161,7 @@ The dashboard (Overview) SHALL read its data via TanStack Query instead of mock 
 
 ### Requirement: Statement import flow
 
-The transactions screen SHALL offer an "Import bank transactions" flow: pick the source from a list ("BBVA - es", "Sabadell - es", "Custom CSV" — the custom entry offers the downloadable template and explains its columns) and the matching file, upload via `POST /api/imports`, then review the staged rows — each with an editable category select prefilled with the AI suggestion and a visible skipped-duplicates count — and either confirm (with any category overrides) or discard. While a pending (staged) batch exists, the transactions screen SHALL show a persistent banner naming the file and row count with a "Resume review" action that reopens the review step, the import dialog SHALL open directly into that review instead of offering a new upload, and a 409 `import_pending` from upload SHALL navigate to the pending review rather than render an error. The skipped-duplicates copy SHALL state that skipped rows are already-imported transactions, and an all-skipped upload SHALL render an explanatory empty state, not a failure. Upload, confirm, and discard SHALL invalidate the pending-import query; confirming SHALL additionally invalidate the transactions, budget, and summary queries for every month present in the batch. Upload and parse failures SHALL surface a retryable, actionable error (which bank/file to check), never a dead end.
+The transactions screen SHALL offer an "Import bank transactions" flow: pick the source from a list ("BBVA - es", "Sabadell - es", "Custom CSV" — the custom entry offers the downloadable template and explains its columns) and the matching file, upload via `POST /api/imports`, then review the staged rows — each with an editable category picker (see category-picker) prefilled with the AI suggestion and a visible skipped-duplicates count — and either confirm (with any category overrides) or discard. While a pending (staged) batch exists, the transactions screen SHALL show a persistent banner naming the file and row count with a "Resume review" action that reopens the review step, the import dialog SHALL open directly into that review instead of offering a new upload, and a 409 `import_pending` from upload SHALL navigate to the pending review rather than render an error. The skipped-duplicates copy SHALL state that skipped rows are already-imported transactions, and an all-skipped upload SHALL render an explanatory empty state, not a failure. Upload, confirm, and discard SHALL invalidate the pending-import query; confirming SHALL additionally invalidate the transactions, budget, and summary queries for every month present in the batch. Upload and parse failures SHALL surface a retryable, actionable error (which bank/file to check), never a dead end.
 
 #### Scenario: Import reflected after confirm
 
@@ -190,6 +193,16 @@ The transactions screen SHALL offer an "Import bank transactions" flow: pick the
 - **WHEN** an upload stages 0 rows because every row collides with confirmed transactions
 - **THEN** the review explains the rows are already imported and points to the transactions list, instead of presenting a dead-end zero count
 
+#### Scenario: Typing stays responsive in a long review
+
+- **WHEN** a review lists 150 staged rows and the user types a note or a payee in one of them
+- **THEN** every keystroke appears immediately, because editing one row re-renders only that row
+
+#### Scenario: New category from the review
+
+- **WHEN** a statement has a row for a kind of expense the user has no category for
+- **THEN** the user creates the category from that row's picker without leaving the review, and the following rows can pick it
+
 ### Requirement: Move money mutation
 
 Moving money SHALL go through `POST /api/budget/{month}/moves` via a TanStack Query mutation that optimistically updates the cached month view (source and target assignments and availables; To Be Assigned when the source is "Sin asignar") and replaces the cache with the server's returned view on success. On error the cache SHALL roll back and the UI SHALL surface the machine-readable code as a translated, retryable message.
@@ -217,3 +230,4 @@ After a transaction is created or edited from the Add/Edit dialogs, or an import
 
 - **WHEN** a saved expense stays within the category's available
 - **THEN** no cover prompt appears
+

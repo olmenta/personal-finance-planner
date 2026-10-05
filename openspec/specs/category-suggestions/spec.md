@@ -3,9 +3,7 @@
 ## Purpose
 
 AI-assisted category suggestions for ingested transactions: the backend calls the Anthropic API per import batch to propose a category per row, validates the result against the user's real category tree, and degrades gracefully to null suggestions — suggestions are review defaults, never auto-confirmations.
-
 ## Requirements
-
 ### Requirement: AI category suggestion for ingested rows
 
 The backend SHALL suggest a category per ingested row by calling the Anthropic API (from Python only, never the browser) with the user's category tree, a sample of the user's recent categorized transactions as worked examples (up to ~100 distinct description → category pairs, newest first), and the rows' date, description, amount, and — when the source provided one — the row's free-text category hint, in one structured-output request per batch. Each suggestion SHALL carry a `confidence` of `high`, `medium`, or `low` (missing values degrade to `low`). Each suggestion MAY carry a proposed `payee` — the cleaned merchant/payer name extracted from the description, null when unclear; staged rows resolve it find-or-create so the review shows it before anything is confirmed, and discarding the batch removes payees no other transaction references. Returned category ids SHALL be validated against the user's real categories — unknown ids become null. Any failure of the suggestion call (missing key, rate limit, timeout) SHALL degrade to null suggestions and SHALL NOT fail the import. Suggestions are defaults for human review and SHALL never confirm transactions by themselves.
@@ -42,7 +40,7 @@ The backend SHALL suggest a category per ingested row by calling the Anthropic A
 
 ### Requirement: On-demand categorization proposals
 
-The API SHALL expose `POST /transactions/suggest-categories` accepting an optional `transaction_ids` list and defaulting to the user's confirmed uncategorized transactions (capped at the 500 newest). It SHALL return proposals `{transaction_id, category_id, payee, confidence}` for rows where the model placed a category or a payee — writing nothing — and an empty list when the AI is unavailable, never an error caused by the AI. `POST /transactions/apply-categories` SHALL accept `{assignments: {transaction_id: {category_id, payee}}}` and apply each valid assignment (owner-scoped, confirmed-only, category validated against the user's tree, payee resolved find-or-create) in one transaction, skipping invalid entries and reporting the applied count.
+The API SHALL expose `POST /transactions/suggest-categories` accepting an optional `transaction_ids` list and defaulting to the user's confirmed uncategorized transactions (capped at the 500 newest). It SHALL return proposals `{transaction_id, category_id, payee, confidence}` for rows where the model placed a category or a payee — writing nothing — and an empty list when the AI is unavailable, never an error caused by the AI. `POST /transactions/apply-categories` SHALL accept `{assignments: {transaction_id: {category_id, payee}}}` and apply each valid assignment (owner-scoped, confirmed-only, category validated against the user's tree, payee resolved find-or-create) in one transaction, skipping invalid entries and reporting the applied count. An absent `category_id` SHALL leave the row's category untouched, while an explicit `category_id: null` SHALL clear it — an inflow set back to "Ready to assign" counts as income again.
 
 #### Scenario: Uncategorized rows proposed
 
@@ -58,3 +56,9 @@ The API SHALL expose `POST /transactions/suggest-categories` accepting an option
 
 - **WHEN** the Anthropic call fails during suggest-categories
 - **THEN** the API returns an empty proposal list and no error
+
+#### Scenario: Explicit null returns an inflow to income
+
+- **WHEN** a categorized +12,50 € inflow (a refund) is applied with `category_id: null`, and another row is applied with only a payee
+- **THEN** the first row loses its category and counts toward `income_cents`, and the second row keeps its category
+

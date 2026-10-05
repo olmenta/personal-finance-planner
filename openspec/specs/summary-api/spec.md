@@ -3,12 +3,10 @@
 ## Purpose
 
 Backend contract for the month summary that feeds the dashboard: all-time balance, monthly income and expense totals, and per-week buckets, aggregated in the database from confirmed transactions.
-
 ## Requirements
-
 ### Requirement: Month summary view
 
-The API SHALL expose `GET /summary/{month}` returning, in integer cents: `balance_cents` (all-time sum of confirmed transaction amounts across the user's accounts — transfer twins cancel out and need no exclusion), `income_cents` (sum of positive confirmed transactions in cash or bank accounts **without a category and without a `transfer_pair_id`** in the month — categorized inflows are refunds, transfer rows never enter the budget plane), `expense_cents` (absolute net of categorized confirmed activity in the month: expenses minus categorized inflows, transfer rows and opening-balance rows excluded — a card's pre-existing debt is not spending), and `weeks` — one bucket per calendar week overlapping the month, each with `start` (ISO date of the bucket's first day, clamped to the month), `spent_cents`, and `income_cents` following the same rules. Income SHALL be derived from the same shared aggregation the budget view uses, so the dashboard and the budget can never disagree. Staged transactions SHALL be excluded everywhere. Aggregation SHALL happen in the database, not by shipping the transaction list.
+The API SHALL expose `GET /summary/{month}` returning, in integer cents: `balance_cents` (all-time sum of confirmed transaction amounts across the user's accounts — transfer twins cancel out and need no exclusion), `income_cents` (sum of positive confirmed transactions in cash or bank accounts **without a category and without a `transfer_pair_id`** in the month — categorized inflows are refunds, transfer rows never enter the budget plane), `expense_cents` (absolute net of the month's spending: every confirmed outflow — categorized or not — minus categorized inflows (refunds), transfer rows and opening-balance rows excluded — a card's pre-existing debt is not spending, and an uncategorized outflow is still money that left), and `weeks` — one bucket per calendar week overlapping the month, each with `start` (ISO date of the bucket's first day, clamped to the month), `spent_cents`, and `income_cents` following the same rules. Income SHALL be derived from the same shared aggregation the budget view uses, so the dashboard and the budget can never disagree. Staged transactions SHALL be excluded everywhere. Aggregation SHALL happen in the database, not by shipping the transaction list.
 
 #### Scenario: Month totals
 
@@ -39,3 +37,9 @@ The API SHALL expose `GET /summary/{month}` returning, in integer cents: `balanc
 
 - **WHEN** a month has no transactions
 - **THEN** the summary returns zero totals and week buckets with zero amounts (not an error)
+
+#### Scenario: Uncategorized outflow counts as spending
+
+- **WHEN** June additionally has a confirmed −30,00 € transaction without a category
+- **THEN** `expense_cents` includes those 30,00 € and the week bucket containing its date includes them in `spent_cents`
+
