@@ -77,3 +77,4 @@ The UI implements the **Olmenta** design system: violet `#7C5CFC` primary (intel
 - Less than 5 seconds to register an expense is the core UX promise — keep entry flows free of unnecessary steps, confirmations, or layout shift.
 - Never log or expose financial data in errors/telemetry; no PII in analytics events (GDPR).
 - Architecture must stay ready for Open Banking (v3): keep transaction ingestion behind an interface, CSV import is just the first provider.
+- **E2E coverage for UI work:** every UI change (a new or modified screen, dialog, component, or user flow) must come with a check of the Playwright suite in `webapp/e2e/`. Update the specs that cover the changed behavior, or add a spec when none does, and run `volta run npm run e2e` before calling the work done.

@@ -373,16 +373,24 @@ export interface StagedTransactionOut extends TransactionOut {
 
 export type SuggestionConfidence = "high" | "medium" | "low";
 
-export interface CategoryProposal {
-  transaction_id: string;
-  category_id: string | null;
-  payee: string | null; // cleaned merchant/payer name, null when unclear
-  confidence: SuggestionConfidence;
+/** A confirmed uncategorized row; the AI suggestion is a default, never stored. */
+export interface ReviewRowOut extends StagedTransactionOut {
+  suggested_category_id: string | null;
+  suggested_payee: string | null;
+  confidence: SuggestionConfidence | null;
 }
 
-export interface CategoryAssignment {
-  category_id?: string | null; // omitted = untouched; null clears (inflow → income)
-  payee?: string; // omitted = leave payee untouched; "" clears
+export interface ReviewView {
+  transactions: ReviewRowOut[];
+}
+
+/** The decisions both reviews send: import confirm and review apply. */
+export interface ReviewDecisions {
+  overrides: Record<string, string | null>; // category id; null clears
+  payee_overrides: Record<string, string>; // "" clears; find-or-create
+  note_overrides: Record<string, string | null>; // replaces the description; null clears
+  transfer_overrides: Record<string, string>; // other account: twin created
+  accept_matches: string[]; // existing twin adopted, the row dropped
 }
 
 export type ImportBank = "bbva" | "sabadell" | "custom";
@@ -606,20 +614,14 @@ export const updateTransaction = (id: string, patch: TransactionUpdate) =>
     body: JSON.stringify(patch),
   });
 
-export const suggestCategories = (transactionIds?: string[]) =>
-  request<{ proposals: CategoryProposal[] }>("/transactions/suggest-categories", {
-    method: "POST",
-    body: JSON.stringify(
-      transactionIds ? { transaction_ids: transactionIds } : {},
-    ),
-  });
+/** Every uncategorized transaction with AI defaults and twin matches. */
+export const fetchReview = () =>
+  request<ReviewView>("/transactions/review", { method: "POST" });
 
-export const applyCategories = (
-  assignments: Record<string, CategoryAssignment>,
-) =>
-  request<{ applied: number }>("/transactions/apply-categories", {
+export const applyReview = (decisions: ReviewDecisions) =>
+  request<{ applied: number }>("/transactions/review/apply", {
     method: "POST",
-    body: JSON.stringify({ assignments }),
+    body: JSON.stringify(decisions),
   });
 
 export const deleteTransaction = async (id: string): Promise<void> => {
@@ -667,27 +669,10 @@ export async function fetchPendingImport(): Promise<ImportBatchView | null> {
   }
 }
 
-export const confirmImport = (
-  id: string,
-  overrides: Record<string, string | null>,
-  // txn_id -> payee name ("" clears; backend resolves find-or-create)
-  payeeOverrides: Record<string, string> = {},
-  // txn_id -> other account: the row is a transfer, twin created on confirm
-  transferOverrides: Record<string, string> = {},
-  // staged rows whose match suggestion was accepted (existing twin adopted)
-  acceptMatches: string[] = [],
-  // txn_id -> note, replacing the bank description (null clears)
-  noteOverrides: Record<string, string | null> = {},
-) =>
+export const confirmImport = (id: string, decisions: ReviewDecisions) =>
   request<ImportBatchView>(`/imports/${id}/confirm`, {
     method: "POST",
-    body: JSON.stringify({
-      overrides,
-      payee_overrides: payeeOverrides,
-      transfer_overrides: transferOverrides,
-      accept_matches: acceptMatches,
-      note_overrides: noteOverrides,
-    }),
+    body: JSON.stringify(decisions),
   });
 
 export const discardImport = async (id: string): Promise<void> => {

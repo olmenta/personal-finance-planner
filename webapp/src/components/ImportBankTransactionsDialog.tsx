@@ -13,30 +13,22 @@ import { Separator } from "@/components/shadcn/separator";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
-import { Input } from "@/components/ui/Input";
-import { PayeeField } from "@/components/PayeeField";
-import { CategoryCombobox, NO_CATEGORY } from "@/components/CategoryCombobox";
-import { AccountSelect, accountName, useAccounts } from "@/components/AccountPicker";
+import { NO_CATEGORY } from "@/components/CategoryCombobox";
+import { TransactionReview } from "@/components/review/TransactionReview";
+import { useTransactionReview, type ReviewItem } from "@/components/review/useTransactionReview";
+import { AccountSelect, useAccounts } from "@/components/AccountPicker";
 import {
   ApiError,
   confirmImport,
   discardImport,
-  fetchPayees,
   fetchPendingImport,
   uploadImport,
   type ImportBank,
   type ImportBatchView,
-  type PayeeOut,
-  type StagedTransactionOut,
 } from "@/lib/api";
-import { euroCents } from "@/lib/format";
 import { invalidateMoneyQueries } from "@/lib/planQueries";
 import { useCoverPrompt } from "@/components/budget/CoverPrompt";
 
-const UNCATEGORIZED = NO_CATEGORY;
-const NO_PAYEES: PayeeOut[] = [];
-// Select value for "Transfer → <account>": the row's twin lands there on confirm.
-const TRANSFER_PREFIX = "transfer:";
 
 interface SourceOption {
   id: ImportBank;
@@ -67,12 +59,6 @@ const SOURCES: SourceOption[] = [
   },
 ];
 
-function formatDate(iso: string): string {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-  });
-}
 
 function uploadErrorCode(error: unknown, isError: boolean): string | null {
   if (error instanceof ApiError) {
@@ -93,46 +79,43 @@ export function ImportBankTransactionsDialog({
   const [bank, setBank] = React.useState<ImportBank | null>(null);
   const [file, setFile] = React.useState<File | null>(null);
   const [batch, setBatch] = React.useState<ImportBatchView | null>(null);
-  const [selections, setSelections] = React.useState<Record<string, string>>({});
-  // Row payee edits; absent key = keep the AI-staged payee untouched.
-  const [payeeEdits, setPayeeEdits] = React.useState<Record<string, string>>({});
-  // Row note edits; the note is the row's description (bank text prefilled).
-  const [noteEdits, setNoteEdits] = React.useState<Record<string, string>>({});
-  // Twin-match suggestions the user answered; unanswered ones stay suggestions.
-  const [matchDecisions, setMatchDecisions] = React.useState<
-    Record<string, "accept" | "ignore">
-  >({});
   // "" = the main account.
   const [uploadAccountId, setUploadAccountId] = React.useState("");
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const queryClient = useQueryClient();
-  const { data: payees } = useQuery({
-    queryKey: ["payees"],
-    queryFn: fetchPayees,
-    enabled: open,
-  });
   const pendingQuery = useQuery({
     queryKey: ["imports", "pending"],
     queryFn: fetchPendingImport,
     enabled: open,
   });
-  const { all: allAccounts, active: accounts, main } = useAccounts(open);
+  const { active: accounts, main } = useAccounts(open);
 
   // Resume mode (design D3): with a pending batch and no fresh upload, the
   // dialog reviews the pending one — whatever opened it lands on the review
   // step instead of the source picker.
   const activeBatch = batch ?? pendingQuery.data ?? null;
 
+  // The shared review (spec: transaction-review): the staged AI category is
+  // each row's default, badged "Suggested" while kept.
+  const items = React.useMemo<ReviewItem[]>(
+    () =>
+      (activeBatch?.transactions ?? []).map((t) => ({
+        row: t,
+        defaultSelection: t.category_id ?? NO_CATEGORY,
+        defaultPayee: t.payee_name ?? "",
+        badgeLabel: t.category_id !== null ? "Suggested" : null,
+      })),
+    [activeBatch],
+  );
+  const review = useTransactionReview(items, open);
+
   const upload = useMutation({
     mutationFn: ({ file, bank }: { file: File; bank: ImportBank }) =>
       uploadImport(file, bank, uploadAccountId || undefined),
     onSuccess: (view) => {
       setBatch(view);
-      setSelections({});
-      setPayeeEdits({});
-      setNoteEdits({});
-      setMatchDecisions({});
+      review.reset();
       // Staging may have created AI-proposed payees.
       queryClient.invalidateQueries({ queryKey: ["payees"] });
       queryClient.setQueryData(["imports", "pending"], view);
@@ -147,45 +130,9 @@ export function ImportBankTransactionsDialog({
     },
   });
 
-  // A row's category: explicit pick, else the staged AI suggestion.
-  const selectionFor = (t: { id: string; category_id: string | null }) =>
-    selections[t.id] ?? t.category_id ?? UNCATEGORIZED;
-
   const promptCover = useCoverPrompt();
   const confirm = useMutation({
-    mutationFn: () => {
-      const overrides: Record<string, string | null> = {};
-      const payeeOverrides: Record<string, string> = {};
-      const transferOverrides: Record<string, string> = {};
-      const acceptMatches: string[] = [];
-      const noteOverrides: Record<string, string | null> = {};
-      for (const t of activeBatch?.transactions ?? []) {
-        if (t.match && matchDecisions[t.id] === "accept") {
-          // The existing twin is adopted; the staged row is dropped.
-          acceptMatches.push(t.id);
-          continue;
-        }
-        const note = (noteEdits[t.id] ?? t.description ?? "").trim();
-        if (note !== (t.description ?? "").trim()) noteOverrides[t.id] = note || null;
-        const picked = selectionFor(t);
-        if (picked.startsWith(TRANSFER_PREFIX)) {
-          transferOverrides[t.id] = picked.slice(TRANSFER_PREFIX.length);
-          continue;
-        }
-        const pickedId = picked === UNCATEGORIZED ? null : picked;
-        if (pickedId !== t.category_id) overrides[t.id] = pickedId;
-        const edited = (payeeEdits[t.id] ?? t.payee_name ?? "").trim();
-        if (edited !== (t.payee_name ?? "").trim()) payeeOverrides[t.id] = edited;
-      }
-      return confirmImport(
-        activeBatch!.id,
-        overrides,
-        payeeOverrides,
-        transferOverrides,
-        acceptMatches,
-        noteOverrides,
-      );
-    },
+    mutationFn: () => confirmImport(activeBatch!.id, review.buildDecisions()),
     onSuccess: (confirmed) => {
       // Imports span months, unlike single adds — invalidate each one.
       const months = new Set(
@@ -229,10 +176,7 @@ export function ImportBankTransactionsDialog({
       // Discard may have deleted batch-only payees from autocomplete.
       queryClient.invalidateQueries({ queryKey: ["payees"] });
       setBatch(null);
-      setSelections({});
-      setPayeeEdits({});
-      setNoteEdits({});
-      setMatchDecisions({});
+      review.reset();
       setFile(null);
       upload.reset();
     },
@@ -242,10 +186,7 @@ export function ImportBankTransactionsDialog({
     setBank(null);
     setFile(null);
     setBatch(null);
-    setSelections({});
-    setPayeeEdits({});
-    setNoteEdits({});
-    setMatchDecisions({});
+    review.reset();
     setUploadAccountId("");
     upload.reset();
     confirm.reset();
@@ -263,50 +204,6 @@ export function ImportBankTransactionsDialog({
   const uploadError = uploadErrorCode(upload.error, upload.isError);
 
   const reviewing = activeBatch !== null && activeBatch.status === "staged";
-  // Transfer targets: every other active account of the user, as picker
-  // groups per direction (memoized: rows are React.memo).
-  const batchAccountId = activeBatch?.account_id;
-  const transferGroups = React.useMemo(() => {
-    const targets = accounts.filter((a) => a.id !== batchAccountId);
-    const group = (arrow: string) =>
-      targets.length === 0
-        ? []
-        : [
-            {
-              heading: "Transfers →",
-              options: targets.map((a) => ({
-                value: `${TRANSFER_PREFIX}${a.id}`,
-                label: `Transfer ${arrow} ${a.name}`,
-              })),
-            },
-          ];
-    return { in: group("←"), out: group("→") };
-  }, [accounts, batchAccountId]);
-
-  // Stable per-row dispatchers: a keystroke changes one map entry, so only
-  // that row's props change and only that row re-renders (design D5).
-  const setRowSelection = React.useCallback(
-    (id: string, value: string) => setSelections((prev) => ({ ...prev, [id]: value })),
-    [],
-  );
-  const setRowPayee = React.useCallback(
-    (id: string, value: string) => setPayeeEdits((prev) => ({ ...prev, [id]: value })),
-    [],
-  );
-  const setRowNote = React.useCallback(
-    (id: string, value: string) => setNoteEdits((prev) => ({ ...prev, [id]: value })),
-    [],
-  );
-  const setRowDecision = React.useCallback(
-    (id: string, value: "accept" | "ignore" | null) =>
-      setMatchDecisions((prev) => {
-        const next = { ...prev };
-        if (value === null) delete next[id];
-        else next[id] = value;
-        return next;
-      }),
-    [],
-  );
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -521,15 +418,10 @@ export function ImportBankTransactionsDialog({
               )}
             </div>
 
-            <div
-              style={{
-                maxHeight: 380,
-                overflowY: "auto",
-                border: "1px solid var(--border-hairline)",
-                borderRadius: "var(--r-lg)",
-              }}
-            >
-              {activeBatch.row_count === 0 ? (
+            <TransactionReview
+              items={items}
+              review={review}
+              empty={
                 <div
                   style={{
                     padding: "28px 16px",
@@ -551,29 +443,8 @@ export function ImportBankTransactionsDialog({
                   before — check your transactions list to see them. Discard
                   this review to import a different file.
                 </div>
-              ) : (
-                activeBatch.transactions.map((t, i) => (
-                  <ImportReviewRow
-                    key={t.id}
-                    row={t}
-                    last={i === activeBatch.transactions.length - 1}
-                    selection={selectionFor(t)}
-                    payee={payeeEdits[t.id] ?? t.payee_name ?? ""}
-                    note={noteEdits[t.id] ?? t.description ?? ""}
-                    decision={t.match ? matchDecisions[t.id] : undefined}
-                    matchAccountName={
-                      t.match ? accountName(allAccounts, t.match.other_account_id) : null
-                    }
-                    payees={payees ?? NO_PAYEES}
-                    transferGroups={t.amount_cents > 0 ? transferGroups.in : transferGroups.out}
-                    onSelect={setRowSelection}
-                    onPayee={setRowPayee}
-                    onNote={setRowNote}
-                    onDecision={setRowDecision}
-                  />
-                ))
-              )}
-            </div>
+              }
+            />
 
             {(confirm.isError || discard.isError) && (
               <div
@@ -647,158 +518,3 @@ export function ImportBankTransactionsDialog({
     </Dialog>
   );
 }
-
-const ROW_GRID = "58px minmax(0, 1fr) 190px 96px 200px";
-
-interface ImportReviewRowProps {
-  row: StagedTransactionOut;
-  last: boolean;
-  selection: string;
-  payee: string;
-  note: string;
-  decision: "accept" | "ignore" | undefined;
-  matchAccountName: string | null;
-  payees: PayeeOut[];
-  transferGroups: { heading: string; options: { value: string; label: string }[] }[];
-  onSelect: (id: string, value: string) => void;
-  onPayee: (id: string, value: string) => void;
-  onNote: (id: string, value: string) => void;
-  onDecision: (id: string, value: "accept" | "ignore" | null) => void;
-}
-
-/* One staged row of the import review. Memoized with a stable-props
-   contract: every prop is a primitive, the row object from the batch query,
-   a list memoized by the dialog, or a dispatcher created once with
-   useCallback. Passing a new inline object or function here would make
-   every row re-render on each keystroke again (design D5). */
-const ImportReviewRow = React.memo(function ImportReviewRow({
-  row: t,
-  last,
-  selection,
-  payee,
-  note,
-  decision,
-  matchAccountName,
-  payees,
-  transferGroups,
-  onSelect,
-  onPayee,
-  onNote,
-  onDecision,
-}: Readonly<ImportReviewRowProps>) {
-  const isIncome = t.amount_cents > 0;
-  const suggested = t.category_id !== null && selection === t.category_id;
-  const isTransfer = selection.startsWith(TRANSFER_PREFIX);
-  const adopted = decision === "accept";
-  return (
-    <div
-      style={{
-        opacity: adopted ? 0.55 : 1,
-        display: "grid",
-        gridTemplateColumns: ROW_GRID,
-        gap: 10,
-        alignItems: "center",
-        padding: "10px 12px",
-        borderBottom: last ? "none" : "1px solid var(--border-hairline)",
-      }}
-    >
-      <span style={{ font: "500 12.5px var(--font-sans)", color: "var(--text-muted)" }}>
-        {formatDate(t.date)}
-      </span>
-      {/* The note is the row's description: the bank text comes prefilled
-          and any edit replaces it. */}
-      <Input
-        aria-label="Note"
-        placeholder="Add a note"
-        title={t.description ?? undefined}
-        disabled={adopted}
-        value={note}
-        maxLength={500}
-        onChange={(e) => onNote(t.id, e.target.value)}
-      />
-      {isTransfer || adopted ? (
-        <span />
-      ) : (
-        <PayeeField
-          label=""
-          value={payee}
-          payees={payees}
-          onChange={(value) => onPayee(t.id, value)}
-          onPick={(p) => onPayee(t.id, p.name)}
-        />
-      )}
-      <span
-        style={{
-          textAlign: "right",
-          font: "700 13.5px var(--font-sans)",
-          fontVariantNumeric: "tabular-nums",
-          // Transfers are neutral: money moving between pockets.
-          color: isIncome && !isTransfer && !adopted ? "var(--income)" : "var(--text-strong)",
-        }}
-      >
-        {isIncome ? "+" : "−"}
-        {euroCents(Math.abs(t.amount_cents))}
-      </span>
-      {/* Positive rows default to "Ready to assign" (income); picking a
-          category turns them into refunds that restore that category
-          (spec: statement-import). */}
-      <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-        <CategoryCombobox
-          size="sm"
-          value={selection}
-          disabled={adopted}
-          noneLabel={isIncome ? "Ready to assign" : "Uncategorized"}
-          extraGroups={transferGroups}
-          placeholder="Pick a category"
-          onChange={(value) => onSelect(t.id, value)}
-        />
-        {suggested && !isTransfer && <Badge tone="brand">Suggested</Badge>}
-      </div>
-      {t.match && decision !== "ignore" && (
-        <div
-          style={{
-            gridColumn: "2 / -1",
-            display: "flex",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: 8,
-            font: "500 12.5px var(--font-sans)",
-            color: "var(--text-muted)",
-          }}
-        >
-          <Icon name="arrow-left-right" size={14} />
-          <span>
-            {adopted ? "Linked to the" : "Looks like the"} transfer {isIncome ? "from" : "to"}{" "}
-            <strong style={{ color: "var(--text-strong)" }}>{matchAccountName}</strong> on{" "}
-            {formatDate(t.match.date)}
-            {adopted ? " — this row won't be added twice." : "."}
-          </span>
-          {adopted ? (
-            <Button variant="ghost" size="sm" type="button" onClick={() => onDecision(t.id, null)}>
-              Undo
-            </Button>
-          ) : (
-            <>
-              <Button
-                variant="secondary"
-                size="sm"
-                type="button"
-                onClick={() => onDecision(t.id, "accept")}
-              >
-                Link them
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                type="button"
-                onClick={() => onDecision(t.id, "ignore")}
-              >
-                Keep separate
-              </Button>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-});

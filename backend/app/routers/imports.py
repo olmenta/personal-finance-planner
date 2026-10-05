@@ -10,9 +10,10 @@ from ..db import get_db
 from ..deps import current_user
 from ..ingestion import StatementFormatError
 from ..models import ImportBatch, User
-from ..schemas import ConfirmImportRequest, ImportBatchView, StagedTransactionOut, TwinMatch
+from ..schemas import ConfirmImportRequest, ImportBatchView, StagedTransactionOut
 from ..services import import_batch as service
 from ..services.accounts import resolve_account
+from ..services.review import twin_match_out
 
 router = APIRouter(prefix="/imports", tags=["imports"])
 
@@ -24,12 +25,7 @@ def _staged(db: Session, batch: ImportBatch) -> list[StagedTransactionOut]:
         row = StagedTransactionOut.model_validate(txn)
         match = matches.get(txn.id)
         if match is not None:
-            row.match = TwinMatch(
-                transaction_id=match.twin.id,
-                pair_id=match.twin.transfer_pair_id or "",
-                other_account_id=match.other_account_id or "",
-                date=match.twin.date,
-            )
+            row.match = twin_match_out(match)
         rows.append(row)
     return rows
 

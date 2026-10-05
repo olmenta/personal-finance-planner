@@ -191,7 +191,9 @@ export function CategoryCombobox({
             />
             <CommandList>
               {/* With a query and no exact match, "Create «X»" is the answer. */}
-              {(!query || exactMatch) && <CommandEmpty>No matching category</CommandEmpty>}
+              {(!groups || !query || exactMatch) && (
+                <CommandEmpty>{groups ? "No matching category" : "Loading categories…"}</CommandEmpty>
+              )}
               {noneLabel && (
                 <CommandGroup>
                   <CommandItem value={noneLabel} onSelect={() => pick(NO_CATEGORY)}>
@@ -225,7 +227,9 @@ export function CategoryCombobox({
                   ))}
                 </CommandGroup>
               ))}
-              {query && !exactMatch && (
+              {/* Only once the tree has loaded: before that, every name
+                  would look new. */}
+              {groups && query && !exactMatch && (
                 <>
                   <CommandSeparator alwaysRender />
                   {/* forceMount on the group too: cmdk hides groups whose

@@ -30,12 +30,15 @@ test.beforeEach(async ({ page }) => {
   await pinClock(page);
 });
 
-async function openReview(page: Page): Promise<Locator> {
+/** Upload the statement (fresh) or resume the batch an earlier step left
+    pending. Explicit, not "whatever the dialog shows": the dialog shows the
+    bank picker until the pending batch has loaded, then swaps to its review. */
+async function openReview(page: Page, mode: "upload" | "resume"): Promise<Locator> {
   await page.goto("/transactions");
-  await page.getByRole("button", { name: /Import bank transactions|Resume review/ }).first().click();
   // By name: the category picker's popover is a dialog too.
   const dialog = page.getByRole("dialog", { name: /Import bank transactions|Review your import/ });
-  if (await dialog.getByRole("radio", { name: /Custom CSV/ }).isVisible()) {
+  if (mode === "upload") {
+    await page.getByRole("button", { name: "Import bank transactions" }).click();
     await dialog.getByRole("radio", { name: /Custom CSV/ }).click();
     await dialog.locator('input[type="file"]').setInputFiles({
       name: "statement.csv",
@@ -43,13 +46,16 @@ async function openReview(page: Page): Promise<Locator> {
       buffer: statementCsv(),
     });
     await dialog.getByRole("button", { name: "Upload and review" }).click();
+  } else {
+    // The banner only appears once the pending batch has loaded.
+    await page.getByRole("region", { name: "Pending import" }).getByRole("button", { name: "Resume review" }).click();
   }
   await expect(dialog.getByRole("heading", { name: "Review your import" })).toBeVisible();
   return dialog;
 }
 
 test("typing a note in a long review keeps up", async ({ page }) => {
-  const dialog = await openReview(page);
+  const dialog = await openReview(page, "upload");
   const notes = dialog.getByRole("textbox", { name: "Note" });
   await expect(notes).toHaveCount(ROWS);
 
@@ -66,7 +72,7 @@ test("typing a note in a long review keeps up", async ({ page }) => {
 });
 
 test("a category created from one row is offered in the next", async ({ page }) => {
-  const dialog = await openReview(page);
+  const dialog = await openReview(page, "resume");
   const pickers = dialog.getByRole("button", { name: "Category" });
 
   await pickers.nth(0).click();
@@ -95,8 +101,42 @@ test("uncategorized spending shows on the budget", async ({ page }) => {
   await expect(block).toBeVisible();
   // Two of the rows got "Mascotas"; the rest are still waiting.
   await expect(block).toContainText(`${ROWS - 2} movements`);
+});
 
+test("the categorization review is the import's review", async ({ page }) => {
+  // A second account, so rows can be marked as transfers.
+  const created = await page.request.post("/api/accounts", { data: { name: "Banco B", type: "bank" } });
+  expect(created.ok()).toBeTruthy();
+
+  await page.goto("/budgets");
+  const block = page.getByRole("region", { name: "Uncategorized spending" });
   await block.getByRole("button", { name: "Categorize now" }).click();
-  // No live LLM in e2e: the review explains and points to manual categorizing.
-  await expect(page.getByText("Nothing to suggest right now")).toBeVisible();
+
+  // No live LLM in e2e: every uncategorized row is still listed, no suggestions.
+  const review = page.getByRole("dialog", { name: "Review uncategorized" });
+  const notes = review.getByRole("textbox", { name: "Note" });
+  await expect(notes).toHaveCount(ROWS - 2);
+  const pickers = review.getByRole("button", { name: "Category" });
+  await expect(review.getByRole("button", { name: "Apply changes" })).toBeDisabled();
+
+  // Row 1: category and note.
+  await pickers.nth(0).click();
+  await page.getByPlaceholder("Search or create…").fill("Mascotas");
+  await page.getByRole("option", { name: "Mascotas", exact: true }).click();
+  await notes.nth(0).fill("Comida del perro");
+
+  // Row 2: a transfer to the new account, same control as the import.
+  await pickers.nth(1).click();
+  await page.getByPlaceholder("Search or create…").fill("Banco B");
+  await page.getByRole("option", { name: "Transfer → Banco B" }).click();
+  await expect(pickers.nth(1)).toHaveText(/Transfer → Banco B/);
+
+  await review.getByRole("button", { name: "Apply changes" }).click();
+  await expect(review).toBeHidden();
+  // Both rows are resolved; the rest are untouched.
+  await expect(block).toContainText(`${ROWS - 4} movements`);
+
+  await page.goto("/transactions");
+  await expect(page.getByText("Comida del perro")).toBeVisible();
+  await expect(page.getByText(/Transfer → Banco B/).first()).toBeVisible();
 });

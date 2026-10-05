@@ -132,42 +132,6 @@ class TransferOut(BaseModel):
     in_transaction_id: str
 
 
-# ---- AI categorization review (spec: category-suggestions) -------------------
-
-
-class SuggestCategoriesRequest(BaseModel):
-    # None = all confirmed uncategorized transactions (500 newest).
-    transaction_ids: list[str] | None = None
-
-
-class CategoryProposal(BaseModel):
-    transaction_id: str
-    category_id: str | None
-    payee: str | None  # cleaned merchant/payer name, null when unclear
-    confidence: Literal["high", "medium", "low"]
-
-
-class SuggestCategoriesResponse(BaseModel):
-    proposals: list[CategoryProposal]
-
-
-class CategoryAssignment(BaseModel):
-    # Absent = leave category untouched; explicit null clears it (un-marks a
-    # refund so the inflow counts as income again).
-    category_id: str | None = None
-    # None = leave payee untouched; "" clears it; name resolves find-or-create.
-    payee: str | None = Field(default=None, max_length=120)
-
-
-class ApplyCategoriesRequest(BaseModel):
-    # txn_id -> accepted assignment
-    assignments: dict[str, CategoryAssignment]
-
-
-class ApplyCategoriesResponse(BaseModel):
-    applied: int
-
-
 # ---- Imports ----------------------------------------------------------------
 
 
@@ -211,6 +175,30 @@ class ConfirmImportRequest(BaseModel):
     # Staged rows whose match suggestion was accepted: the existing twin is
     # adopted and the staged row dropped.
     accept_matches: list[str] = Field(default_factory=list)
+
+
+# ---- Review of uncategorized transactions (spec: transaction-review) --------
+
+
+class ReviewRowOut(StagedTransactionOut):
+    """A confirmed uncategorized row with the AI's suggestion as a default —
+    never stored until the user applies it (design D3)."""
+
+    suggested_category_id: str | None = None
+    suggested_payee: str | None = None
+    confidence: Literal["high", "medium", "low"] | None = None
+
+
+class ReviewView(BaseModel):
+    transactions: list[ReviewRowOut]
+
+
+class ReviewApplyRequest(ConfirmImportRequest):
+    """The import's decision maps, applied to confirmed uncategorized rows."""
+
+
+class ReviewApplyResponse(BaseModel):
+    applied: int  # rows written
 
 
 # ---- Payees -----------------------------------------------------------------

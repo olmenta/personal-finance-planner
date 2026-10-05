@@ -2,9 +2,9 @@
 
 import React from "react";
 import { useSelectedMonth } from "@/lib/selectedMonth";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { AddTransactionDialog } from "@/components/AddTransactionDialog";
-import { SuggestCategoriesDialog } from "@/components/SuggestCategoriesDialog";
+import { CategorizationReviewDialog } from "@/components/review/CategorizationReviewDialog";
 import { DeleteTransactionDialog } from "@/components/DeleteTransactionDialog";
 import { EditTransactionDialog } from "@/components/EditTransactionDialog";
 import { ImportBankTransactionsDialog } from "@/components/ImportBankTransactionsDialog";
@@ -26,11 +26,9 @@ import {
   fetchCategories,
   fetchPendingImport,
   fetchTransactions,
-  suggestCategories,
   toneForCategory,
   type AccountOut,
   type CategoryOut,
-  type CategoryProposal,
   type TransactionOut,
 } from "@/lib/api";
 import { euroCents } from "@/lib/format";
@@ -231,12 +229,8 @@ export default function TransactionsPage() {
   const [filter, setFilter] = React.useState("All");
   const [editing, setEditing] = React.useState<TransactionOut | null>(null);
   const [deleting, setDeleting] = React.useState<TransactionOut | null>(null);
-  const [proposals, setProposals] = React.useState<CategoryProposal[] | null>(null);
+  const [reviewing, setReviewing] = React.useState(false);
 
-  const suggestMutation = useMutation({
-    mutationFn: () => suggestCategories(),
-    onSuccess: (response) => setProposals(response.proposals),
-  });
 
   const txQuery = useQuery({
     queryKey: ["transactions", month],
@@ -338,13 +332,8 @@ export default function TransactionsPage() {
               (t) => !t.category_id && !t.transfer_pair_id && t.source !== "opening_balance",
             ) && (
               // Plain verb, no sparkle — that icon is the coach's (design D4).
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={suggestMutation.isPending}
-                onClick={() => suggestMutation.mutate()}
-              >
-                {suggestMutation.isPending ? "Suggesting…" : "Suggest categories"}
+              <Button variant="secondary" size="sm" onClick={() => setReviewing(true)}>
+                Review uncategorized
               </Button>
             )}
             <ImportBankTransactionsDialog>
@@ -402,7 +391,7 @@ export default function TransactionsPage() {
       </div>
       <EditTransactionDialog transaction={editing} onClose={() => setEditing(null)} />
       <DeleteTransactionDialog transaction={deleting} onClose={() => setDeleting(null)} />
-      <SuggestCategoriesDialog proposals={proposals} onClose={() => setProposals(null)} />
+      <CategorizationReviewDialog open={reviewing} onClose={() => setReviewing(false)} />
     </>
   );
 }

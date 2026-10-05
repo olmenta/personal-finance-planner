@@ -24,6 +24,8 @@ node_modules/
 
 # Personal budget spreadsheets — real financial data, never commit
 *.xlsx
+# …except the e2e statement fixtures (test data, not real accounts)
+!test-assets/*.xlsx
 # Prototypes built with real personal data — local only
 *.local.html
 .neon

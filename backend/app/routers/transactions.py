@@ -13,19 +13,18 @@ from ..deps import current_user
 from ..ingestion import NormalizedTransaction
 from ..models import Category, Transaction, User
 from ..schemas import (
-    ApplyCategoriesRequest,
-    ApplyCategoriesResponse,
-    CategoryProposal,
-    SuggestCategoriesRequest,
-    SuggestCategoriesResponse,
+    ReviewApplyRequest,
+    ReviewApplyResponse,
+    ReviewRowOut,
+    ReviewView,
     TransactionCreate,
     TransactionOut,
     TransactionUpdate,
 )
-from ..services import category_suggestions
+from ..services import category_suggestions, review
 from ..services.accounts import resolve_account
 from ..services.hashing import dedupe_hash
-from ..services.payees import resolve_payee
+from ..services.payees import delete_orphan_payees, resolve_payee
 from ..services.transfers import annotate_counterparts
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
@@ -75,37 +74,41 @@ def create_transaction(
     return txn
 
 
-SUGGEST_ROW_CAP = 500
+REVIEW_ROW_CAP = 500
 
 
-@router.post("/suggest-categories", response_model=SuggestCategoriesResponse)
-def suggest_categories(
-    payload: SuggestCategoriesRequest,
-    db: Session = Depends(get_db),
-    user: User = Depends(current_user),
-) -> SuggestCategoriesResponse:
-    """Propose categories + payees without writing anything (design D2/D3).
-
-    POST despite being a read: one model call, seconds of latency — keep it
-    out of caches and prefetchers. AI failure degrades to an empty list.
-    """
-    # Transfer twins and opening balances are never categorized.
-    query = select(Transaction).where(
+def _reviewable(db: Session, user: User):
+    """Confirmed rows still waiting for a category: not transfer twins, not
+    opening balances (a card's pre-existing debt is not spending)."""
+    return select(Transaction).where(
         Transaction.user_id == user.id,
         Transaction.status == "confirmed",
+        Transaction.category_id.is_(None),
         Transaction.transfer_pair_id.is_(None),
         Transaction.source != "opening_balance",
     )
-    if payload.transaction_ids:
-        query = query.where(Transaction.id.in_(payload.transaction_ids))
-    else:
-        query = query.where(Transaction.category_id.is_(None))
-    query = query.order_by(Transaction.date.desc(), Transaction.created_at.desc()).limit(
-        SUGGEST_ROW_CAP
+
+
+@router.post("/review", response_model=ReviewView)
+def review_uncategorized(
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> ReviewView:
+    """Every uncategorized transaction (all months, newest first), with the
+    AI's suggestion as a default and any twin match — writing nothing.
+
+    POST despite being a read: one model call, seconds of latency — keep it
+    out of caches and prefetchers. AI failure degrades to no suggestions.
+    """
+    txns = list(
+        db.scalars(
+            _reviewable(db, user)
+            .order_by(Transaction.date.desc(), Transaction.created_at.desc())
+            .limit(REVIEW_ROW_CAP)
+        )
     )
-    txns = list(db.scalars(query))
     if not txns:
-        return SuggestCategoriesResponse(proposals=[])
+        return ReviewView(transactions=[])
 
     categories = list(
         db.scalars(
@@ -124,56 +127,55 @@ def suggest_categories(
     ]
     history = category_suggestions.sample_history(db, user.id)
     suggestions = category_suggestions.suggest(categories, rows, history)
+    matches = review.twin_matches(db, txns)
 
-    proposals = [
-        CategoryProposal(
-            transaction_id=txn.id,
-            category_id=suggestion.category_id,
-            payee=suggestion.payee,
-            confidence=suggestion.confidence,
-        )
-        for index, txn in enumerate(txns)
-        if (suggestion := suggestions.get(index, category_suggestions.EMPTY)).category_id
-        or suggestion.payee
-    ]
-    return SuggestCategoriesResponse(proposals=proposals)
+    out: list[ReviewRowOut] = []
+    for index, txn in enumerate(txns):
+        row = ReviewRowOut.model_validate(txn)
+        suggestion = suggestions.get(index, category_suggestions.EMPTY)
+        if suggestion.category_id or suggestion.payee:
+            row.suggested_category_id = suggestion.category_id
+            row.suggested_payee = suggestion.payee
+            row.confidence = suggestion.confidence
+        if (match := matches.get(txn.id)) is not None:
+            row.match = review.twin_match_out(match)
+        out.append(row)
+    return ReviewView(transactions=out)
 
 
-@router.post("/apply-categories", response_model=ApplyCategoriesResponse)
-def apply_categories(
-    payload: ApplyCategoriesRequest,
+@router.post("/review/apply", response_model=ReviewApplyResponse)
+def apply_review(
+    payload: ReviewApplyRequest,
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
-) -> ApplyCategoriesResponse:
-    """Write the accepted assignments; invalid entries are skipped (design D2)."""
-    valid_category_ids = set(
-        db.scalars(select(Category.id).where(Category.user_id == user.id))
+) -> ReviewApplyResponse:
+    """Apply the review's decisions with the import's semantics, only to the
+    user's confirmed uncategorized rows; anything else is skipped."""
+    ids = (
+        set(payload.overrides)
+        | set(payload.payee_overrides)
+        | set(payload.note_overrides)
+        | set(payload.transfer_overrides)
+        | set(payload.accept_matches)
     )
-    applied = 0
-    for txn_id, assignment in payload.assignments.items():
-        txn = db.scalar(
-            select(Transaction).where(
-                Transaction.id == txn_id,
-                Transaction.user_id == user.id,
-                Transaction.status == "confirmed",
-            )
-        )
-        if txn is None or txn.transfer_pair_id:
-            continue  # vanished, foreign or transfer row — skip, never fail the batch
-        if assignment.category_id is not None and assignment.category_id not in valid_category_ids:
-            continue
-        # Absent leaves the category untouched; an explicit null clears it
-        # (an inflow becomes income again — "Ready to assign").
-        clears = assignment.category_id is None and "category_id" in assignment.model_fields_set
-        if assignment.category_id is None and not clears and assignment.payee is None:
-            continue
-        if assignment.category_id is not None or clears:
-            txn.category_id = assignment.category_id
-        if assignment.payee is not None:  # "" clears, name find-or-creates
-            txn.payee = resolve_payee(db, user.id, assignment.payee)
-        applied += 1
-    db.flush()
-    return ApplyCategoriesResponse(applied=applied)
+    if not ids:
+        return ReviewApplyResponse(applied=0)
+    rows = list(db.scalars(_reviewable(db, user).where(Transaction.id.in_(ids))))
+    replaced, applied = review.apply_decisions(
+        db,
+        user,
+        rows,
+        review.Decisions(
+            overrides=payload.overrides,
+            payee_overrides=payload.payee_overrides,
+            note_overrides=payload.note_overrides,
+            transfer_overrides=payload.transfer_overrides,
+            accept_matches=payload.accept_matches,
+        ),
+    )
+    # Payees the review replaced must not linger in autocomplete.
+    delete_orphan_payees(db, user.id, replaced)
+    return ReviewApplyResponse(applied=applied)
 
 
 def get_confirmed_or_404(db: Session, user_id: str, txn_id: str) -> Transaction:

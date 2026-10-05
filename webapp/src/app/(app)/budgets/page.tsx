@@ -1,9 +1,7 @@
 "use client";
 
 import React from "react";
-import Link from "next/link";
-import { useMutation } from "@tanstack/react-query";
-import { SuggestCategoriesDialog } from "@/components/SuggestCategoriesDialog";
+import { CategorizationReviewDialog } from "@/components/review/CategorizationReviewDialog";
 import { IconChip } from "@/components/ui/IconChip";
 import { Badge } from "@/components/ui/Badge";
 import { BudgetBar } from "@/components/ui/BudgetBar";
@@ -21,10 +19,8 @@ import { ScheduleEditor } from "@/components/plan/ScheduleEditor";
 import { TopBar } from "@/components/shell/TopBar";
 import { euroCents } from "@/lib/format";
 import {
-  suggestCategories,
   type BudgetCategoryView,
   type BudgetGroupView,
-  type CategoryProposal,
 } from "@/lib/api";
 import { useBudgetMonth } from "@/lib/useBudgetMonth";
 import { budgets, chartLegend } from "@/lib/mock-data";
@@ -421,11 +417,7 @@ function CardMoveNote({ groups }: Readonly<{ groups: BudgetGroupView[] }>) {
    uncategorized spending block). Warning style, never the overspending red;
    nothing else is blocked. */
 function UncategorizedBlock({ cents, count }: Readonly<{ cents: number; count: number }>) {
-  const [proposals, setProposals] = React.useState<CategoryProposal[] | null>(null);
-  const suggest = useMutation({
-    mutationFn: () => suggestCategories(),
-    onSuccess: (response) => setProposals(response.proposals),
-  });
+  const [reviewing, setReviewing] = React.useState(false);
   if (count === 0) return null;
   return (
     <section
@@ -457,27 +449,12 @@ function UncategorizedBlock({ cents, count }: Readonly<{ cents: number; count: n
         <div style={{ font: "500 13px var(--font-sans)", color: "var(--text-body)", marginTop: 2 }}>
           {count === 1 ? "1 movement" : `${count} movements`} this month still{" "}
           {count === 1 ? "needs" : "need"} a category — until then no category shows this spending.
-          {suggest.isError && (
-            <>
-              {" "}
-              Suggestions aren&apos;t available right now —{" "}
-              <Link href="/transactions" style={{ color: "var(--violet-700)", fontWeight: 600 }}>
-                categorize them by hand
-              </Link>
-              .
-            </>
-          )}
         </div>
       </div>
-      <Button
-        variant="primary"
-        size="sm"
-        disabled={suggest.isPending}
-        onClick={() => suggest.mutate()}
-      >
-        {suggest.isPending ? "Suggesting…" : "Categorize now"}
+      <Button variant="primary" size="sm" onClick={() => setReviewing(true)}>
+        Categorize now
       </Button>
-      <SuggestCategoriesDialog proposals={proposals} onClose={() => setProposals(null)} />
+      <CategorizationReviewDialog open={reviewing} onClose={() => setReviewing(false)} />
     </section>
   );
 }

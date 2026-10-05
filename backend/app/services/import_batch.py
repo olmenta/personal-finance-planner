@@ -9,28 +9,18 @@ never persisted.
 """
 
 import hashlib
-from datetime import timedelta
-from typing import NamedTuple
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..ingestion import ADAPTERS, NormalizedTransaction
-from ..models import Account, Category, ImportBatch, Transaction, User
+from ..models import Category, ImportBatch, Transaction, User
 from . import category_suggestions
 from .payees import delete_orphan_payees, resolve_payee
-from .transfers import annotate_counterparts, link_existing
+from .review import Decisions, TwinMatchSuggestion, apply_decisions, twin_matches
 
 MAX_FILE_BYTES = 2 * 1024 * 1024
 MAX_ROWS = 2_000
-MATCH_WINDOW_DAYS = 3
-
-
-class TwinMatchSuggestion(NamedTuple):
-    twin: Transaction
-    other_account_id: str | None
-
-
 class BatchNotStagedError(Exception):
     """Confirm/discard called on a batch that is not in 'staged' state."""
 
@@ -138,144 +128,9 @@ def staged_rows(db: Session, batch: ImportBatch) -> list[Transaction]:
 
 
 def match_suggestions(db: Session, batch: ImportBatch) -> dict[str, TwinMatchSuggestion]:
-    """Staged row id -> the existing transfer twin it seems to mirror (design D5).
-
-    Candidates are confirmed transfer rows in the batch's account with the
-    same signed amount, dated within ±3 days, still app-written (an adopted
-    twin takes the import's source and never matches again). Closest date
-    wins; one twin is never suggested for two rows. Suggestions only — the
-    review decides.
-    """
-    staged = [t for t in staged_rows(db, batch) if t.transfer_pair_id is None]
-    if not staged:
-        return {}
-    first = min(t.date for t in staged) - timedelta(days=MATCH_WINDOW_DAYS)
-    last = max(t.date for t in staged) + timedelta(days=MATCH_WINDOW_DAYS)
-    twins = annotate_counterparts(
-        db,
-        list(
-            db.scalars(
-                select(Transaction)
-                .where(
-                    Transaction.account_id == batch.account_id,
-                    Transaction.status == "confirmed",
-                    Transaction.transfer_pair_id.is_not(None),
-                    Transaction.source == "manual",
-                    Transaction.date >= first,
-                    Transaction.date <= last,
-                )
-                .order_by(Transaction.date, Transaction.id)
-            )
-        ),
-    )
-    used: set[str] = set()
-    result: dict[str, TwinMatchSuggestion] = {}
-    for row in staged:
-        candidates = [
-            t
-            for t in twins
-            if t.id not in used
-            and t.amount_cents == row.amount_cents
-            and abs((t.date - row.date).days) <= MATCH_WINDOW_DAYS
-        ]
-        if not candidates:
-            continue
-        twin = min(candidates, key=lambda t: (abs((t.date - row.date).days), t.date, t.id))
-        used.add(twin.id)
-        result[row.id] = TwinMatchSuggestion(twin, twin.transfer_account_id)
-    return result
-
-
-def _apply_payee_overrides(
-    db: Session, user: User, batch: ImportBatch, payee_overrides: dict[str, str]
-) -> set[str]:
-    """Set user-edited payees on staged rows; returns replaced payee ids."""
-    replaced: set[str] = set()
-    if not payee_overrides:
-        return replaced
-    staged = {t.id: t for t in staged_rows(db, batch)}
-    for txn_id, name in payee_overrides.items():
-        txn = staged.get(txn_id)
-        if txn is None:
-            continue
-        payee = resolve_payee(db, user.id, name[:120])
-        new_id = payee.id if payee else None
-        if txn.payee_id and txn.payee_id != new_id:
-            replaced.add(txn.payee_id)
-        txn.payee_id = new_id
-    return replaced
-
-
-def _apply_note_overrides(
-    db: Session, batch: ImportBatch, note_overrides: dict[str, str | None]
-) -> None:
-    """The note is the row's description: an edit replaces the bank text
-    (the dedupe hash was fixed at staging, so re-imports still collide)."""
-    if not note_overrides:
-        return
-    staged = {t.id: t for t in staged_rows(db, batch)}
-    for txn_id, note in note_overrides.items():
-        txn = staged.get(txn_id)
-        if txn is not None:
-            txn.description = (note or "").strip()[:500] or None
-
-
-def _mark_transfers(
-    db: Session, user: User, batch: ImportBatch, transfer_overrides: dict[str, str]
-) -> set[str]:
-    """Rows marked "Transfer → <account>" become the near side of a pair;
-    the confirmed twin lands in the other account. Invalid targets (own
-    account, foreign, archived) are skipped like invalid category overrides.
-    Returns the payee ids the marked rows dropped."""
-    if not transfer_overrides:
-        return set()
-    targets = {
-        a.id: a
-        for a in db.scalars(
-            select(Account).where(
-                Account.user_id == user.id,
-                Account.archived.is_(False),
-                Account.id != batch.account_id,
-            )
-        )
-    }
-    dropped: set[str] = set()
-    staged = {t.id: t for t in staged_rows(db, batch)}
-    for txn_id, account_id in transfer_overrides.items():
-        txn, target = staged.get(txn_id), targets.get(account_id)
-        if txn is None or target is None or txn.transfer_pair_id:
-            continue
-        if txn.payee_id:
-            dropped.add(txn.payee_id)
-        link_existing(db, txn, target)
-    return dropped
-
-
-def _adopt_matches(db: Session, batch: ImportBatch, accepted: list[str]) -> set[str]:
-    """Accepted suggestions: the staged row is a duplicate of the existing
-    twin — drop it, and give the twin its import hash and source so a
-    re-import of the statement collides with it and it never matches again.
-    Returns the payee ids of the dropped rows."""
-    if not accepted:
-        return set()
-    matches = match_suggestions(db, batch)
-    dropped: set[str] = set()
-    for txn_id in accepted:
-        match = matches.get(txn_id)
-        if match is None:
-            continue
-        staged = db.get(Transaction, txn_id)
-        if staged is None:
-            continue
-        digest = staged.dedupe_hash
-        if staged.payee_id:
-            dropped.add(staged.payee_id)
-        db.delete(staged)
-        db.flush()
-        match.twin.dedupe_hash = digest
-        match.twin.source = batch.source
-    db.flush()
-    return dropped
+    """Staged row id -> the existing transfer twin it seems to mirror (the
+    shared review rule, see services/review.py)."""
+    return twin_matches(db, staged_rows(db, batch))
 
 
 def confirm_batch(
@@ -290,23 +145,18 @@ def confirm_batch(
 ) -> ImportBatch:
     if batch.status != "staged":
         raise BatchNotStagedError()
-    valid_ids = {
-        c.id for c in db.scalars(select(Category).where(Category.user_id == user.id))
-    }
-    for txn_id, category_id in overrides.items():
-        if category_id is not None and category_id not in valid_ids:
-            continue
-        db.execute(
-            update(Transaction)
-            .where(Transaction.id == txn_id, Transaction.import_batch_id == batch.id)
-            .values(category_id=category_id)
-        )
-    replaced_payee_ids = _apply_payee_overrides(db, user, batch, payee_overrides or {})
-    # Before marking transfers: the twin copies the near row's note.
-    _apply_note_overrides(db, batch, note_overrides or {})
-    # Adopt before marking: an accepted row must not also become a new pair.
-    replaced_payee_ids |= _adopt_matches(db, batch, accept_matches or [])
-    replaced_payee_ids |= _mark_transfers(db, user, batch, transfer_overrides or {})
+    replaced_payee_ids, _ = apply_decisions(
+        db,
+        user,
+        staged_rows(db, batch),
+        Decisions(
+            overrides=overrides,
+            payee_overrides=payee_overrides or {},
+            note_overrides=note_overrides or {},
+            transfer_overrides=transfer_overrides or {},
+            accept_matches=accept_matches or [],
+        ),
+    )
     db.execute(
         update(Transaction)
         .where(Transaction.import_batch_id == batch.id)
