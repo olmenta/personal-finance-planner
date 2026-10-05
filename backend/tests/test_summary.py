@@ -127,3 +127,31 @@ def test_empty_month_returns_zeros(client):
     assert view["expense_cents"] == 0
     assert view["weeks"]
     assert all(w["spent_cents"] == 0 and w["income_cents"] == 0 for w in view["weeks"])
+
+
+def test_uncategorized_outflow_counts_as_spending(client, db, user, category_ids):
+    """Spec: expenses are every outflow, categorized or not (an uncategorized
+    one is still money that left); opening balances are not spending."""
+    client.post(
+        "/transactions",
+        json={"amount_cents": 4500, "category_id": category_ids["Supermercado"], "date": "2026-06-03"},
+    )
+    client.post("/accounts", json={"name": "Visa", "type": "credit", "opening_balance_cents": -34000})
+    account_id = db.query(Transaction).filter(Transaction.source == "manual").first().account_id
+    db.add(
+        Transaction(
+            user_id=user.id,
+            account_id=account_id,
+            category_id=None,
+            date=date(2026, 6, 17),
+            amount_cents=-3000,
+            status="confirmed",
+            source="import_custom",
+            dedupe_hash="summary-uncategorized",
+        )
+    )
+    db.flush()
+    view = client.get("/summary/2026-06").json()
+    assert view["expense_cents"] == 7500
+    week = next(w for w in reversed(view["weeks"]) if w["start"] <= "2026-06-17")
+    assert week["spent_cents"] == 3000

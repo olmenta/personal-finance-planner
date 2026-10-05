@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Select,
@@ -11,10 +12,13 @@ import {
 import { fetchAccounts, type AccountOut, type TransactionOut } from "@/lib/api";
 
 /** The user's accounts; `active` excludes archived ones (they leave pickers). */
+const NO_ACCOUNTS: AccountOut[] = [];
+
 export function useAccounts(enabled = true) {
   const query = useQuery({ queryKey: ["accounts"], queryFn: fetchAccounts, enabled });
-  const all = query.data ?? [];
-  const active = all.filter((a) => !a.archived);
+  const all = query.data ?? NO_ACCOUNTS;
+  // Memoized so memoized consumers (import review rows) keep stable props.
+  const active = React.useMemo(() => all.filter((a) => !a.archived), [all]);
   const main = active.find((a) => a.is_main) ?? active[0];
   return { ...query, all, active, main };
 }

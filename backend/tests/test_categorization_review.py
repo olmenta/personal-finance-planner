@@ -127,3 +127,26 @@ def test_apply_rejects_foreign_category_and_clears_payee(client, db, user, categ
     ).json()
     assert body == {"applied": 1}
     assert db.query(Transaction).filter_by(id=txn).one().payee_id is None
+
+
+def test_apply_explicit_null_clears_category_absent_leaves_it(client, db, category_ids):
+    """A categorized inflow (refund) set back to "Ready to assign" becomes
+    income; omitting category_id leaves another row untouched."""
+    refund = client.post(
+        "/transactions",
+        json={"amount_cents": 1250, "kind": "income", "category_id": category_ids["Supermercado"], "date": "2026-06-10"},
+    ).json()["id"]
+    untouched = client.post(
+        "/transactions",
+        json={"amount_cents": 900, "kind": "income", "category_id": category_ids["Supermercado"], "date": "2026-06-11"},
+    ).json()["id"]
+    income_before = client.get("/budget/2026-06").json()["income_cents"]
+
+    response = client.post(
+        "/transactions/apply-categories",
+        json={"assignments": {refund: {"category_id": None}, untouched: {"payee": "Mercadona"}}},
+    )
+    assert response.json() == {"applied": 2}
+    assert db.get(Transaction, refund).category_id is None
+    assert db.get(Transaction, untouched).category_id == category_ids["Supermercado"]
+    assert client.get("/budget/2026-06").json()["income_cents"] == income_before + 1250

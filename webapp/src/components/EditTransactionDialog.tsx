@@ -8,26 +8,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/shadcn/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/shadcn/select";
 import { Separator } from "@/components/shadcn/separator";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { Switch } from "@/components/ui/Switch";
 import { PayeeField } from "@/components/PayeeField";
+import { CategoryCombobox } from "@/components/CategoryCombobox";
 import { AccountSelect, useAccounts } from "@/components/AccountPicker";
 import { invalidateMoneyQueries } from "@/lib/planQueries";
 import { useCoverPrompt } from "@/components/budget/CoverPrompt";
 import {
-  fetchCategories,
   fetchPayees,
   fetchTransfer,
   unlinkTransfer,
@@ -86,7 +77,6 @@ function EditForm({
 
   const queryClient = useQueryClient();
   const { active: accounts } = useAccounts();
-  const { data: groups } = useQuery({ queryKey: ["categories"], queryFn: fetchCategories });
   const { data: payees } = useQuery({ queryKey: ["payees"], queryFn: fetchPayees });
 
   const isIncome = direction === "Income";
@@ -242,39 +232,7 @@ function EditForm({
             >
               Category
             </span>
-            <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger
-                className="h-12 rounded-[10px] border-[1.5px] text-sm font-medium"
-                style={{
-                  borderColor: "var(--border-hairline)",
-                  color: category ? "var(--text-strong)" : "var(--text-subtle)",
-                  background: "var(--surface)",
-                  fontFamily: "var(--font-sans)",
-                }}
-              >
-                <SelectValue
-                  placeholder={groups ? "Select category" : "Loading categories…"}
-                />
-              </SelectTrigger>
-              <SelectContent
-                style={{
-                  borderRadius: "var(--r-md)",
-                  border: "1px solid var(--border-hairline)",
-                  boxShadow: "var(--shadow-lg)",
-                }}
-              >
-                {(groups ?? []).filter((g) => !g.system).map((g) => (
-                  <SelectGroup key={g.id}>
-                    <SelectLabel>{g.name}</SelectLabel>
-                    {g.categories.filter((c) => !c.archived).map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.name}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                ))}
-              </SelectContent>
-            </Select>
+            <CategoryCombobox value={category} onChange={setCategory} />
           </label>
           )}
 

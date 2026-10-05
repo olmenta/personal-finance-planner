@@ -190,3 +190,65 @@ def test_assign_to_category_created_after_month_opened(client, category_ids):
     assert response.status_code == 200
     view = client.get("/budget/2026-10").json()
     assert get_category(view, "Mascotas")["assigned_cents"] == 3000
+
+
+def _uncategorized(db, user, account_id: str, cents: int, day: date, tag: str) -> Transaction:
+    """A confirmed outflow without a category, as an import confirmed
+    without picking one leaves it (manual expenses require a category)."""
+    txn = Transaction(
+        user_id=user.id,
+        account_id=account_id,
+        category_id=None,
+        date=day,
+        amount_cents=-cents,
+        status="confirmed",
+        source="import_custom",
+        dedupe_hash=f"uncategorized-{tag}",
+    )
+    db.add(txn)
+    db.flush()
+    return txn
+
+
+def test_uncategorized_spending_reported(client, db, user):
+    main = next(a["id"] for a in client.get("/accounts").json() if a["is_main"])
+    card = client.post(
+        "/accounts", json={"name": "Visa", "type": "credit", "opening_balance_cents": -34000}
+    ).json()["id"]
+    bank = client.post("/accounts", json={"name": "Banco B", "type": "bank"}).json()["id"]
+    client.post(
+        "/transfers",
+        json={"from_account_id": main, "to_account_id": bank, "amount_cents": 20000, "date": "2026-06-05"},
+    )
+    before = client.get("/budget/2026-06").json()
+    assert before["uncategorized_cents"] == 0 and before["uncategorized_count"] == 0
+
+    _uncategorized(db, user, main, 3000, date(2026, 6, 10), "bank")
+    _uncategorized(db, user, card, 1200, date(2026, 6, 11), "card")
+    _uncategorized(db, user, main, 999, date(2026, 7, 1), "next-month")
+    after = client.get("/budget/2026-06").json()
+    # Transfer twins and the card's opening debt are not uncategorized spending.
+    assert after["uncategorized_cents"] == 4200
+    assert after["uncategorized_count"] == 2
+
+
+def test_categorizing_moves_uncategorized_into_category(client, db, user, category_ids):
+    main = next(a["id"] for a in client.get("/accounts").json() if a["is_main"])
+    client.post("/transactions", json={"amount_cents": 100000, "kind": "income", "date": "2026-06-01"})
+    row = _uncategorized(db, user, main, 3000, date(2026, 6, 10), "to-categorize")
+    before = client.get("/budget/2026-06").json()
+    assert before["uncategorized_cents"] == 3000
+
+    client.patch(f"/transactions/{row.id}", json={"category_id": category_ids["Supermercado"]})
+    after = client.get("/budget/2026-06").json()
+    assert after["uncategorized_cents"] == 0 and after["uncategorized_count"] == 0
+    assert get_category(after, "Supermercado")["spent_cents"] == (
+        get_category(before, "Supermercado")["spent_cents"] + 3000
+    )
+    # Those euros were unbudgeted activity; now they are category spending.
+    assert after["to_be_assigned_cents"] == before["to_be_assigned_cents"] + 3000
+    # Identity: TBA + Σ available + Σ credit_overspent == Σ cash/bank activity.
+    for view in (before, after):
+        available = sum(c["available_cents"] for g in view["groups"] for c in g["categories"])
+        credit = sum(c["credit_overspent_cents"] for g in view["groups"] for c in g["categories"])
+        assert view["to_be_assigned_cents"] + available + credit == 100000 - 3000

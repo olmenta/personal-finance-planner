@@ -59,6 +59,9 @@ export interface BudgetMonthView {
   carried_in_cents: number;
   /** Previous month's uncovered cash overspending, deducted from this month. */
   overspent_deducted_cents: number;
+  /** The month's outflows still without a category (reported only). */
+  uncategorized_cents: number;
+  uncategorized_count: number;
   groups: BudgetGroupView[];
 }
 
@@ -378,7 +381,7 @@ export interface CategoryProposal {
 }
 
 export interface CategoryAssignment {
-  category_id?: string; // omitted = leave category untouched
+  category_id?: string | null; // omitted = untouched; null clears (inflow → income)
   payee?: string; // omitted = leave payee untouched; "" clears
 }
 

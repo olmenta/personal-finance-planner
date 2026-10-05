@@ -429,6 +429,10 @@ class BudgetMonthView(BaseModel):
     to_be_assigned_cents: int
     carried_in_cents: int  # previous month's To Be Assigned
     overspent_deducted_cents: int  # previous month's uncovered cash overspending
+    # The month's outflows still waiting for a category (any account; not
+    # transfers or opening balances). Reported only — no other figure moves.
+    uncategorized_cents: int = 0
+    uncategorized_count: int = 0
     groups: list[BudgetGroupView]
 
 

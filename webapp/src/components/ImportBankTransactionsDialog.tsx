@@ -9,38 +9,32 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/shadcn/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/shadcn/select";
 import { Separator } from "@/components/shadcn/separator";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { Input } from "@/components/ui/Input";
 import { PayeeField } from "@/components/PayeeField";
+import { CategoryCombobox, NO_CATEGORY } from "@/components/CategoryCombobox";
 import { AccountSelect, accountName, useAccounts } from "@/components/AccountPicker";
 import {
   ApiError,
   confirmImport,
   discardImport,
-  fetchCategories,
   fetchPayees,
   fetchPendingImport,
   uploadImport,
   type ImportBank,
   type ImportBatchView,
+  type PayeeOut,
+  type StagedTransactionOut,
 } from "@/lib/api";
 import { euroCents } from "@/lib/format";
 import { invalidateMoneyQueries } from "@/lib/planQueries";
 import { useCoverPrompt } from "@/components/budget/CoverPrompt";
 
-const UNCATEGORIZED = "none";
+const UNCATEGORIZED = NO_CATEGORY;
+const NO_PAYEES: PayeeOut[] = [];
 // Select value for "Transfer → <account>": the row's twin lands there on confirm.
 const TRANSFER_PREFIX = "transfer:";
 
@@ -113,11 +107,6 @@ export function ImportBankTransactionsDialog({
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const queryClient = useQueryClient();
-  const { data: groups } = useQuery({
-    queryKey: ["categories"],
-    queryFn: fetchCategories,
-    enabled: open,
-  });
   const { data: payees } = useQuery({
     queryKey: ["payees"],
     queryFn: fetchPayees,
@@ -274,8 +263,50 @@ export function ImportBankTransactionsDialog({
   const uploadError = uploadErrorCode(upload.error, upload.isError);
 
   const reviewing = activeBatch !== null && activeBatch.status === "staged";
-  // Transfer targets: every other active account of the user.
-  const transferTargets = accounts.filter((a) => a.id !== activeBatch?.account_id);
+  // Transfer targets: every other active account of the user, as picker
+  // groups per direction (memoized: rows are React.memo).
+  const batchAccountId = activeBatch?.account_id;
+  const transferGroups = React.useMemo(() => {
+    const targets = accounts.filter((a) => a.id !== batchAccountId);
+    const group = (arrow: string) =>
+      targets.length === 0
+        ? []
+        : [
+            {
+              heading: "Transfers →",
+              options: targets.map((a) => ({
+                value: `${TRANSFER_PREFIX}${a.id}`,
+                label: `Transfer ${arrow} ${a.name}`,
+              })),
+            },
+          ];
+    return { in: group("←"), out: group("→") };
+  }, [accounts, batchAccountId]);
+
+  // Stable per-row dispatchers: a keystroke changes one map entry, so only
+  // that row's props change and only that row re-renders (design D5).
+  const setRowSelection = React.useCallback(
+    (id: string, value: string) => setSelections((prev) => ({ ...prev, [id]: value })),
+    [],
+  );
+  const setRowPayee = React.useCallback(
+    (id: string, value: string) => setPayeeEdits((prev) => ({ ...prev, [id]: value })),
+    [],
+  );
+  const setRowNote = React.useCallback(
+    (id: string, value: string) => setNoteEdits((prev) => ({ ...prev, [id]: value })),
+    [],
+  );
+  const setRowDecision = React.useCallback(
+    (id: string, value: "accept" | "ignore" | null) =>
+      setMatchDecisions((prev) => {
+        const next = { ...prev };
+        if (value === null) delete next[id];
+        else next[id] = value;
+        return next;
+      }),
+    [],
+  );
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -521,200 +552,26 @@ export function ImportBankTransactionsDialog({
                   this review to import a different file.
                 </div>
               ) : (
-                activeBatch.transactions.map((t, i) => {
-                  const isIncome = t.amount_cents > 0;
-                  const suggested =
-                    t.category_id !== null && selectionFor(t) === t.category_id;
-                  const isTransfer = selectionFor(t).startsWith(TRANSFER_PREFIX);
-                  const decision = t.match ? matchDecisions[t.id] : undefined;
-                  const adopted = decision === "accept";
-                  return (
-                    <div
-                      key={t.id}
-                      style={{
-                        opacity: adopted ? 0.55 : 1,
-                        display: "grid",
-                        gridTemplateColumns: "58px minmax(0, 1fr) 190px 96px 180px",
-                        gap: 10,
-                        alignItems: "center",
-                        padding: "10px 12px",
-                        borderBottom:
-                          i < activeBatch.transactions.length - 1
-                            ? "1px solid var(--border-hairline)"
-                            : "none",
-                      }}
-                    >
-                      <span style={{ font: "500 12.5px var(--font-sans)", color: "var(--text-muted)" }}>
-                        {formatDate(t.date)}
-                      </span>
-                      {/* The note is the row's description: the bank text
-                          comes prefilled and any edit replaces it. */}
-                      <Input
-                        aria-label="Note"
-                        placeholder="Add a note"
-                        title={t.description ?? undefined}
-                        disabled={adopted}
-                        value={noteEdits[t.id] ?? t.description ?? ""}
-                        maxLength={500}
-                        onChange={(e) =>
-                          setNoteEdits((prev) => ({ ...prev, [t.id]: e.target.value }))
-                        }
-                      />
-                      {isTransfer || adopted ? (
-                        <span />
-                      ) : (
-                      <PayeeField
-                        label=""
-                        value={payeeEdits[t.id] ?? t.payee_name ?? ""}
-                        payees={payees ?? []}
-                        onChange={(value) =>
-                          setPayeeEdits((prev) => ({ ...prev, [t.id]: value }))
-                        }
-                        onPick={(p) =>
-                          setPayeeEdits((prev) => ({ ...prev, [t.id]: p.name }))
-                        }
-                      />
-                      )}
-                      <span
-                        style={{
-                          textAlign: "right",
-                          font: "700 13.5px var(--font-sans)",
-                          fontVariantNumeric: "tabular-nums",
-                          // Transfers are neutral: money moving between pockets.
-                          color:
-                            isIncome && !isTransfer && !adopted
-                              ? "var(--income)"
-                              : "var(--text-strong)",
-                        }}
-                      >
-                        {isIncome ? "+" : "−"}
-                        {euroCents(Math.abs(t.amount_cents))}
-                      </span>
-                      {/* Positive rows default to "Ready to assign" (income);
-                          picking a category turns them into refunds that
-                          restore that category (spec: statement-import). */}
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <Select
-                          value={selectionFor(t)}
-                          disabled={adopted}
-                          onValueChange={(value) =>
-                            setSelections((prev) => ({ ...prev, [t.id]: value }))
-                          }
-                        >
-                          <SelectTrigger
-                            className="h-9 rounded-[8px] border text-xs font-medium w-full"
-                            style={{
-                              borderColor: "var(--border-hairline)",
-                              background: "var(--surface)",
-                              fontFamily: "var(--font-sans)",
-                              color:
-                                selectionFor(t) === UNCATEGORIZED
-                                  ? "var(--text-subtle)"
-                                  : "var(--text-strong)",
-                            }}
-                          >
-                            <SelectValue placeholder="Pick a category" />
-                          </SelectTrigger>
-                          <SelectContent
-                            style={{
-                              borderRadius: "var(--r-md)",
-                              border: "1px solid var(--border-hairline)",
-                              boxShadow: "var(--shadow-lg)",
-                            }}
-                          >
-                            <SelectItem value={UNCATEGORIZED}>
-                              {isIncome ? "Ready to assign" : "Uncategorized"}
-                            </SelectItem>
-                            {(groups ?? []).filter((g) => !g.system).map((g) => (
-                              <SelectGroup key={g.id}>
-                                <SelectLabel>{g.name}</SelectLabel>
-                                {g.categories.filter((c) => !c.archived).map((c) => (
-                                  <SelectItem key={c.id} value={c.id}>
-                                    {c.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectGroup>
-                            ))}
-                            {transferTargets.length > 0 && (
-                              <SelectGroup>
-                                <SelectLabel>Transfers →</SelectLabel>
-                                {transferTargets.map((a) => (
-                                  <SelectItem key={a.id} value={`${TRANSFER_PREFIX}${a.id}`}>
-                                    {isIncome ? `Transfer ← ${a.name}` : `Transfer → ${a.name}`}
-                                  </SelectItem>
-                                ))}
-                              </SelectGroup>
-                            )}
-                          </SelectContent>
-                        </Select>
-                        {suggested && !isTransfer && <Badge tone="brand">Suggested</Badge>}
-                      </div>
-                      {t.match && decision !== "ignore" && (
-                        <div
-                          style={{
-                            gridColumn: "2 / -1",
-                            display: "flex",
-                            alignItems: "center",
-                            flexWrap: "wrap",
-                            gap: 8,
-                            font: "500 12.5px var(--font-sans)",
-                            color: "var(--text-muted)",
-                          }}
-                        >
-                          <Icon name="arrow-left-right" size={14} />
-                          <span>
-                            {adopted ? "Linked to the" : "Looks like the"} transfer{" "}
-                            {isIncome ? "from" : "to"}{" "}
-                            <strong style={{ color: "var(--text-strong)" }}>
-                              {accountName(allAccounts, t.match.other_account_id)}
-                            </strong>{" "}
-                            on {formatDate(t.match.date)}
-                            {adopted ? " — this row won't be added twice." : "."}
-                          </span>
-                          {adopted ? (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              type="button"
-                              onClick={() =>
-                                setMatchDecisions((prev) => {
-                                  const next = { ...prev };
-                                  delete next[t.id];
-                                  return next;
-                                })
-                              }
-                            >
-                              Undo
-                            </Button>
-                          ) : (
-                            <>
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                type="button"
-                                onClick={() =>
-                                  setMatchDecisions((prev) => ({ ...prev, [t.id]: "accept" }))
-                                }
-                              >
-                                Link them
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                type="button"
-                                onClick={() =>
-                                  setMatchDecisions((prev) => ({ ...prev, [t.id]: "ignore" }))
-                                }
-                              >
-                                Keep separate
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
+                activeBatch.transactions.map((t, i) => (
+                  <ImportReviewRow
+                    key={t.id}
+                    row={t}
+                    last={i === activeBatch.transactions.length - 1}
+                    selection={selectionFor(t)}
+                    payee={payeeEdits[t.id] ?? t.payee_name ?? ""}
+                    note={noteEdits[t.id] ?? t.description ?? ""}
+                    decision={t.match ? matchDecisions[t.id] : undefined}
+                    matchAccountName={
+                      t.match ? accountName(allAccounts, t.match.other_account_id) : null
+                    }
+                    payees={payees ?? NO_PAYEES}
+                    transferGroups={t.amount_cents > 0 ? transferGroups.in : transferGroups.out}
+                    onSelect={setRowSelection}
+                    onPayee={setRowPayee}
+                    onNote={setRowNote}
+                    onDecision={setRowDecision}
+                  />
+                ))
               )}
             </div>
 
@@ -790,3 +647,158 @@ export function ImportBankTransactionsDialog({
     </Dialog>
   );
 }
+
+const ROW_GRID = "58px minmax(0, 1fr) 190px 96px 200px";
+
+interface ImportReviewRowProps {
+  row: StagedTransactionOut;
+  last: boolean;
+  selection: string;
+  payee: string;
+  note: string;
+  decision: "accept" | "ignore" | undefined;
+  matchAccountName: string | null;
+  payees: PayeeOut[];
+  transferGroups: { heading: string; options: { value: string; label: string }[] }[];
+  onSelect: (id: string, value: string) => void;
+  onPayee: (id: string, value: string) => void;
+  onNote: (id: string, value: string) => void;
+  onDecision: (id: string, value: "accept" | "ignore" | null) => void;
+}
+
+/* One staged row of the import review. Memoized with a stable-props
+   contract: every prop is a primitive, the row object from the batch query,
+   a list memoized by the dialog, or a dispatcher created once with
+   useCallback. Passing a new inline object or function here would make
+   every row re-render on each keystroke again (design D5). */
+const ImportReviewRow = React.memo(function ImportReviewRow({
+  row: t,
+  last,
+  selection,
+  payee,
+  note,
+  decision,
+  matchAccountName,
+  payees,
+  transferGroups,
+  onSelect,
+  onPayee,
+  onNote,
+  onDecision,
+}: Readonly<ImportReviewRowProps>) {
+  const isIncome = t.amount_cents > 0;
+  const suggested = t.category_id !== null && selection === t.category_id;
+  const isTransfer = selection.startsWith(TRANSFER_PREFIX);
+  const adopted = decision === "accept";
+  return (
+    <div
+      style={{
+        opacity: adopted ? 0.55 : 1,
+        display: "grid",
+        gridTemplateColumns: ROW_GRID,
+        gap: 10,
+        alignItems: "center",
+        padding: "10px 12px",
+        borderBottom: last ? "none" : "1px solid var(--border-hairline)",
+      }}
+    >
+      <span style={{ font: "500 12.5px var(--font-sans)", color: "var(--text-muted)" }}>
+        {formatDate(t.date)}
+      </span>
+      {/* The note is the row's description: the bank text comes prefilled
+          and any edit replaces it. */}
+      <Input
+        aria-label="Note"
+        placeholder="Add a note"
+        title={t.description ?? undefined}
+        disabled={adopted}
+        value={note}
+        maxLength={500}
+        onChange={(e) => onNote(t.id, e.target.value)}
+      />
+      {isTransfer || adopted ? (
+        <span />
+      ) : (
+        <PayeeField
+          label=""
+          value={payee}
+          payees={payees}
+          onChange={(value) => onPayee(t.id, value)}
+          onPick={(p) => onPayee(t.id, p.name)}
+        />
+      )}
+      <span
+        style={{
+          textAlign: "right",
+          font: "700 13.5px var(--font-sans)",
+          fontVariantNumeric: "tabular-nums",
+          // Transfers are neutral: money moving between pockets.
+          color: isIncome && !isTransfer && !adopted ? "var(--income)" : "var(--text-strong)",
+        }}
+      >
+        {isIncome ? "+" : "−"}
+        {euroCents(Math.abs(t.amount_cents))}
+      </span>
+      {/* Positive rows default to "Ready to assign" (income); picking a
+          category turns them into refunds that restore that category
+          (spec: statement-import). */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+        <CategoryCombobox
+          size="sm"
+          value={selection}
+          disabled={adopted}
+          noneLabel={isIncome ? "Ready to assign" : "Uncategorized"}
+          extraGroups={transferGroups}
+          placeholder="Pick a category"
+          onChange={(value) => onSelect(t.id, value)}
+        />
+        {suggested && !isTransfer && <Badge tone="brand">Suggested</Badge>}
+      </div>
+      {t.match && decision !== "ignore" && (
+        <div
+          style={{
+            gridColumn: "2 / -1",
+            display: "flex",
+            alignItems: "center",
+            flexWrap: "wrap",
+            gap: 8,
+            font: "500 12.5px var(--font-sans)",
+            color: "var(--text-muted)",
+          }}
+        >
+          <Icon name="arrow-left-right" size={14} />
+          <span>
+            {adopted ? "Linked to the" : "Looks like the"} transfer {isIncome ? "from" : "to"}{" "}
+            <strong style={{ color: "var(--text-strong)" }}>{matchAccountName}</strong> on{" "}
+            {formatDate(t.match.date)}
+            {adopted ? " — this row won't be added twice." : "."}
+          </span>
+          {adopted ? (
+            <Button variant="ghost" size="sm" type="button" onClick={() => onDecision(t.id, null)}>
+              Undo
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                type="button"
+                onClick={() => onDecision(t.id, "accept")}
+              >
+                Link them
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                onClick={() => onDecision(t.id, "ignore")}
+              >
+                Keep separate
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});

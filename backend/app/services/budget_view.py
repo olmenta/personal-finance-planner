@@ -248,6 +248,28 @@ def income_cents(db: Session, user: User, month: str) -> int:
     return int(total or 0)
 
 
+def uncategorized_spending(db: Session, user: User, month: str) -> tuple[int, int]:
+    """(absolute total, count) of the month's confirmed outflows without a
+    category on any account — transfer twins and opening balances (a card's
+    pre-existing debt) are not spending. Reported so the user categorizes
+    them (design D1); cash/bank ones already lowered To Be Assigned as
+    unbudgeted activity."""
+    start, end = month_bounds(month)
+    total, count = db.execute(
+        select(func.coalesce(func.sum(Transaction.amount_cents), 0), func.count()).where(
+            Transaction.user_id == user.id,
+            Transaction.status == "confirmed",
+            Transaction.amount_cents < 0,
+            Transaction.category_id.is_(None),
+            Transaction.transfer_pair_id.is_(None),
+            Transaction.source != "opening_balance",
+            Transaction.date >= start,
+            Transaction.date < end,
+        )
+    ).one()
+    return -int(total or 0), int(count or 0)
+
+
 def _month_index(month: str) -> int:
     year, mon = (int(p) for p in month.split("-"))
     return year * 12 + mon - 1
@@ -625,12 +647,15 @@ def build_view(db: Session, user: User, month: str) -> BudgetMonthView:
         for group, cats in rows
     ]
 
+    uncategorized_total, uncategorized_count = uncategorized_spending(db, user, month)
     return BudgetMonthView(
         month=month,
         income_cents=income_cents(db, user, month),
         to_be_assigned_cents=to_be_assigned,
         carried_in_cents=chain.carried_in,
         overspent_deducted_cents=chain.overspent_deducted,
+        uncategorized_cents=uncategorized_total,
+        uncategorized_count=uncategorized_count,
         groups=group_views,
     )
 

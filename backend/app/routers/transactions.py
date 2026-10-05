@@ -162,9 +162,12 @@ def apply_categories(
             continue  # vanished, foreign or transfer row — skip, never fail the batch
         if assignment.category_id is not None and assignment.category_id not in valid_category_ids:
             continue
-        if assignment.category_id is None and assignment.payee is None:
+        # Absent leaves the category untouched; an explicit null clears it
+        # (an inflow becomes income again — "Ready to assign").
+        clears = assignment.category_id is None and "category_id" in assignment.model_fields_set
+        if assignment.category_id is None and not clears and assignment.payee is None:
             continue
-        if assignment.category_id is not None:
+        if assignment.category_id is not None or clears:
             txn.category_id = assignment.category_id
         if assignment.payee is not None:  # "" clears, name find-or-creates
             txn.payee = resolve_payee(db, user.id, assignment.payee)

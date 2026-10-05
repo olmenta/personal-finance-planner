@@ -8,21 +8,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/shadcn/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/shadcn/select";
 import { Separator } from "@/components/shadcn/separator";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { CategoryCombobox, NO_CATEGORY } from "@/components/CategoryCombobox";
 import {
   applyCategories,
-  fetchCategories,
   fetchTransactions,
   type CategoryAssignment,
   type CategoryProposal,
@@ -30,6 +21,7 @@ import {
   type TransactionOut,
 } from "@/lib/api";
 import { euroCents } from "@/lib/format";
+import { invalidateMoneyQueries } from "@/lib/planQueries";
 
 const CONFIDENCE_ORDER: Record<SuggestionConfidence, number> = {
   low: 0,
@@ -72,7 +64,6 @@ function ReviewContent({
   onClose,
 }: Readonly<{ proposals: CategoryProposal[]; onClose: () => void }>) {
   const queryClient = useQueryClient();
-  const { data: groups } = useQuery({ queryKey: ["categories"], queryFn: fetchCategories });
   // Proposals can span months — fetch the full confirmed list for row details.
   const { data: allTransactions } = useQuery({
     queryKey: ["transactions"],
@@ -114,10 +105,16 @@ function ReviewContent({
       for (const [id, row] of Object.entries(rows)) {
         if (!row.checked) continue;
         const assignment: CategoryAssignment = {};
-        if (row.categoryId) assignment.category_id = row.categoryId;
+        if (row.categoryId === NO_CATEGORY) {
+          // "Ready to assign" / "Uncategorized": clear a stored category so
+          // an inflow counts as income again; already-empty rows stay as is.
+          if (transactionsById.get(id)?.category_id) assignment.category_id = null;
+        } else if (row.categoryId) {
+          assignment.category_id = row.categoryId;
+        }
         // Clearing payees is not this dialog's job — only send real names.
         if (row.payee.trim()) assignment.payee = row.payee.trim();
-        if (assignment.category_id || assignment.payee) assignments[id] = assignment;
+        if (assignment.category_id !== undefined || assignment.payee) assignments[id] = assignment;
       }
       return applyCategories(assignments);
     },
@@ -134,6 +131,8 @@ function ReviewContent({
         queryClient.invalidateQueries({ queryKey: ["budget", m] });
         queryClient.invalidateQueries({ queryKey: ["summary", m] });
       }
+      // Later months' To Be Assigned, the overview and the plan move too.
+      invalidateMoneyQueries(queryClient);
       onClose();
     },
   });
@@ -185,8 +184,8 @@ function ReviewContent({
               }}
             >
               Every transaction may already be categorized, or suggestions are
-              briefly unavailable — you can still set categories from each
-              row&apos;s menu.
+              briefly unavailable — you can still set each category by hand
+              from the Transactions screen (Edit on the row).
             </div>
           </div>
         ) : (
@@ -259,40 +258,15 @@ function ReviewContent({
                     minWidth: 0,
                   }}
                 />
-                <Select
-                  value={row.categoryId}
-                  onValueChange={(v) => setRow(proposal.transaction_id, { categoryId: v })}
-                >
-                  <SelectTrigger
-                    className="h-9 rounded-[10px] border-[1.5px] text-[13px] font-medium"
-                    style={{
-                      borderColor: "var(--border-hairline)",
-                      color: row.categoryId ? "var(--text-strong)" : "var(--text-subtle)",
-                      background: "var(--surface)",
-                      fontFamily: "var(--font-sans)",
-                    }}
-                  >
-                    <SelectValue placeholder="Pick category" />
-                  </SelectTrigger>
-                  <SelectContent
-                    style={{
-                      borderRadius: "var(--r-md)",
-                      border: "1px solid var(--border-hairline)",
-                      boxShadow: "var(--shadow-lg)",
-                    }}
-                  >
-                    {(groups ?? []).filter((g) => !g.system).map((g) => (
-                      <SelectGroup key={g.id}>
-                        <SelectLabel>{g.name}</SelectLabel>
-                        {g.categories.filter((c) => !c.archived).map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.name}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <CategoryCombobox
+                  size="sm"
+                  // An inflow the AI left without a category is income:
+                  // "Ready to assign" until the user picks a category.
+                  value={row.categoryId || (isIncome ? NO_CATEGORY : "")}
+                  noneLabel={isIncome ? "Ready to assign" : "Uncategorized"}
+                  placeholder="Pick category"
+                  onChange={(v) => setRow(proposal.transaction_id, { categoryId: v })}
+                />
                 <Badge tone={CONFIDENCE_TONE[proposal.confidence]}>
                   {proposal.confidence}
                 </Badge>
