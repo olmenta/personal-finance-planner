@@ -95,7 +95,7 @@ Each row on the transactions screen SHALL offer an actions menu with "Edit" and 
 
 ### Requirement: AI categorization review flow
 
-The transactions screen SHALL offer a "Review uncategorized" action while confirmed uncategorized transactions exist. Triggering it SHALL open the categorization review (see transaction-review): the same review component the statement import uses, listing every confirmed uncategorized transaction across all months — each with its date, editable note, payee, amount, category picker, "Transfers →" choices and any twin-match suggestion — with the AI's category and payee prefilled as defaults and a confidence badge where the AI made a suggestion. There SHALL be no per-row checkboxes: applying writes the rows whose decision differs from what is stored (a kept AI suggestion counts as a decision) and leaves the others untouched. Applying SHALL invalidate the transactions, payees, budget, summary, overview, plan and accounts queries. With no uncategorized transactions the review SHALL render an actionable empty state, and the AI SHALL never write a category without the user applying it.
+The transactions screen SHALL offer a "Review uncategorized" action while confirmed uncategorized transactions exist. Triggering it SHALL open the categorization review (see transaction-review): the same review component the statement import uses, listing every confirmed uncategorized transaction across all months — each with its date, editable note, payee, amount, category picker, "Transfers →" choices and any twin-match suggestion — with the AI's category and payee prefilled as defaults and a confidence badge where the AI made a suggestion. The review's summary SHALL count only outflows as needing a category; uncategorized inflows are income (Ready to assign), SHALL be presented as such without asking for a category, and stay listed so they can still be linked to the transfer they mirror. There SHALL be no per-row checkboxes: applying writes the rows whose decision differs from what is stored (a kept AI suggestion counts as a decision) and leaves the others untouched. Applying SHALL invalidate the transactions, payees, budget, summary, overview, plan and accounts queries. With no uncategorized transactions the review SHALL render an actionable empty state, and the AI SHALL never write a category without the user applying it.
 
 #### Scenario: Bulk categorization applied
 
@@ -121,6 +121,11 @@ The transactions screen SHALL offer a "Review uncategorized" action while confir
 
 - **WHEN** a confirmed uncategorized −200,00 € row in BBVA is marked "Transfer → Banco B" in the review and applied
 - **THEN** the row becomes the near side of a transfer pair with a +200,00 € twin in Banco B, and neither counts in income or spending
+
+#### Scenario: Income is not counted as needing a category
+
+- **WHEN** the review lists three uncategorized expenses and an uncategorized salary
+- **THEN** the summary says three transactions need a category and the salary is ready to assign, and leaving the salary untouched writes nothing
 
 ### Requirement: Category management on Settings
 

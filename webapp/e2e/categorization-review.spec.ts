@@ -119,6 +119,9 @@ test("AI suggestions are defaults with confidence badges", async ({ page }) => {
   });
 
   const review = await openReview(page);
+  // Only spending needs a category: four BBVA outflows, no income yet.
+  await expect(review).toContainText("4 transactions need a category");
+  await expect(review).not.toContainText("ready to assign —");
   const rows = review.getByRole("group");
   // Low confidence first, then high, then rows without a suggestion.
   await expect(rows.nth(0)).toHaveAccessibleName("FARMACIA");
@@ -204,6 +207,9 @@ test("a row mirroring an existing transfer is linked, not duplicated", async ({ 
   );
 
   const review = await openReview(page);
+  // The income isn't counted as needing a category: it's ready to assign.
+  await expect(review).toContainText("2 transactions need a category");
+  await expect(review).toContainText("1 income is ready to assign");
   const duplicate = review.getByRole("group", { name: "Ingreso duplicado" });
   await expect(duplicate).toContainText("Looks like the transfer from BBVA");
   await duplicate.getByRole("button", { name: "Link them" }).click();

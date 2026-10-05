@@ -130,9 +130,7 @@ function ReviewContent({ onClose }: Readonly<{ onClose: () => void }>) {
         </DialogTitle>
         {items.length > 0 && (
           <p style={{ font: "500 13.5px var(--font-sans)", color: "var(--text-muted)", margin: "4px 0 0" }}>
-            {items.length} {items.length === 1 ? "transaction needs" : "transactions need"} a
-            category. Pick one, mark a transfer, or link a matching transfer — rows you
-            leave as they are stay untouched.
+            {reviewSummary(items)} Rows you leave as they are stay untouched.
           </p>
         )}
       </DialogHeader>
@@ -177,6 +175,28 @@ function ReviewContent({ onClose }: Readonly<{ onClose: () => void }>) {
       </div>
     </DialogContent>
   );
+}
+
+/* Only spending needs a category: an inflow without one is income — money
+   ready to assign — and is listed so it can still be linked to the transfer
+   it mirrors, without asking for anything. */
+function reviewSummary(items: ReviewItem[]): string {
+  const outflows = items.filter((i) => i.row.amount_cents < 0).length;
+  const inflows = items.length - outflows;
+  const parts: string[] = [];
+  if (outflows > 0) {
+    parts.push(
+      `${outflows} ${outflows === 1 ? "transaction needs" : "transactions need"} a category — pick one or mark a transfer.`,
+    );
+  } else {
+    parts.push("Nothing needs a category.");
+  }
+  if (inflows > 0) {
+    parts.push(
+      `${inflows} ${inflows === 1 ? "income is" : "incomes are"} ready to assign — leave ${inflows === 1 ? "it" : "them"}, or link ${inflows === 1 ? "it" : "them"} if ${inflows === 1 ? "it's" : "they're"} the other side of a transfer.`,
+    );
+  }
+  return parts.join(" ");
 }
 
 function Notice({
