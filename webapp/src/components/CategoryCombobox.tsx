@@ -65,7 +65,7 @@ export interface CategoryComboboxProps {
 }
 
 /* The one category picker (spec: category-picker): search across groups,
-   "Crear «X»" with a group choice, and the new category lands in the shared
+   "Create «X»" with a group choice, and the new category lands in the shared
    ["categories"] cache so every other open picker lists it at once.
    Archived categories and system groups (card payments) are never offered. */
 export function CategoryCombobox({
@@ -190,7 +190,7 @@ export function CategoryCombobox({
               onValueChange={setSearch}
             />
             <CommandList>
-              {/* With a query and no exact match, "Crear «X»" is the answer. */}
+              {/* With a query and no exact match, "Create «X»" is the answer. */}
               {(!query || exactMatch) && <CommandEmpty>No matching category</CommandEmpty>}
               {noneLabel && (
                 <CommandGroup>
@@ -238,7 +238,7 @@ export function CategoryCombobox({
                     >
                       <Icon name="plus" size={14} color="var(--brand)" />
                       <span style={{ color: "var(--violet-700)", fontWeight: 600 }}>
-                        Crear «{search.trim()}»
+                        Create «{search.trim()}»
                       </span>
                     </CommandItem>
                   </CommandGroup>

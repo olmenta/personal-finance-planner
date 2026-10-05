@@ -429,7 +429,7 @@ function UncategorizedBlock({ cents, count }: Readonly<{ cents: number; count: n
   if (count === 0) return null;
   return (
     <section
-      aria-label="Sin categorizar"
+      aria-label="Uncategorized spending"
       style={{
         display: "flex",
         alignItems: "center",
@@ -452,7 +452,7 @@ function UncategorizedBlock({ cents, count }: Readonly<{ cents: number; count: n
             fontVariantNumeric: "tabular-nums",
           }}
         >
-          Sin categorizar · {euroCents(cents)}
+          Uncategorized · {euroCents(cents)}
         </div>
         <div style={{ font: "500 13px var(--font-sans)", color: "var(--text-body)", marginTop: 2 }}>
           {count === 1 ? "1 movement" : `${count} movements`} this month still{" "}
@@ -475,7 +475,7 @@ function UncategorizedBlock({ cents, count }: Readonly<{ cents: number; count: n
         disabled={suggest.isPending}
         onClick={() => suggest.mutate()}
       >
-        {suggest.isPending ? "Suggesting…" : "Categorizar ahora"}
+        {suggest.isPending ? "Suggesting…" : "Categorize now"}
       </Button>
       <SuggestCategoriesDialog proposals={proposals} onClose={() => setProposals(null)} />
     </section>

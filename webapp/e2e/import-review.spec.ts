@@ -4,8 +4,8 @@ import { pinClock, resetDb } from "./support/app";
 /* uncategorized-and-category-combobox, task 6.3:
    1. typing in a long import review keeps up with the keyboard;
    2. a category created from one row's picker is offered in the next row;
-   3. what's confirmed without a category shows up as "Sin categorizar" on
-      the budget, and "Categorizar ahora" opens the review there.
+   3. what's confirmed without a category shows up as "Uncategorized" on
+      the budget, and "Categorize now" opens the review there.
    Steps share one database and run in order. No live LLM in e2e, so the
    import stages rows uncategorized and the review has nothing to suggest. */
 
@@ -71,7 +71,7 @@ test("a category created from one row is offered in the next", async ({ page }) 
 
   await pickers.nth(0).click();
   await page.getByPlaceholder("Search or create…").fill("Mascotas");
-  await page.getByRole("option", { name: "Crear «Mascotas»" }).click();
+  await page.getByRole("option", { name: "Create «Mascotas»" }).click();
   await expect(page.getByLabel("Category name")).toHaveValue("Mascotas");
   await page.getByRole("button", { name: "Create category" }).click();
   await expect(pickers.nth(0)).toHaveText(/Mascotas/);
@@ -81,7 +81,7 @@ test("a category created from one row is offered in the next", async ({ page }) 
   await expect(page.getByRole("option", { name: "Mascotas" })).toBeVisible();
   // An exact match offers no creation.
   await page.getByPlaceholder("Search or create…").fill("mascotas");
-  await expect(page.getByRole("option", { name: /^Crear/ })).toHaveCount(0);
+  await expect(page.getByRole("option", { name: /^Create/ })).toHaveCount(0);
   await page.getByRole("option", { name: "Mascotas" }).click();
   await expect(pickers.nth(1)).toHaveText(/Mascotas/);
 
@@ -91,12 +91,12 @@ test("a category created from one row is offered in the next", async ({ page }) 
 
 test("uncategorized spending shows on the budget", async ({ page }) => {
   await page.goto("/budgets");
-  const block = page.getByRole("region", { name: "Sin categorizar" });
+  const block = page.getByRole("region", { name: "Uncategorized spending" });
   await expect(block).toBeVisible();
   // Two of the rows got "Mascotas"; the rest are still waiting.
   await expect(block).toContainText(`${ROWS - 2} movements`);
 
-  await block.getByRole("button", { name: "Categorizar ahora" }).click();
+  await block.getByRole("button", { name: "Categorize now" }).click();
   // No live LLM in e2e: the review explains and points to manual categorizing.
   await expect(page.getByText("Nothing to suggest right now")).toBeVisible();
 });
