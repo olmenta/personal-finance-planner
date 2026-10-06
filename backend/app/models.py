@@ -282,3 +282,25 @@ class BudgetAssignment(Base):
     suggestion_cents: Mapped[int | None] = mapped_column(Integer)
 
     budget_month: Mapped[BudgetMonth] = relationship(back_populates="assignments")
+
+
+class LlmUsage(Base):
+    """One model call's usage and cost (llm-layer design D3). Content-free
+    by design: no prompt, no output, no ids of the user's financial data —
+    only what per-user cost caps and route tuning need."""
+
+    __tablename__ = "llm_usage"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True)
+    route: Mapped[str] = mapped_column(String(40))
+    model: Mapped[str] = mapped_column(String(80))
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_read_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cache_write_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_micro_eur: Mapped[int] = mapped_column(Integer, default=0)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    # ok | error | fallback
+    outcome: Mapped[str] = mapped_column(String(12))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)

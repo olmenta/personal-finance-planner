@@ -19,11 +19,14 @@ from .routers import (
     transactions,
     transfers,
 )
+from .llm.observability import configure_logfire
 from .telemetry import configure_sentry
 
 configure_sentry()
 
 app = FastAPI(title="Personal Finance Planner API")
+# After the app exists: FastAPI instrumentation needs it. Dormant without a token.
+configure_logfire(app)
 
 app.include_router(accounts.router)
 app.include_router(categories.router)

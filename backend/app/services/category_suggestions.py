@@ -23,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
+from ..llm import UsageContext, run_structured
 from ..ingestion import NormalizedTransaction
 from ..models import Category, Payee, Transaction
 
@@ -95,6 +96,7 @@ def sample_history(db: Session, user_id: str) -> list[HistoryExample]:
     return examples
 
 
+# Changing this prompt requires an eval run without regressions: backend/evals/README.md
 def _build_prompt(
     categories: list[Category],
     rows: list[NormalizedTransaction],
@@ -151,32 +153,22 @@ def _build_prompt(
     return "\n".join(lines)
 
 
-def _call_model(prompt: str) -> SuggestionResponse | None:
-    """One LiteLLM structured-output call. Raises on transport errors;
-    returns None when the model produced no parseable content."""
-    import litellm
-
-    settings = get_settings()
-    model = settings.anthropic_model
-    if "/" not in model:  # bare names default to the Anthropic provider
-        model = f"anthropic/{model}"
-    response = litellm.completion(
-        model=model,
-        max_tokens=16000,
-        messages=[{"role": "user", "content": prompt}],
-        response_format=SuggestionResponse,
-        api_key=settings.anthropic_api_key,
+def _call_model(prompt: str, *, usage: UsageContext | None = None) -> SuggestionResponse | None:
+    """One structured-output call on the `category_suggestions` route.
+    Raises on transport or validation errors (the chunk degrades)."""
+    return run_structured(
+        "category_suggestions",
+        SuggestionResponse,
+        [{"role": "user", "content": prompt}],
+        usage=usage,
     )
-    content = response.choices[0].message.content
-    if not content:
-        return None
-    return SuggestionResponse.model_validate_json(content)
 
 
 def suggest(
     categories: list[Category],
     rows: list[NormalizedTransaction],
     history: list[HistoryExample] | None = None,
+    usage: UsageContext | None = None,
 ) -> dict[int, Suggestion]:
     """Map row index -> Suggestion(category_id, payee, confidence). Never raises.
 
@@ -197,7 +189,7 @@ def suggest(
     for start in range(0, len(rows), CHUNK_ROWS):
         chunk = rows[start : start + CHUNK_ROWS]
         for offset, suggestion in _suggest_chunk(
-            categories, chunk, history or [], start
+            categories, chunk, history or [], start, usage
         ).items():
             result[start + offset] = suggestion
     return result
@@ -208,10 +200,11 @@ def _suggest_chunk(
     chunk: list[NormalizedTransaction],
     history: list[HistoryExample],
     start: int,
+    usage: UsageContext | None = None,
 ) -> dict[int, Suggestion]:
     """One model call for one chunk; {} on any failure (fail-open)."""
     try:
-        parsed = _call_model(_build_prompt(categories, chunk, history))
+        parsed = _call_model(_build_prompt(categories, chunk, history), usage=usage)
     except Exception:
         logger.warning(
             "category suggestions degraded: LLM call failed (rows %d-%d)",

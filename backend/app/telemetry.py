@@ -1,11 +1,9 @@
-"""Sentry initialization — errors, traces, logs, and LLM (gen-AI) spans.
+"""Sentry initialization — errors and logs.
 
-Dormant without SENTRY_DSN. GDPR posture: request bodies never attach, and
-send_default_pii — which puts LLM prompts/completions (onboarding transcripts,
-bank descriptions) inside gen-AI spans — is honored only outside production,
-regardless of the flag (ai-onboarding spec: transcripts never reach telemetry
-in prod). LLM *quality* telemetry is the separate llm-observability-evals
-change.
+Dormant without SENTRY_DSN. GDPR posture: request bodies never attach and
+send_default_pii is honored only outside production. Traces and LLM
+observability belong to Logfire (app/llm/observability.py), so Sentry
+records no gen-AI spans and backend tracing defaults to off.
 """
 
 import logging
@@ -21,7 +19,6 @@ def configure_sentry() -> None:
         return
 
     import sentry_sdk
-    from sentry_sdk.integrations.litellm import LiteLLMIntegration
 
     send_pii = settings.sentry_send_default_pii and settings.sentry_environment != "production"
 
@@ -32,24 +29,11 @@ def configure_sentry() -> None:
         send_default_pii=send_pii,
         max_request_body_size="never",
         enable_logs=settings.sentry_enable_logs,
-        stream_gen_ai_spans=True,
-        integrations=[LiteLLMIntegration()],
     )
 
     logger.info(
-        "sentry initialized (env=%s, logs=%s, llm_pii=%s)",
+        "sentry initialized (env=%s, logs=%s, pii=%s)",
         settings.sentry_environment,
         settings.sentry_enable_logs,
         send_pii,
     )
-
-
-def set_llm_conversation(conversation_id: str) -> None:
-    """Group this request's gen-AI spans under one Sentry conversation thread.
-
-    Scope-local (call once per request, before the LLM calls); a no-op when
-    Sentry is not initialized.
-    """
-    import sentry_sdk.ai
-
-    sentry_sdk.ai.set_conversation_id(conversation_id)

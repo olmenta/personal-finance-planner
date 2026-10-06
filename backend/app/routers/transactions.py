@@ -21,6 +21,7 @@ from ..schemas import (
     TransactionOut,
     TransactionUpdate,
 )
+from ..llm import UsageContext
 from ..services import category_suggestions, review
 from ..services.accounts import resolve_account
 from ..services.hashing import dedupe_hash
@@ -126,7 +127,9 @@ def review_uncategorized(
         for txn in txns
     ]
     history = category_suggestions.sample_history(db, user.id)
-    suggestions = category_suggestions.suggest(categories, rows, history)
+    suggestions = category_suggestions.suggest(
+        categories, rows, history, usage=UsageContext(db, user.id)
+    )
     matches = review.twin_matches(db, txns)
 
     out: list[ReviewRowOut] = []

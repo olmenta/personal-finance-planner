@@ -63,6 +63,20 @@ Each route can be overridden by an env var, for example `LLM_ROUTE_ONBOARDING_MO
 
 **The default models change on purpose** (decided 2026-10-06), from the current single `claude-sonnet-4-6` to a model per route. The eval suites (D5) run on both the old and the new models; the results are recorded here as the first baseline. A regression is then fixed through the prompt or the route settings, not by reverting the default.
 
+**Baseline (2026-10-06, `uv run python -m evals …`):**
+
+| Suite | New default | Pass rate · avg latency | Previous model (`claude-sonnet-4-6`) |
+|---|---|---|---|
+| `category_suggestions` (10 cases) | `claude-haiku-4-5` | 100% · 1.1 s | 100% · 2.0 s |
+| `onboarding` (6 cases incl. LLM-judged proposal) | `claude-sonnet-5` | 100% · 4.7 s | 100% · 4.5 s |
+
+Two fixture fixes landed before the final numbers (evaluator issues, not model errors): payee comparison ignores word order ("Cines Yelmo" = "Yelmo Cines"), and utilities expect the prompt's canonical values (`electricity`, `water & sewage`), not the user's words.
+
+**Implementation notes:**
+
+- The onboarding route uses `max_tokens` 16000, not 4000: Sonnet 5 thinks adaptively by default, and a low cap risks truncating the turn.
+- Prompt caching verified on the onboarding route: about 3,960 of 4,006 input tokens are read from cache on a repeated turn, at about $0.002 per turn.
+
 ### D2: Behavior kept exactly at the call sites
 
 - **Onboarding:** one retry on any failure, then `OnboardingUnavailable`. The `done`-without-proposal re-ask logic stays in the service, unchanged.

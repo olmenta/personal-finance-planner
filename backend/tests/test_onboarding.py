@@ -1,4 +1,4 @@
-"""Onboarding interview tests — LiteLLM call fully mocked, no live requests."""
+"""Onboarding interview tests — model call fully mocked, no live requests."""
 
 import json
 from types import SimpleNamespace

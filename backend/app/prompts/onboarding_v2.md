@@ -1,5 +1,6 @@
 ---
 version: onboarding_v2
+# Bumping the version requires an eval run without regressions: backend/evals/README.md
 # Extraction schema: the only keys the interview may persist. Deltas from the
 # model are validated against this tree — unknown keys are dropped and logged.
 # Leaf values: "bool", "int", "string", "string_list", or a list of allowed

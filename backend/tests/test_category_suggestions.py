@@ -1,4 +1,4 @@
-"""Suggestion service tests — LiteLLM call fully mocked, no live requests."""
+"""Suggestion service tests — model call fully mocked, no live requests."""
 
 from datetime import date
 from types import SimpleNamespace

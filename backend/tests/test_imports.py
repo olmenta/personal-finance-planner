@@ -36,7 +36,7 @@ def test_upload_stages_rows_without_touching_budget(client):
 def test_suggestions_attached_to_staged_rows(client, category_ids):
     target = category_ids["Supermercado"]
 
-    def fake_suggest(categories, rows, history=None):
+    def fake_suggest(categories, rows, history=None, usage=None):
         return {
             i: (
                 Suggestion(target, "Supermercado Genérico", "high")
@@ -213,7 +213,7 @@ def test_pending_404_when_none(client):
 
 
 def test_staged_rows_carry_proposed_payee(client, db, user):
-    def fake_suggest(categories, rows, history=None):
+    def fake_suggest(categories, rows, history=None, usage=None):
         return {i: Suggestion(None, "Cafetería Central", "medium") for i in range(len(rows))}
 
     with patch("app.services.import_batch.category_suggestions.suggest", fake_suggest):
@@ -232,7 +232,7 @@ def test_discard_removes_orphan_payees(client, db, user, category_ids):
         json={"amount_cents": 100, "category_id": category_ids["Restaurantes"], "payee": "Cafetería Central"},
     )
 
-    def fake_suggest(categories, rows, history=None):
+    def fake_suggest(categories, rows, history=None, usage=None):
         names = ["Cafetería Central", "Suscripción Música"]
         return {i: Suggestion(None, names[i % 2], "low") for i in range(len(rows))}
 
@@ -251,7 +251,7 @@ def test_income_rows_stage_uncategorized(client, category_ids):
     # it — income lands in "ready to assign", not in a budget envelope.
     target = category_ids["Supermercado"]
 
-    def fake_suggest(categories, rows, history=None):
+    def fake_suggest(categories, rows, history=None, usage=None):
         return {i: Suggestion(target, "Empresa ejemplo", "high") for i in range(len(rows))}
 
     with patch("app.services.import_batch.category_suggestions.suggest", fake_suggest):
@@ -264,7 +264,7 @@ def test_income_rows_stage_uncategorized(client, category_ids):
 
 
 def test_confirm_payee_override_replaces_and_cleans(client):
-    def fake_suggest(categories, rows, history=None):
+    def fake_suggest(categories, rows, history=None, usage=None):
         return {
             i: (
                 Suggestion(None, "Cafetería AI", "medium")

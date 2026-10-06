@@ -22,7 +22,7 @@ def make_uncategorized(client, db, category_id, note, date="2026-06-05", amount=
     return txn_id
 
 
-def no_ai(categories, rows, history=None):
+def no_ai(categories, rows, history=None, usage=None):
     return {i: EMPTY for i in range(len(rows))}
 
 
@@ -62,7 +62,7 @@ def test_lists_every_uncategorized_row_newest_first(client, db, category_ids):
 def test_ai_suggestion_is_a_default_never_written(client, db, category_ids):
     target = make_uncategorized(client, db, category_ids["Supermercado"], "MERCADONA 1")
 
-    def fake(categories, rows, history=None):
+    def fake(categories, rows, history=None, usage=None):
         return {i: Suggestion(category_ids["Supermercado"], "Mercadona", "high") for i in range(len(rows))}
 
     [row] = review(client, fake)
@@ -78,7 +78,7 @@ def test_ai_suggestion_is_a_default_never_written(client, db, category_ids):
 def test_ai_failure_still_lists_rows(client, db, category_ids):
     target = make_uncategorized(client, db, category_ids["Supermercado"], "WHATEVER")
 
-    def boom(categories, rows, history=None):
+    def boom(categories, rows, history=None, usage=None):
         return {}
 
     rows = review(client, boom)

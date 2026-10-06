@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from ..ingestion import ADAPTERS, NormalizedTransaction
 from ..models import Category, ImportBatch, Transaction, User
+from ..llm import UsageContext
 from . import category_suggestions
 from .payees import delete_orphan_payees, resolve_payee
 from .review import Decisions, TwinMatchSuggestion, apply_decisions, twin_matches
@@ -76,7 +77,7 @@ def create_batch(
     ordered = list(surviving.items())
     history = category_suggestions.sample_history(db, user.id)
     suggestions = category_suggestions.suggest(
-        categories, [row for _, row in ordered], history
+        categories, [row for _, row in ordered], history, usage=UsageContext(db, user.id)
     )
 
     batch = ImportBatch(

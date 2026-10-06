@@ -14,7 +14,7 @@ Subscription web app that teaches people who have never budgeted to use simplifi
 
 - **Backend:** Python version is pinned with **uv** (`backend/.python-version`). Use **uv** for everything — install libraries with `uv add <pkg>`, run scripts with `uv run <script>`, serve with **uvicorn** via `uv run uvicorn app.main:app --reload`. Never call `pip` or system Python directly.
 - **Frontend:** Node version is pinned with **Volta** (`volta` field in `webapp/package.json`). Always use Volta to install libraries and run npm: `volta run npm install`, `volta run npm run dev` (or Volta shims, which resolve `node`/`npm` to the pinned version). Never bypass the pin with a system Node.
-- Use LiteLLM for LLM calls
+- **LLM calls:** all LLM and decision-model calls go through the Pydantic AI layer in `backend/app/llm/`, addressed by a logical route (`run_structured("onboarding", Schema, …)`). Never name a model in service code and never call a provider SDK directly; models per route live in `app/llm/routes.py` (overridable with `LLM_ROUTE_<ROUTE>_MODEL`). Changing a prompt or a route's model requires an eval run without regressions (`backend/evals/README.md`).
 - **Code navigation:** use the **codegraph** MCP tools for structural questions — `codegraph_callers`/`codegraph_callees` ("who calls X"), `codegraph_impact` ("what breaks if I change Y"), `codegraph_trace` (flow between two symbols), `codegraph_context` (orient on an area) — instead of grep+read loops. Plain grep is fine for single-string lookups. The index refreshes ~1s after writes.
 
 ## Tech stack
@@ -31,6 +31,8 @@ Subscription web app that teaches people who have never budgeted to use simplifi
 | Auth (planned) | Auth0 (Universal Login; RS256 JWT validated by backend) |
 | Billing (planned) | Stripe (configurable trial + 5 €/month) |
 | Backend | Python 3.12 + FastAPI in `backend/`, served with uvicorn, behind Next.js Route Handlers (BFF) — the browser never calls the Python API directly |
+| LLM layer | Pydantic AI (routes in `app/llm/routes.py`), usage and cost per call in `llm_usage` (genai-prices), evals with `pydantic_evals` (`backend/evals/`) |
+| Observability | Logfire (EU) for traces, LLM runs and eval experiments — LLM content never exported in production; Sentry for errors |
 | Mobile (future) | Ionic in `mobile/` — future release |
 
 ## Commands
@@ -47,7 +49,9 @@ Backend (run inside `backend/`):
 
 - `uv sync` — install dependencies
 - `uv run uvicorn app.main:app --reload` — dev server
-- `uv run pytest` — tests
+- `uv run pytest` — tests (export `TEST_DATABASE_URL` from `.env` first, or the DB tests are skipped)
+- `uv run python -m evals <onboarding|category_suggestions> [--model …]` — eval suites (live model calls)
+- `uv run python -m mcp_server` — dev MCP server (see `docs/dev-mcp-server.md`)
 
 ## Design system (Olmenta)
 

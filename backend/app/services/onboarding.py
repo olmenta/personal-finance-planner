@@ -32,7 +32,7 @@ from ..clock import today_madrid
 from ..config import get_settings
 from ..models import OnboardingSession, Payee
 from ..schemas import OnboardingFinalizeRequest
-from ..telemetry import set_llm_conversation
+from ..llm import UsageContext, run_structured
 from .accounts import create_account, find_by_name, write_opening_balance
 from .category_setup import ensure_category, ensure_group
 from .payees import resolve_payee
@@ -213,37 +213,42 @@ def _build_messages(
     return messages
 
 
-def _call_model(messages: list[dict]) -> InterviewTurn:
-    """One structured-output turn, with a single retry on any failure."""
-    import litellm
+def _causes(error: BaseException) -> str:
+    """Exception class names along the cause chain — never messages, which
+    could carry prompt content."""
+    names = []
+    current: BaseException | None = error
+    while current is not None and len(names) < 5:
+        names.append(type(current).__name__)
+        current = current.__cause__ or current.__context__
+    return " <- ".join(names)
 
-    settings = get_settings()
-    if not settings.anthropic_api_key:
+
+def _call_model(
+    messages: list[dict],
+    *,
+    usage: UsageContext | None = None,
+    conversation_id: str | None = None,
+) -> InterviewTurn:
+    """One structured-output turn on the `onboarding` route, with a single
+    retry on any failure (transport, truncation, or validation)."""
+    if not get_settings().anthropic_api_key:
         raise OnboardingUnavailable("ANTHROPIC_API_KEY not set")
-    model = settings.anthropic_model
-    if "/" not in model:  # bare names default to the Anthropic provider
-        model = f"anthropic/{model}"
 
     last_error: Exception | None = None
     for attempt in range(2):
         try:
-            response = litellm.completion(
-                model=model,
-                max_tokens=4000,
-                messages=messages,
-                response_format=InterviewTurn,
-                api_key=settings.anthropic_api_key,
+            return run_structured(
+                "onboarding",
+                InterviewTurn,
+                messages,
+                usage=usage,
+                conversation_id=conversation_id,
             )
-            content = response.choices[0].message.content
-            if not content:
-                raise ValueError("empty model output")
-            return InterviewTurn.model_validate_json(content)
-        except Exception as error:  # transport, truncation, or parse failure
+        except Exception as error:
             last_error = error
             logger.warning(
-                "onboarding turn call failed (attempt %d): %s",
-                attempt + 1,
-                type(error).__name__,
+                "onboarding turn call failed (attempt %d): %s", attempt + 1, _causes(error)
             )
     raise OnboardingUnavailable("model call failed after retry") from last_error
 
@@ -300,10 +305,13 @@ def start_session(db: Session, user_id: str, locale: str) -> OnboardingSession:
         transcript_json=[],
         extracted_json={},
     )
-    set_llm_conversation(session.id)
     # Opening turn first, persist after — a failed/unconfigured model call
     # must not leave an empty session behind.
-    turn = _call_model(_build_messages(session, locale, config))
+    turn = _call_model(
+        _build_messages(session, locale, config),
+        usage=UsageContext(db, user_id),
+        conversation_id=session.id,
+    )
     db.add(session)
     _record_assistant_turn(session, turn)
     try:
@@ -328,10 +336,12 @@ def advance(
     failure raises OnboardingUnavailable so the router can fail closed.
     """
     config = load_prompt_config()
-    set_llm_conversation(session.id)
     _append_turn(session, "user", user_message)
+    usage = UsageContext(db, session.user_id)
 
-    turn = _call_model(_build_messages(session, locale, config))
+    turn = _call_model(
+        _build_messages(session, locale, config), usage=usage, conversation_id=session.id
+    )
     if turn.done and turn.proposal is None:
         _append_turn(
             session,
@@ -339,7 +349,9 @@ def advance(
             "Your last turn set done=true without a proposal. "
             "Repeat it including the full proposal object.",
         )
-        turn = _call_model(_build_messages(session, locale, config))
+        turn = _call_model(
+            _build_messages(session, locale, config), usage=usage, conversation_id=session.id
+        )
         if turn.done and turn.proposal is None:
             raise OnboardingUnavailable("done turn missing proposal after re-ask")
 
