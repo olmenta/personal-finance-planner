@@ -250,6 +250,7 @@ export function ReviewScreen({ proposal, submitting, onConfirm }: ReviewScreenPr
               {account.checked && (
                 <SegmentedControl
                   size="sm"
+                  style={{ width: "auto", flex: "none" }}
                   options={ACCOUNT_TYPES}
                   value={account.type}
                   onChange={(type) =>

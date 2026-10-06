@@ -10,6 +10,17 @@ import os
 # developer's .env DSN would make test-triggered warnings send real events.
 os.environ["SENTRY_DSN"] = ""
 
+# Same for Logfire: app.main calls configure_logfire() at import time, and a
+# developer's token or `.logfire/` credentials file would export test spans
+# (including expected errors like the API-down test) to the real project.
+# Tests capture spans in memory via additional_span_processors instead.
+os.environ["LOGFIRE_TOKEN"] = ""
+from pathlib import Path  # noqa: E402
+
+from app.llm import observability  # noqa: E402
+
+observability.CREDENTIALS_FILE = Path("/nonexistent/.logfire/logfire_credentials.json")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
