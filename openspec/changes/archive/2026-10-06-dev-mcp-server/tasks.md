@@ -21,7 +21,7 @@
 
 ## 4. Verification
 
-- [ ] 4.1 `uv run pytest` green in `backend/`
+- [x] 4.1 `uv run pytest` green in `backend/`
   - `tests/test_mcp_server.py` green (29). The full-suite run was stopped at 27 min on a slow Neon test branch; tick this after a full green run.
 - [x] 4.2 Manual: register in Claude Code, ask about the month, add an expense, move money, resolve an uncategorized row — then start the dogfooding week and record tool changes in `design.md`
   - Connected to Claude Desktop and verified working by the developer (2026-10-06); the dogfooding week starts now.

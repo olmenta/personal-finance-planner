@@ -40,6 +40,6 @@
 
 ## 7. Verification
 
-- [ ] 7.1 `uv run pytest` green in `backend/`
+- [x] 7.1 `uv run pytest` green in `backend/`
 - [x] 7.2 `volta run npm run e2e` green (onboarding and import flows exercise the ported paths with AI off)
-- [ ] 7.3 Manual with the API key: an onboarding conversation and an import with suggestions; traces visible in the Logfire dev project; usage rows recorded with costs
+- [x] 7.3 Manual with the API key: an onboarding conversation and an import with suggestions; traces visible in the Logfire dev project; usage rows recorded with costs
