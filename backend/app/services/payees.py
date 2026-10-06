@@ -3,13 +3,14 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import Payee, Transaction
+from ..models import IncomeSchedule, Payee, Transaction
 
 
 def resolve_payee(db: Session, user_id: str, name: str | None) -> Payee | None:
     """Find-or-create the user's payee, case-insensitive on the trimmed name.
 
-    Payees are born from transaction writes — no POST /payees (design D2).
+    Payees are born from transaction and income schedule writes — no
+    POST /payees (design D2).
     Returns None for empty/whitespace-only input.
     """
     trimmed = (name or "").strip()
@@ -28,7 +29,8 @@ def resolve_payee(db: Session, user_id: str, name: str | None) -> Payee | None:
 
 
 def delete_orphan_payees(db: Session, user_id: str, payee_ids: set[str]) -> int:
-    """Delete the given payees when no transaction references them anymore.
+    """Delete the given payees when no transaction or income schedule
+    references them anymore.
 
     Used by import-batch discard so rejected AI payee proposals don't
     linger in the autocomplete list.
@@ -38,6 +40,10 @@ def delete_orphan_payees(db: Session, user_id: str, payee_ids: set[str]) -> int:
     referenced = set(
         db.scalars(
             select(Transaction.payee_id).where(Transaction.payee_id.in_(payee_ids))
+        )
+    ) | set(
+        db.scalars(
+            select(IncomeSchedule.payee_id).where(IncomeSchedule.payee_id.in_(payee_ids))
         )
     )
     deleted = 0

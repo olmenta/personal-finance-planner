@@ -32,3 +32,6 @@ node_modules/
 
 # Dev MCP server tool-call log — local only, may hold personal financial data
 backend/mcp_server/.logs/
+
+# Logfire project credentials (logfire auth / setup wizard) — write token, never commit
+.logfire/

@@ -72,6 +72,23 @@ class Settles(Evaluator):
 
 
 @dataclass
+class IncomeSources(Evaluator):
+    """`income.sources` holds exactly these sources (matched on the given fields);
+    a bonus that depends on targets must never appear as a source."""
+
+    expected: list[dict[str, Any]]
+
+    def evaluate(self, ctx: EvaluatorContext) -> dict[str, bool]:
+        sources = _get(ctx.output["extracted"], "income.sources") or []
+        results = {"income:source_count": len(sources) == len(self.expected)}
+        for i, want in enumerate(self.expected):
+            results[f"income:source_{i}"] = any(
+                all(s.get(k) == v for k, v in want.items()) for s in sources
+            )
+        return results
+
+
+@dataclass
 class DoesNotSettle(Evaluator):
     paths: list[str]
 
@@ -135,7 +152,21 @@ def dataset() -> Dataset:
                     "¿De dónde vienen tus ingresos y cuánto entra al mes?",
                     "Cobro una nómina de unos 2.350 € el día 27",
                 ),
-                evaluators=[Settles({"income.expected_monthly_cents": 235000, "income.income_day": 27})],
+                evaluators=[IncomeSources([{"amount_cents": 235000, "day": 27}])],
+            ),
+            Case(
+                name="income_two_sources_extra_pays_and_bonus",
+                inputs=_ask(
+                    "¿De dónde vienen tus ingresos y cuánto entra al mes?",
+                    "Cobro 2.000 netos el 27 en 14 pagas de Acme, mi pareja 1.500 el día 1, "
+                    "y un bonus si la empresa cumple objetivos",
+                ),
+                evaluators=[
+                    IncomeSources([
+                        {"amount_cents": 200000, "day": 27, "payments_per_year": 14},
+                        {"amount_cents": 150000, "day": 1},
+                    ])
+                ],
             ),
             Case(
                 name="banks_and_cards",

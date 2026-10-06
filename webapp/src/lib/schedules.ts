@@ -1,11 +1,17 @@
-/* Client mirror of backend/app/services/schedules.py, for the schedule
-   editor's live preview (category-targets design D3/D8). The server stays
+/* Client mirror of backend/app/services/schedules.py, for the schedule and
+   income editors' live preview (category-targets design D3/D8). The server stays
    the source of truth: everything saved is re-read from the API. */
 
-import type { ScheduleIn, ScheduleOut, SchedulePattern } from "./api";
+import type {
+  IncomeScheduleIn,
+  IncomeScheduleOut,
+  ScheduleIn,
+  ScheduleOut,
+  SchedulePattern,
+} from "./api";
 import { euroCents } from "./format";
 
-type ScheduleLike = ScheduleIn | ScheduleOut;
+type ScheduleLike = ScheduleIn | ScheduleOut | IncomeScheduleIn | IncomeScheduleOut;
 
 export const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",

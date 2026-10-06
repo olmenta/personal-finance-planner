@@ -1,8 +1,9 @@
 """Application settings.
 
 DATABASE_URL is required (no default — Postgres/Neon everywhere, no SQLite).
-App traffic uses the Neon pooler host; Alembic migrations use the direct host
-(MIGRATIONS_DATABASE_URL, falling back to DATABASE_URL).
+Locally everything runs on the docker-compose Postgres (dev, test and e2e
+databases). On Neon, app traffic uses the pooler host and Alembic migrations
+the direct host (MIGRATIONS_DATABASE_URL, falling back to DATABASE_URL).
 """
 
 from datetime import date
@@ -19,7 +20,7 @@ class Settings(BaseSettings):
     database_url: str
     migrations_database_url: str | None = None
     test_database_url: str | None = None
-    # Neon "e2e" branch for the Playwright suite (see app/e2e_reset.py).
+    # E2E database for the Playwright suite (see app/e2e_reset.py).
     e2e_database_url: str | None = None
     e2e_migrations_database_url: str | None = None
     # Pins "today" (app/clock.py) for the e2e suite; ignored in production.

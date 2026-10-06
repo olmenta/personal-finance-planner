@@ -29,7 +29,7 @@ The product's core promise: **"Know where your money goes each month, and know w
 
 ### 3.1 Principles
 
-1. **Only budget money you already have.** Income enters *To Be Assigned* when it arrives. Probable money (bonuses that depend on company targets) is never part of the plan; when it lands, it is assigned like any other income.
+1. **Only budget money you already have.** Income enters *To Be Assigned* when it arrives. Expected income is planned (income schedules) and matched against what actually arrives (received, a little less or more, late, missed), but it is never assigned before it lands. Probable money (bonuses that depend on company targets) is never part of the plan; when it lands, it is assigned like any other income.
 2. **Every euro has a job, and unassigned money carries over.** The goal is To Be Assigned = 0, but money left unassigned at month end passes to the next month instead of disappearing. This is what lets a salary paid on the 27th fund the next month ("age your money").
 3. **Calendar months, Europe/Madrid.** The budget period is never tied to payday; with several incomes there is no single start date. Carry-over (principle 2) makes calendar months work.
 4. **The budget is not the payment calendar.**
@@ -38,7 +38,7 @@ The product's core promise: **"Know where your money goes each month, and know w
    - **The app always computes the monthly amount.** A category with payments is assigned exactly that amount and the user never types it.
 5. **Catch up when behind.** If what's saved isn't enough for the payments ahead, the monthly amount becomes the *catch-up amount*: the minimum to set aside each month so no payment goes uncovered. It drops back to normal by itself once the user is on track. A future expense, even years away, is spread over every month until it; that is how savings for a goal work.
 6. **Coverage of future payments is always visible.** The home screen shows what to solve now: paid, still to pay (covered or short), left to spend. A 12-month projection shows, months ahead, any payment that won't be covered.
-7. **One annual plan.** Expected fixed income for 12 months versus planned costs (payments + day-to-day + goals) gives one honest number: the yearly and monthly gap. When the plan doesn't fit, it is adjusted, not ignored.
+7. **One annual plan.** Expected fixed income for 12 months versus planned costs (payments + day-to-day + goals) gives one honest number: the yearly and monthly gap. Expected income is described per source with the same rules as payments (every month, some months, …), so 14 pagas (extra pays in June and December), several incomes and different paydays project month by month; income still due this month carries into the next. When the plan doesn't fit, it is adjusted, not ignored.
 8. **Roll with the punches: cover overspending in the month it happens.**
    - When a category goes over, the money already left the bank, so it is covered right away by moving money from another category. The app suggests the source in one tap and never blocks expense entry.
    - Only if the month closes uncovered is the amount deducted from next month's To Be Assigned, and the category starts clean (never a negative carry-over).
@@ -66,7 +66,7 @@ Each payment has its own rule; one category can hold several (school fee monthly
 
 ### 3.3 Home-screen questions
 
-The app always answers: *"What do I have to solve this month?"* (paid, still to pay, left to spend), *"Where is the rest of my money?"* (saved for the future, unassigned), and *"Will my next months be covered?"* (upcoming payments and the annual gap).
+The app always answers: *"What do I have to solve this month?"* (paid, still to pay, left to spend), *"Did my income arrive?"* (expected versus received, with a nudge when it's late), *"Where is the rest of my money?"* (saved for the future, unassigned), and *"Will my next months be covered?"* (upcoming payments and the annual gap).
 
 ## 4. Scope
  
@@ -78,7 +78,7 @@ The app always answers: *"What do I have to solve this month?"* (paid, still to 
 | 2 | Categories + AI onboarding | Conversational onboarding interview driven by a **configurable prompt** (questions are not hard-coded). The interview extracts specific answers we want to persist into a per-user **preferences memory** (see §6.6), then generates a personalized category tree. Categories editable afterwards (create, rename, archive, group). |
 | 3 | Zero-based budget per category | Monthly assignment of every euro (§3). Categories with payments assigned their computed monthly amount; day-to-day categories suggested from the previous month. Rollover of unspent balances, To Be Assigned carry-over, one-tap overspending cover and money moves between categories. |
 | 4 | CSV import | Import bank statements from **BBVA Spain** and **Sabadell Spain** CSV exports. Pipeline: parse → normalize → deduplicate → AI category suggestion → user confirmation. |
-| 5 | Monthly summary & plan | Home screen "this month" (paid / to pay / left to spend / saved / unassigned, adding up to the accounts). Payment schedules per category with computed monthly amounts. 12-month upcoming-payments projection with coverage and the annual plan gap against expected fixed income. |
+| 5 | Monthly summary & plan | Home screen "this month" (paid / to pay / left to spend / saved / unassigned, adding up to the accounts). Payment schedules per category with computed monthly amounts. Income schedules per source (14 pagas, several incomes) matched against received income. 12-month upcoming-payments projection with coverage and the annual plan gap against expected fixed income. |
 | 6 | Simple chart | Spending distribution for the current month + spending evolution over time. |
  
 **Cross-cutting (v1):** authentication (Auth0), subscription billing (Stripe: configurable trial + 5 €/month plan), responsive web UI, **Spanish-only launch with i18n-ready architecture** (see §6.7), GDPR-compliant data handling.
@@ -195,6 +195,9 @@ OnboardingSession(id, user_id, prompt_version, transcript_json,
                  completed_at)
 UserPreferences (id, user_id [unique], preferences JSONB, prompt_version,
                  updated_at) — preferences memory, see §6.6
+IncomeSchedule  (id, user_id, name, amount_cents, payee_id?, pattern + rule
+                 fields, day?, estimated, created_at) — expected income;
+                 feeds the plan, never the budget
 ```
  
 Notes:
@@ -262,6 +265,7 @@ Notes:
 - Probable income (bonuses) is never budgeted; expected *fixed* income feeds the annual plan.
 - Savings goals are future expenses (a payment on a date), not "have X by a date" targets.
 - Credit cards follow YNAB (payment category, card debt); multi-currency stays out of v1.
+- Expected income is a list of income schedules (2026-10-06), not one monthly figure: same rules as payments, a payer that is a payee, matched to real income at read time (by payee, then by amount). It feeds the projection, the annual plan and expected-versus-received, never To Be Assigned. A salary more than 3 days late shows a coach nudge on the dashboard.
 - Category kind is derived (payments → scheduled); only "savings" is a user choice.
 
 **Still open:**

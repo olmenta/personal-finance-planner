@@ -46,6 +46,14 @@ def add_schedule(client, category_id: str, **body) -> dict:
     return response.json()
 
 
+def set_income(client, cents: int, **body) -> dict:
+    """Expected income as one monthly income schedule (spec: income-schedules)."""
+    body = {"name": "Nómina", "amount_cents": cents, "pattern": "monthly", **body}
+    response = client.post("/income-schedules", json=body)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
 def cat_view(view: dict, category_id: str) -> dict:
     return next(c for g in view["groups"] for c in g["categories"] if c["id"] == category_id)
 
@@ -226,7 +234,7 @@ def test_future_payment_counts_its_yearly_share_in_the_plan(client):
     cid = new_category(client, "Coche nuevo")
     add_schedule(client, cid, name="Entrada", amount_cents=240000, pattern="once",
                  once_month="2028-09")  # 24 months from October 2026
-    client.put("/plan/income", json={"expected_monthly_cents": 300000})
+    set_income(client, 300000)
     summary = client.get("/plan/summary?from=2026-10").json()
     assert summary["scheduled_cents"] == 0  # not due inside the window
     assert summary["goals_cents"] == 120000  # half of it is set aside this year
@@ -348,7 +356,7 @@ def build_prototype_budget(client, flex_month: str) -> None:
     for name, amount in GOALS.items():
         add_schedule(client, new_category(client, f"{name} p"), name=name,
                      amount_cents=amount, pattern="no_date")
-    assert client.put("/plan/income", json={"expected_monthly_cents": 470000}).status_code == 200
+    set_income(client, 470000)
 
 
 def test_projection_matches_the_prototype_october(client):
@@ -377,7 +385,7 @@ def test_payment_at_risk_is_flagged(client, category_ids):
     client.put(f"/budget/2026-10/assignments/{super_}", json={"amount_cents": 100000})
     coche = new_category(client, "Coche")
     add_schedule(client, coche, name="Seguro", amount_cents=500000, pattern="annual", month=3)
-    client.put("/plan/income", json={"expected_monthly_cents": 100000})  # only day-to-day fits
+    set_income(client, 100000, day=1)  # only day-to-day fits
 
     march = next(m for m in client.get("/plan/upcoming?from=2026-10").json()["months"]
                  if m["month"] == "2027-03")
@@ -404,11 +412,42 @@ def test_summary_gap_on_the_prototype_budget(client):
     assert summary["gap_monthly_cents"] == -38151
 
 
-def test_expected_income_round_trip(client, db, user):
-    assert client.get("/plan/income").json() == {"expected_monthly_cents": None}
-    client.put("/plan/income", json={"expected_monthly_cents": 470000})
-    assert client.get("/plan/income").json() == {"expected_monthly_cents": 470000}
-    from app.services.preferences import PreferencesStore
+def test_extra_pay_funds_its_month(client):
+    set_income(client, 200000, day=27)
+    set_income(client, 200000, name="Paga extra", pattern="some_months", months=[6, 12], day=20)
+    verano = new_category(client, "Verano")
+    add_schedule(client, verano, name="Campamento", amount_cents=350000, pattern="once",
+                 once_month="2027-06", day=30)
+    months = {m["month"]: m for m in client.get("/plan/upcoming?from=2026-10").json()["months"]}
+    assert months["2027-05"]["expected_income_cents"] == 200000
+    assert months["2027-06"]["expected_income_cents"] == 400000
+    [camp] = months["2027-06"]["occurrences"]
+    assert camp["covered"] is True
 
-    doc = PreferencesStore(db).get(user.id).preferences
-    assert doc["income"]["expected_monthly_cents"] == 470000
+
+def test_salary_still_due_carries_into_next_month(client, monkeypatch):
+    from datetime import date
+
+    from app import clock
+
+    monkeypatch.setattr(clock, "today_madrid", lambda: date(2026, 10, 14))
+    set_income(client, 280000, day=27)  # October's salary hasn't arrived yet
+    view = client.get("/plan/upcoming?from=2026-10").json()
+    assert view["months"][0]["unassigned_cents"] == 0
+    november = view["months"][1]
+    assert november["expected_income_cents"] == 280000
+    # November's money = its own salary + October's still-expected one.
+    assert november["unassigned_cents"] + november["flexible_funded_cents"] == 560000
+    assert view["income_cents"] == 280000 * 12
+
+
+def test_fourteen_pagas_counted_once_each_in_the_summary(client):
+    set_income(client, 200000, day=27)
+    set_income(client, 200000, name="Paga extra", pattern="some_months", months=[6, 12])
+    summary = client.get("/plan/summary?from=2026-10").json()
+    assert summary["income_known"] is True
+    assert summary["income_cents"] == 2800000
+
+
+def test_plan_income_endpoints_are_gone(client):
+    assert client.get("/plan/income").status_code == 404

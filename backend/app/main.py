@@ -11,6 +11,7 @@ from .routers import (
     budget,
     categories,
     imports,
+    income,
     onboarding,
     payees,
     plan,
@@ -39,6 +40,7 @@ app.include_router(budget.router)
 app.include_router(summary.router)
 app.include_router(onboarding.router)
 app.include_router(plan.router)
+app.include_router(income.router)
 
 
 @app.get("/health")

@@ -1,11 +1,13 @@
 """Upcoming payments projection and annual plan (category-targets D6–D7).
 
-Port of the approved prototype's `simulate`: each future month allocates the
-expected fixed income (never probable money) in priority order —
+Port of the approved prototype's `simulate`: each future month allocates its
+expected income — the month's income-schedule occurrences, never probable
+money — in priority order —
 (1) payments due that month, (2) day-to-day budgets, (3) catch-up set-asides
 for later payments, (4) undated goals — pro-rata within a level that doesn't
 fit, leftovers carried unassigned. Month M itself reports the overview's
-real coverage. Nothing here moves money; it is recomputed on every read.
+real coverage; its income still due (pending or late) carries into M+1.
+Nothing here moves money; it is recomputed on every read.
 """
 
 from dataclasses import dataclass
@@ -19,25 +21,10 @@ from ..schemas import (
     UpcomingOccurrence,
     UpcomingView,
 )
+from . import income as income_service
 from . import schedules as sched
 from .budget_view import build_view
 from .overview import build_overview
-from .preferences import PreferencesStore
-
-
-def expected_income(db: Session, user: User) -> int | None:
-    record = PreferencesStore(db).get(user.id)
-    income = (record.preferences or {}).get("income", {}) if record else {}
-    value = income.get("expected_monthly_cents")
-    return int(value) if isinstance(value, int) and value >= 0 else None
-
-
-def set_expected_income(db: Session, user: User, cents: int) -> None:
-    store = PreferencesStore(db)
-    record = store.get(user.id)
-    document = dict(record.preferences or {}) if record else {}
-    document["income"] = {**document.get("income", {}), "expected_monthly_cents": cents}
-    store.put(user.id, document, record.prompt_version if record else "manual")
 
 
 def _allocate(wanted: dict[str, float], money: float) -> tuple[dict[str, float], float]:
@@ -111,7 +98,8 @@ def _occurrences(
 def upcoming(db: Session, user: User, month: str) -> UpcomingView:
     plan, view = _plan(db, user, month)
     overview = build_overview(db, user, month)
-    income = expected_income(db, user)
+    incomes = income_service.user_schedules(db, user)
+    income_known = bool(incomes)
     flexible_budget = sum(plan.flexible_budget.values())
 
     # Month M: the overview's real coverage.
@@ -130,6 +118,9 @@ def upcoming(db: Session, user: User, month: str) -> UpcomingView:
     months = [
         UpcomingMonth(
             month=month,
+            expected_income_cents=income_service.expected_in(incomes, month)
+            if income_known
+            else None,
             occurrences=first,
             payments_cents=sum(o.amount_cents for o in first),
             short_cents=sum(o.short_cents or 0 for o in first),
@@ -147,11 +138,13 @@ def upcoming(db: Session, user: User, month: str) -> UpcomingView:
         if item.category_id in saved:
             saved[item.category_id] = float(item.amount_cents)
     tba = float(max(0, overview.to_be_assigned_cents))
+    if income_known:
+        tba += income_service.month_income(db, user, month).still_expected_cents
 
     start = sched.month_index(month)
     for index in range(start + 1, start + 12):
         m = sched.month_from_index(index)
-        if income is None:
+        if not income_known:
             occ = _occurrences(plan, m, None)
             months.append(
                 UpcomingMonth(
@@ -159,7 +152,8 @@ def upcoming(db: Session, user: User, month: str) -> UpcomingView:
                 )
             )
             continue
-        money = income + tba
+        expected = income_service.expected_in(incomes, m)
+        money = expected + tba
         pay = {cid: float(sched.payments_in(s, m)) for cid, s in plan.dated.items()}
         need_now = {cid: max(0.0, pay[cid] - saved[cid]) for cid in plan.dated}
         quota = {
@@ -190,6 +184,7 @@ def upcoming(db: Session, user: User, month: str) -> UpcomingView:
         months.append(
             UpcomingMonth(
                 month=m,
+                expected_income_cents=expected,
                 occurrences=occ,
                 payments_cents=sum(o.amount_cents for o in occ),
                 short_cents=sum(o.short_cents or 0 for o in occ),
@@ -200,12 +195,16 @@ def upcoming(db: Session, user: User, month: str) -> UpcomingView:
                 unassigned_cents=round(unassigned),
             )
         )
-    return UpcomingView(income_known=income is not None, income_cents=income, months=months)
+    return UpcomingView(
+        income_known=income_known,
+        income_cents=sum(m.expected_income_cents or 0 for m in months) if income_known else None,
+        months=months,
+    )
 
 
 def summary(db: Session, user: User, month: str) -> PlanSummary:
     plan, _ = _plan(db, user, month)
-    income = expected_income(db, user)
+    incomes = income_service.user_schedules(db, user)
     start = sched.month_index(month)
     window = [sched.month_from_index(i) for i in range(start, start + 12)]
     scheduled = sum(sched.payments_in(s, m) for s in plan.dated.values() for m in window)
@@ -225,11 +224,11 @@ def summary(db: Session, user: User, month: str) -> PlanSummary:
             goals += round(s.amount_cents * min(12, months_left) / months_left)
     flexible = sum(plan.flexible_budget.values()) * 12
     costs = scheduled + flexible + goals
-    income_year = income * 12 if income is not None else None
+    income_year = sum(income_service.expected_in(incomes, m) for m in window) if incomes else None
     gap = income_year - costs if income_year is not None else None
     return PlanSummary(
         month=month,
-        income_known=income is not None,
+        income_known=bool(incomes),
         income_cents=income_year,
         scheduled_cents=scheduled,
         flexible_cents=flexible,

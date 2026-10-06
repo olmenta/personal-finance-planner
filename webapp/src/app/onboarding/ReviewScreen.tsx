@@ -6,10 +6,14 @@ import { Icon } from "@/components/ui/Icon";
 import { Panel } from "@/components/ui/Panel";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import type {
+  IncomeScheduleIn,
   OnboardingFinalizePayload,
+  OnboardingIncome,
   OnboardingProposal,
   OnboardingProposedAccount,
 } from "@/lib/api";
+import { euroCents, money, parseEuroToCents } from "@/lib/format";
+import { describe } from "@/lib/schedules";
 
 export interface ReviewScreenProps {
   proposal: OnboardingProposal;
@@ -33,6 +37,33 @@ const ACCOUNT_TYPES = [
   { value: "bank", label: "Bank" },
   { value: "credit", label: "Card" },
 ];
+
+interface EditableIncome {
+  income: OnboardingIncome;
+  amount: string;
+  day: string;
+  checked: boolean;
+}
+
+function toIncomeIn(item: EditableIncome): IncomeScheduleIn | null {
+  const amount = parseEuroToCents(item.amount);
+  if (!item.checked || amount === null || amount <= 0) return null;
+  const day = item.day ? Math.min(31, Math.max(1, Number(item.day))) : null;
+  const { name, payer, pattern, months } = item.income;
+  return pattern === "some_months" && months
+    ? { name, payer, amount_cents: amount, pattern, months, day }
+    : { name, payer, amount_cents: amount, pattern: "monthly", day };
+}
+
+const smallInput: React.CSSProperties = {
+  font: "600 14px var(--font-sans)",
+  color: "var(--text-strong)",
+  fontVariantNumeric: "tabular-nums",
+  border: "1px solid var(--border-hairline)",
+  borderRadius: "var(--r-sm)",
+  background: "var(--surface)",
+  padding: "5px 8px",
+};
 
 interface EditableGroup {
   name: string;
@@ -135,6 +166,17 @@ export function ReviewScreen({ proposal, submitting, onConfirm }: ReviewScreenPr
       })),
     })),
   );
+  const [incomes, setIncomes] = React.useState<EditableIncome[]>(() =>
+    // Proposals stored before income schedules carry an object here: skip it.
+    (Array.isArray(proposal.income) ? proposal.income : []).map((income) => ({
+      income,
+      amount: money(income.amount_cents / 100),
+      day: income.day ? String(income.day) : "",
+      checked: true,
+    })),
+  );
+  const updateIncome = (index: number, patch: Partial<EditableIncome>) =>
+    setIncomes((prev) => prev.map((x, i) => (i === index ? { ...x, ...patch } : x)));
   const [payers, setPayers] = React.useState<EditableItem[]>(() =>
     proposal.payers.map((name) => ({ name, icon: "circle", checked: true })),
   );
@@ -182,7 +224,7 @@ export function ReviewScreen({ proposal, submitting, onConfirm }: ReviewScreenPr
     payees: payees
       .filter((item) => item.checked && item.name.trim())
       .map((item) => item.name.trim()),
-    income: proposal.income,
+    income: incomes.map(toIncomeIn).filter((x): x is IncomeScheduleIn => x !== null),
   });
 
   return (
@@ -225,6 +267,66 @@ export function ReviewScreen({ proposal, submitting, onConfirm }: ReviewScreenPr
           }
         />
       </Panel>
+
+      {incomes.length > 0 && (
+        <Panel title="Your income">
+          <p style={{ font: "500 14px var(--font-sans)", color: "var(--text-muted)", margin: "0 0 14px" }}>
+            What you expect to receive. It plans your months ahead; your budget
+            uses it once it arrives.
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {incomes.map((item, index) => {
+              const body = toIncomeIn({ ...item, checked: true });
+              return (
+                <div
+                  key={`income-${index}`}
+                  data-testid="review-income"
+                  style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", opacity: item.checked ? 1 : 0.45 }}
+                >
+                  <input
+                    type="checkbox"
+                    aria-label={`Keep ${item.income.name}`}
+                    checked={item.checked}
+                    onChange={() => updateIncome(index, { checked: !item.checked })}
+                    style={{ width: 17, height: 17, accentColor: "var(--brand)", flex: "none" }}
+                  />
+                  <span style={{ flex: "1 1 200px", minWidth: 0 }}>
+                    <span style={{ ...rowFont, display: "block" }}>{item.income.name}</span>
+                    <span style={{ font: "500 12.5px var(--font-sans)", color: "var(--text-muted)" }}>
+                      {body ? describe(body) : euroCents(item.income.amount_cents)}
+                      {item.income.payer ? ` · ${item.income.payer}` : ""}
+                    </span>
+                  </span>
+                  {item.checked && (
+                    <>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, font: "500 13px var(--font-sans)", color: "var(--text-muted)" }}>
+                        €
+                        <input
+                          aria-label={`${item.income.name} amount`}
+                          inputMode="decimal"
+                          value={item.amount}
+                          onChange={(e) => updateIncome(index, { amount: e.target.value })}
+                          style={{ ...smallInput, width: 104 }}
+                        />
+                      </label>
+                      <label style={{ display: "flex", alignItems: "center", gap: 6, font: "500 13px var(--font-sans)", color: "var(--text-muted)" }}>
+                        day
+                        <input
+                          aria-label={`${item.income.name} day`}
+                          inputMode="numeric"
+                          value={item.day}
+                          onChange={(e) => updateIncome(index, { day: e.target.value.replace(/\D/g, "").slice(0, 2) })}
+                          style={{ ...smallInput, width: 48 }}
+                        />
+                      </label>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Panel>
+      )}
 
       <Panel title="Your categories">
         <p style={{ font: "500 14px var(--font-sans)", color: "var(--text-muted)", margin: "0 0 14px" }}>

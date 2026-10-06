@@ -1,8 +1,8 @@
-"""Reset the Neon "e2e" branch to a clean, seeded state.
+"""Reset the e2e database to a clean, seeded state.
 
-The e2e branch is schema-only (no personal data), so Neon's "reset from
-parent" does not apply to it. Instead: migrate to head, truncate every table,
-and run the dev seed. The Playwright suite runs this before each run.
+The e2e database (olmenta_e2e in the local Postgres, docker-compose.yml) holds
+no personal data: migrate to head, truncate every table, and run the dev
+seed. The Playwright suite runs this before each spec file.
 
 Run: uv run python -m app.e2e_reset
 """
@@ -19,8 +19,12 @@ from sqlalchemy import create_engine, inspect, text
 from .config import get_settings
 
 
-def _host(url: str) -> str:
-    return (urlparse(url).hostname or "").replace("-pooler", "")
+def _target(url: str) -> tuple[str, int, str]:
+    """(host, port, database) — the pooler and direct hosts of a Neon branch
+    count as the same target."""
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").replace("-pooler", "")
+    return host, parsed.port or 5432, parsed.path.lstrip("/")
 
 
 def main() -> None:
@@ -31,10 +35,12 @@ def main() -> None:
         sys.exit("E2E_DATABASE_URL and E2E_MIGRATIONS_DATABASE_URL must be set")
 
     # Truncating is destructive: refuse anything that points at the dev database.
-    e2e_hosts = {_host(app_url), _host(migrations_url)}
-    dev_hosts = {_host(settings.database_url), _host(settings.alembic_url)}
-    if len(e2e_hosts) != 1 or e2e_hosts & dev_hosts:
-        sys.exit("E2E database URLs must point at the e2e branch only, never at dev")
+    # Dev and e2e may share a server (local Postgres), so compare the database
+    # too, not only the host.
+    e2e_targets = {_target(app_url), _target(migrations_url)}
+    dev_targets = {_target(settings.database_url), _target(settings.alembic_url)}
+    if len(e2e_targets) != 1 or e2e_targets & dev_targets:
+        sys.exit("E2E database URLs must point at the e2e database only, never at dev")
 
     # Env vars beat .env values: alembic/env.py and the seed then target e2e.
     os.environ["DATABASE_URL"] = app_url
