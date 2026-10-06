@@ -9,6 +9,7 @@ endpoint argument values and SQL parameters never leave the process.
 
 import logging
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from ..config import get_settings
@@ -44,18 +45,25 @@ def _no_request_values(request: Any, attributes: dict[str, Any]) -> dict[str, An
     return {"errors": [{"loc": e.get("loc"), "type": e.get("type")} for e in errors]}
 
 
+# Written by `logfire auth` / the setup wizard (gitignored); Logfire reads it
+# itself when no LOGFIRE_TOKEN is set.
+CREDENTIALS_FILE = Path(".logfire") / "logfire_credentials.json"
+
+
 def configure_logfire(app: Any = None, *, additional_span_processors: Sequence[Any] = ()) -> bool:
     """Set up Logfire for the API (and Pydantic AI). Returns whether it is on.
-    `additional_span_processors` lets tests capture spans without a token."""
+    On with LOGFIRE_TOKEN or a `.logfire/` credentials file in the working
+    directory; `additional_span_processors` lets tests capture spans offline."""
     settings = get_settings()
-    if not settings.logfire_token and not additional_span_processors:
+    has_credentials = bool(settings.logfire_token) or CREDENTIALS_FILE.is_file()
+    if not has_credentials and not additional_span_processors:
         return False
 
     import logfire
 
     logfire.configure(
         token=settings.logfire_token,
-        send_to_logfire=bool(settings.logfire_token),
+        send_to_logfire="if-token-present" if has_credentials else False,
         service_name="olmenta-api",
         environment=settings.logfire_environment,
         console=False,

@@ -196,7 +196,8 @@ def test_request_values_never_exported(captured_spans):
     assert "/echo" in text and PLANTED not in text and "4520" not in text
 
 
-def test_no_token_no_exporter(monkeypatch):
+def test_no_token_no_exporter(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)  # no .logfire/ credentials file here
     monkeypatch.setattr(
         observability, "get_settings",
         lambda: SimpleNamespace(logfire_token=None, logfire_environment="development", logfire_include_content=False),
