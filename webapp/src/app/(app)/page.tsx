@@ -14,6 +14,7 @@ import { ErrorPanel, SkeletonPanel } from "@/components/ui/QueryStates";
 import { TransactionRow } from "@/components/ui/TransactionRow";
 import { transferTitle, useAccounts } from "@/components/AccountPicker";
 import { TopBar } from "@/components/shell/TopBar";
+import { LateDebtNudge } from "@/components/plan/LateDebtNudge";
 import { LateIncomeNudge } from "@/components/plan/LateIncomeNudge";
 import { ThisMonthPanel, ThisMonthSide } from "@/components/plan/ThisMonth";
 import {
@@ -305,6 +306,7 @@ export default function OverviewPage() {
         <OnboardingNudge />
         {/* Lateness is about today's month, whatever month is on screen. */}
         {overview && <LateIncomeNudge month={overview.today.slice(0, 7)} />}
+        {overview && <LateDebtNudge month={overview.today.slice(0, 7)} />}
         {overview ? (
           <div className="grid-dash-mid">
             <ThisMonthPanel overview={overview} />

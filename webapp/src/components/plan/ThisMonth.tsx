@@ -264,6 +264,11 @@ export function ThisMonthSide({
           ))
         )}
       </Panel>
+      <Link href="/debts" style={{ textDecoration: "none" }}>
+        <Button variant="secondary" size="sm" iconLeft="landmark" iconRight="chevron-right" block>
+          What you owe
+        </Button>
+      </Link>
     </div>
   );
 }

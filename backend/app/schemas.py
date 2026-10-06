@@ -461,6 +461,7 @@ class ScheduleOut(BaseModel):
     once_month: str | None
     day: int | None
     estimated: bool
+    debt_id: str | None = None  # managed from "What you owe" (spec: payment-schedules)
 
     model_config = {"from_attributes": True}
 
@@ -586,6 +587,7 @@ class OverviewPending(BaseModel):
     covered_cents: int
     short_cents: int
     estimated: bool
+    late: bool = False  # a required debt payment more than 3 days past its day
 
 
 class OverviewView(BaseModel):
@@ -719,3 +721,133 @@ class OnboardingFinalizeResponse(BaseModel):
 
 class ErrorOut(BaseModel):
     code: str
+
+
+# ---- Debts (spec: debts) ----------------------------------------------------
+
+RatePeriod = Literal["month", "year"]
+
+
+class _DebtRate(BaseModel):
+    rate_bp: int | None = Field(default=None, ge=0, le=100_000)
+    rate_period: RatePeriod | None = None
+
+    model_config = {"extra": "forbid"}
+
+    @model_validator(mode="after")
+    def _rate_needs_period(self):
+        if self.rate_bp is not None and self.rate_period is None:
+            raise ValueError("rate_bp requires rate_period")
+        return self
+
+
+class CardDebtIn(_DebtRate):
+    kind: Literal["card"]
+    account_id: str
+    plan_monthly_cents: int | None = Field(default=None, gt=0)
+    target_month: MonthStr | None = None
+    minimum_cents: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def _one_plan(self):
+        if (self.plan_monthly_cents is None) == (self.target_month is None):
+            raise ValueError("give plan_monthly_cents or target_month")
+        return self
+
+
+class LoanDebtIn(_DebtRate):
+    kind: Literal["loan"]
+    name: str = Field(min_length=1, max_length=120)
+    installment_cents: int = Field(gt=0)
+    installments_left: int = Field(ge=1, le=600)
+    next_month: MonthStr
+    day: int | None = Field(default=None, ge=1, le=31)
+
+
+class PersonalDebtIn(_DebtRate):
+    kind: Literal["personal"]
+    name: str = Field(min_length=1, max_length=120)
+    owed_cents: int = Field(gt=0)
+    due_month: MonthStr | None = None
+    lender: str | None = Field(default=None, max_length=120)
+
+
+DebtIn = Annotated[CardDebtIn | LoanDebtIn | PersonalDebtIn, Field(discriminator="kind")]
+
+
+class DebtUpdate(BaseModel):
+    """Partial edit; fields that don't apply to the debt's kind → 422."""
+
+    rate_bp: int | None = Field(default=None, ge=0, le=100_000)
+    rate_period: RatePeriod | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    # card
+    plan_monthly_cents: int | None = Field(default=None, gt=0)
+    target_month: MonthStr | None = None
+    minimum_cents: int | None = Field(default=None, gt=0)
+    # loan
+    installment_cents: int | None = Field(default=None, gt=0)
+    installments_left: int | None = Field(default=None, ge=1, le=600)
+    next_month: MonthStr | None = None
+    day: int | None = Field(default=None, ge=1, le=31)
+    # personal
+    owed_cents: int | None = Field(default=None, gt=0)
+    due_month: MonthStr | None = None
+    lender: str | None = Field(default=None, max_length=120)
+
+    model_config = {"extra": "forbid"}
+
+
+class DebtExtraIn(BaseModel):
+    extra_monthly_cents: int = Field(ge=0)
+
+
+class ConvertToLoanIn(BaseModel):
+    installment_cents: int = Field(gt=0)
+    installments_left: int = Field(ge=1, le=600)
+    next_month: MonthStr
+    day: int | None = Field(default=None, ge=1, le=31)
+    rate_bp: int | None = Field(default=None, ge=0, le=100_000)
+    rate_period: RatePeriod | None = None
+
+    model_config = {"extra": "forbid"}
+
+
+class DebtOut(BaseModel):
+    id: str
+    kind: Literal["card", "loan", "personal"]
+    category_id: str
+    account_id: str | None  # card only
+    name: str
+    lender: str | None
+    owed_cents: int
+    rate_bp: int | None
+    rate_period: RatePeriod | None
+    monthly_rate_bp: float | None  # normalized monthly rate
+    minimum_cents: int | None
+    below_minimum: bool | None
+    required_monthly_cents: int  # this month's required payment (0 when optional)
+    plan_monthly_cents: int | None  # card plan
+    installment_cents: int | None  # loan
+    installments_left: int | None  # loan
+    next_month: str | None  # loan: first unpaid installment
+    day: int | None
+    due_month: str | None  # personal
+    end_month: str | None  # null: doesn't end within the horizon
+    paid_off: bool
+    position: int | None  # 1-based paydown order; null when paid off
+    monthly_interest_cents: int | None  # only with a known rate
+
+
+class DebtCushion(BaseModel):
+    suggested_cents: int
+    saved_cents: int
+
+
+class DebtsView(BaseModel):
+    debts: list[DebtOut]
+    total_owed_cents: int
+    extra_monthly_cents: int
+    extra_target_debt_id: str | None
+    debt_free_month: str | None
+    cushion: DebtCushion

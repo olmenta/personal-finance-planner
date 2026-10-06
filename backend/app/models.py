@@ -173,6 +173,44 @@ class IncomeSchedule(ScheduleRuleMixin, Base):
         return self.payee.name if self.payee else None
 
 
+class Debt(Base):
+    """What the user owes, linked to the category that pays it (debts design D1).
+
+    card: the credit account's payment category (owed = uncovered card debt);
+    loan: a category with one finite monthly schedule (owed = installments left);
+    personal: `owed_cents` minus what's been paid into the category, optionally
+    due in `due_month`. Required payments are ordinary payment schedules.
+    """
+
+    __tablename__ = "debts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    category_id: Mapped[str] = mapped_column(ForeignKey("categories.id"), unique=True)
+    kind: Mapped[str] = mapped_column(String(12))  # card | loan | personal
+    # Optional interest: basis points per `rate_period` (month | year).
+    rate_bp: Mapped[int | None] = mapped_column(Integer)
+    rate_period: Mapped[str | None] = mapped_column(String(8))
+    minimum_cents: Mapped[int | None] = mapped_column(Integer)  # card only
+    owed_cents: Mapped[int | None] = mapped_column(Integer)  # personal only
+    due_month: Mapped[str | None] = mapped_column(String(7))  # personal only
+    payee_id: Mapped[str | None] = mapped_column(  # personal: the lender
+        ForeignKey("payees.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    category: Mapped["Category"] = relationship(lazy="joined")
+
+
+class DebtSettings(Base):
+    """Per-user debt plan settings: the optional monthly extra (design D1)."""
+
+    __tablename__ = "debt_settings"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), primary_key=True)
+    extra_monthly_cents: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class Payee(Base):
     """Who was paid (expense) / who paid (income) — one entity, label-only split.
 

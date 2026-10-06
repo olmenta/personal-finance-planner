@@ -65,6 +65,10 @@ export class Api {
     await this.send("POST", "/transactions", { amount_cents: amountCents, kind: "income", date, payee });
   }
 
+  async createAccount(body: Record<string, unknown>): Promise<string> {
+    return (await this.send("POST", "/accounts", body)).id;
+  }
+
   /** Expected income (income-schedules); never touches the budget. */
   async incomeSchedule(body: Record<string, unknown>): Promise<void> {
     await this.send("POST", "/income-schedules", body);

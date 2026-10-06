@@ -50,7 +50,11 @@ The product's core promise: **"Know where your money goes each month, and know w
     - Paying the card is a transfer, not an expense.
     - Overspending on credit becomes card debt.
     - Pre-existing card debt doesn't reduce To Be Assigned; it is shown as uncovered debt.
-11. **Money in the accounts always adds up.**
+11. **Pay debts in order, without jargon.** Cards (the old balance), loans with installments and money owed to people are debts.
+    - Their required payments (a card's monthly plan, each installment, a personal debt with a date) are payment schedules: inside the budget, with a nudge when one is late.
+    - Extra money is optional and goes to one debt at a time: the highest known interest first, then unknown, then interest-free; when one is done, its money moves to the next.
+    - The interest rate is optional and only orders debts and says "~X €/month just for owing it". Never TAE, APR or amortization.
+12. **Money in the accounts always adds up.**
     - Money in the accounts = To Be Assigned + everything set aside in categories.
     - The home screen splits that money into: to pay this month, left to spend, saved for the future, and unassigned.
 
@@ -87,7 +91,7 @@ The app always answers: *"What do I have to solve this month?"* (paid, still to 
  
 - Multi-currency support (a card billed in another currency is recorded in euros)
 - Multiple budgets per user (e.g. separating personal projects' costs from the household budget)
-- Paying down pre-existing debt (payoff plans for old card balances, loans and informal debts)
+- Chat about debts: a short coach interview, opened from the always-visible "Work on my debts" button, to add or re-plan debts by talking
 - Coach proposals on the plan (repeated overspending, monthly plan adjustments) and onboarding extraction of payment schedules
 - Advanced reports
 - Reminders / notifications
@@ -198,6 +202,10 @@ UserPreferences (id, user_id [unique], preferences JSONB, prompt_version,
 IncomeSchedule  (id, user_id, name, amount_cents, payee_id?, pattern + rule
                  fields, day?, estimated, created_at) — expected income;
                  feeds the plan, never the budget
+Debt            (id, user_id, category_id [unique], kind[card|loan|personal],
+                 rate_bp?, rate_period?, minimum_cents?, owed_cents?,
+                 due_month?, payee_id?, created_at) — owed is derived per kind
+DebtSettings    (user_id, extra_monthly_cents)
 ```
  
 Notes:
@@ -265,6 +273,7 @@ Notes:
 - Probable income (bonuses) is never budgeted; expected *fixed* income feeds the annual plan.
 - Savings goals are future expenses (a payment on a date), not "have X by a date" targets.
 - Credit cards follow YNAB (payment category, card debt); multi-currency stays out of v1.
+- Debts (2026-10-07): card, installment loan or personal, each linked to the category that pays it; what's owed is derived (card balance minus what's set aside for new spending, installments left, amount minus payments). Required payments are payment schedules; the optional extra goes to the highest known interest first. A loan set up as a card is converted with "This is a loan, not a card". Chat capture of debts is the next step.
 - Expected income is a list of income schedules (2026-10-06), not one monthly figure: same rules as payments, a payer that is a payee, matched to real income at read time (by payee, then by amount). It feeds the projection, the annual plan and expected-versus-received, never To Be Assigned. A salary more than 3 days late shows a coach nudge on the dashboard.
 - Category kind is derived (payments → scheduled); only "savings" is a user choice.
 

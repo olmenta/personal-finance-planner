@@ -12,6 +12,7 @@ const items = [
   { href: "/accounts", icon: "wallet", label: "Accounts" },
   { href: "/budgets", icon: "pie-chart", label: "Budgets" },
   { href: "/upcoming", icon: "calendar", label: "Upcoming" },
+  { href: "/debts", icon: "landmark", label: "What you owe" },
   { href: "/goals", icon: "target", label: "Goals" },
   { href: "/coach", icon: "sparkles", label: "Coach" },
 ];
