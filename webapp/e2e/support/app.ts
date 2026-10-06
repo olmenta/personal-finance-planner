@@ -61,8 +61,13 @@ export class Api {
     });
   }
 
-  async income(amountCents: number, date: string): Promise<void> {
-    await this.send("POST", "/transactions", { amount_cents: amountCents, kind: "income", date });
+  async income(amountCents: number, date: string, payee?: string): Promise<void> {
+    await this.send("POST", "/transactions", { amount_cents: amountCents, kind: "income", date, payee });
+  }
+
+  /** Expected income (income-schedules); never touches the budget. */
+  async incomeSchedule(body: Record<string, unknown>): Promise<void> {
+    await this.send("POST", "/income-schedules", body);
   }
 
   async expense(categoryId: string, amountCents: number, date: string): Promise<void> {

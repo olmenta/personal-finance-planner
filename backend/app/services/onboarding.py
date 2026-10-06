@@ -1,7 +1,7 @@
 """AI onboarding interview engine (spec: ai-onboarding, design D1–D5).
 
 The interview script lives in a versioned prompt config
-(app/prompts/onboarding_v2.md): YAML front matter declares the prompt
+(app/prompts/onboarding_v3.md): YAML front matter declares the prompt
 version and the extraction-field schema; the markdown body is the system
 prompt. Each turn is one LiteLLM structured-output call (provider stays
 configuration, never code). Extraction deltas are validated against the
@@ -30,18 +30,19 @@ from sqlalchemy.orm import Session
 
 from ..clock import today_madrid
 from ..config import get_settings
-from ..models import OnboardingSession, Payee
+from ..models import IncomeSchedule, OnboardingSession, Payee
 from ..schemas import OnboardingFinalizeRequest
 from ..llm import UsageContext, run_structured
 from .accounts import create_account, find_by_name, write_opening_balance
 from .category_setup import ensure_category, ensure_group
+from .income import apply_schedule
 from .payees import resolve_payee
 from .preferences import PreferencesStore
 
 logger = logging.getLogger(__name__)
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
-ACTIVE_PROMPT_FILE = "onboarding_v2.md"
+ACTIVE_PROMPT_FILE = "onboarding_v3.md"
 
 LOCALE_NAMES = {"es": "Spanish", "en": "English"}
 
@@ -68,10 +69,15 @@ class ProposedGroup(BaseModel):
     categories: list[ProposedCategory]
 
 
-class ProposalIncome(BaseModel):
-    sources: list[str] = []
-    expected_monthly_cents: int | None = None
-    income_day: int | None = None
+class ProposedIncome(BaseModel):
+    """One income schedule for the review screen (spec: ai-onboarding)."""
+
+    name: str
+    payer: str | None = None
+    amount_cents: int
+    pattern: Literal["monthly", "some_months"] = "monthly"
+    months: list[int] | None = None
+    day: int | None = None
 
 
 class ProposedAccount(BaseModel):
@@ -81,12 +87,18 @@ class ProposedAccount(BaseModel):
     type: Literal["bank", "credit"] = "bank"
 
 
-class SetupProposal(BaseModel):
+class ModelProposal(BaseModel):
+    """What the model proposes. Income is not part of it: income schedules
+    are derived from the extracted sources in code (design D7)."""
+
     accounts: list[ProposedAccount] = []
     category_groups: list[ProposedGroup]
     payers: list[str] = []
     payees: list[str] = []
-    income: ProposalIncome = ProposalIncome()
+
+
+class SetupProposal(ModelProposal):
+    income: list[ProposedIncome] = []
 
 
 class InterviewTurn(BaseModel):
@@ -98,7 +110,7 @@ class InterviewTurn(BaseModel):
     # prompt-config-dynamic by design. Decoded via extracted_delta().
     extracted: str | None = None
     done: bool = False
-    proposal: SetupProposal | None = None
+    proposal: ModelProposal | None = None
 
     def extracted_delta(self) -> dict:
         if not self.extracted:
@@ -144,6 +156,20 @@ def _validate_leaf(value: object, rule: object) -> object:
     return value if check is not None and check(value) else _INVALID
 
 
+def _validate_object_list(key: str, value: object, rule: dict, path: str) -> object:
+    """A list of objects (schema `[ {…} ]`): each item validated, empty ones dropped."""
+    if not isinstance(value, list):
+        logger.warning("onboarding extraction dropped non-list key: %s%s", path, key)
+        return _INVALID
+    items = []
+    for index, item in enumerate(value):
+        if isinstance(item, dict):
+            clean = validate_extracted(item, rule, f"{path}{key}[{index}].")
+            if clean:
+                items.append(clean)
+    return items if items else _INVALID
+
+
 def _validate_field(key: str, value: object, rule: object, path: str) -> object:
     """One field against its schema rule; _INVALID drops it (logged by key
     name only — never values, privacy)."""
@@ -156,6 +182,8 @@ def _validate_field(key: str, value: object, rule: object, path: str) -> object:
             return _INVALID
         nested = validate_extracted(value, rule, f"{path}{key}.")
         return nested if nested else _INVALID
+    if isinstance(rule, list) and len(rule) == 1 and isinstance(rule[0], dict):
+        return _validate_object_list(key, value, rule[0], path)
     checked = _validate_leaf(value, rule)
     if checked is _INVALID:
         logger.warning("onboarding extraction dropped ill-typed key: %s%s", path, key)
@@ -285,7 +313,59 @@ def _record_assistant_turn(session: OnboardingSession, turn: InterviewTurn) -> N
         done=turn.done,
     )
     if turn.proposal is not None:
-        session.proposal_json = turn.proposal.model_dump()
+        session.proposal_json = SetupProposal(
+            **turn.proposal.model_dump(exclude={"income"}),
+            income=proposed_income(session.extracted_json),
+        ).model_dump()
+
+
+EXTRA_PAY_MONTHS = [6, 12]
+
+
+def proposed_income(extracted: dict) -> list[ProposedIncome]:
+    """Income schedules from the extracted sources, deterministically: one
+    monthly schedule per source, plus a June/December extra pay for 14
+    payments a year. Legacy v1/v2 answers (one expected figure) map to a
+    single monthly schedule."""
+    income = extracted.get("income") or {}
+    sources = [s for s in income.get("sources") or [] if isinstance(s, dict)]
+    if not sources:
+        amount = income.get("expected_monthly_cents")
+        if not isinstance(amount, int) or amount <= 0:
+            return []
+        names = [s for s in income.get("sources") or [] if isinstance(s, str) and s.strip()]
+        day = income.get("income_day")
+        return [
+            ProposedIncome(
+                name=names[0].strip() if names else "Nómina",
+                amount_cents=amount,
+                day=day if isinstance(day, int) and 1 <= day <= 31 else None,
+            )
+        ]
+
+    extras = sum(1 for s in sources if s.get("payments_per_year") == 14)
+    result = []
+    for source in sources:
+        amount = source.get("amount_cents")
+        if not isinstance(amount, int) or amount <= 0:
+            continue
+        name = (source.get("name") or "").strip() or "Nómina"
+        payer = (source.get("payer") or "").strip() or None
+        day = source.get("day")
+        day = day if isinstance(day, int) and 1 <= day <= 31 else None
+        result.append(ProposedIncome(name=name, payer=payer, amount_cents=amount, day=day))
+        if source.get("payments_per_year") == 14:
+            result.append(
+                ProposedIncome(
+                    name="Paga extra" if extras == 1 else f"Paga extra {name}",
+                    payer=payer,
+                    amount_cents=amount,
+                    pattern="some_months",
+                    months=EXTRA_PAY_MONTHS,
+                    day=day,
+                )
+            )
+    return result
 
 
 def start_session(db: Session, user_id: str, locale: str) -> OnboardingSession:
@@ -370,8 +450,8 @@ def finalize(
     db: Session, session: OnboardingSession, payload: OnboardingFinalizeRequest
 ) -> tuple[int, int]:
     """Apply the reviewed proposal: accounts and categories (case-insensitive
-    reuse), accepted payees/payers, the opening balance, preferences
-    document, session completed.
+    reuse), accepted payees/payers, income schedules, the opening balance,
+    preferences document, session completed.
 
     Runs inside the request transaction (get_db commits/rolls back), so a
     failure anywhere persists nothing. Returns (categories, payees) created.
@@ -397,12 +477,14 @@ def finalize(
             payees_created += int(trimmed.lower() not in existing_payees)
             existing_payees.add(trimmed.lower())
 
-    document = dict(session.extracted_json)
-    if payload.income is not None:
-        document = merge_extracted(
-            document, {"income": payload.income.model_dump(exclude_none=True)}
-        )
-    PreferencesStore(db).put(session.user_id, document, session.prompt_version)
+    for income_in in payload.income:
+        schedule = IncomeSchedule(user_id=session.user_id)
+        apply_schedule(db, session.user_id, schedule, income_in)
+        db.add(schedule)
+
+    # Extracted income sources stay in the document as interview memory;
+    # planning reads income schedules only.
+    PreferencesStore(db).put(session.user_id, dict(session.extracted_json), session.prompt_version)
 
     session.status = "completed"
     session.completed_at = datetime.now(timezone.utc)

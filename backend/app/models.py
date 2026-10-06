@@ -107,11 +107,29 @@ class Category(Base):
         return "savings" if self.savings else "flexible"
 
 
-class PaymentSchedule(Base):
+class ScheduleRuleMixin:
+    """When money moves: the rule columns shared by payment and income schedules.
+
+    Pattern-specific columns are nullable and validated per pattern at the API;
+    `services/schedules.occurs` reads them for both schedule kinds.
+    """
+
+    # monthly | some_months | annual | every_n | once | no_date (payments only)
+    pattern: Mapped[str] = mapped_column(String(12))
+    months: Mapped[list[int] | None] = mapped_column(ARRAY(Integer))  # some_months
+    month: Mapped[int | None] = mapped_column(Integer)  # annual
+    every_n: Mapped[int | None] = mapped_column(Integer)  # every_n
+    start_month: Mapped[str | None] = mapped_column(String(7))  # every_n; monthly with count
+    count: Mapped[int | None] = mapped_column(Integer)  # monthly, finite
+    once_month: Mapped[str | None] = mapped_column(String(7))  # once
+    day: Mapped[int | None] = mapped_column(Integer)
+    estimated: Mapped[bool] = mapped_column(default=False)
+
+
+class PaymentSchedule(ScheduleRuleMixin, Base):
     """When a category's money is actually due (category-targets design D2).
 
-    One row per payment; pattern-specific columns are nullable and validated
-    per pattern at the API. Amounts are never derived here — normal and
+    One row per payment. Amounts are never derived here — normal and
     catch-up monthly amounts are computed on read (services/schedules.py).
     """
 
@@ -123,19 +141,36 @@ class PaymentSchedule(Base):
     category_id: Mapped[str] = mapped_column(ForeignKey("categories.id"))
     name: Mapped[str] = mapped_column(String(120))
     amount_cents: Mapped[int] = mapped_column(Integer)
-    # monthly | some_months | annual | every_n | once | no_date
-    pattern: Mapped[str] = mapped_column(String(12))
-    months: Mapped[list[int] | None] = mapped_column(ARRAY(Integer))  # some_months
-    month: Mapped[int | None] = mapped_column(Integer)  # annual
-    every_n: Mapped[int | None] = mapped_column(Integer)  # every_n
-    start_month: Mapped[str | None] = mapped_column(String(7))  # every_n; monthly with count
-    count: Mapped[int | None] = mapped_column(Integer)  # monthly, finite
-    once_month: Mapped[str | None] = mapped_column(String(7))  # once
-    day: Mapped[int | None] = mapped_column(Integer)
-    estimated: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
     category: Mapped["Category"] = relationship(back_populates="schedules")
+
+
+class IncomeSchedule(ScheduleRuleMixin, Base):
+    """When the user expects income (income-schedules design D1).
+
+    Feeds the plan and the expected-versus-received view only — never a
+    transaction, To Be Assigned or any budget math (principle 1). Matched to
+    real income at read time by payee, then by amount (services/income.py).
+    """
+
+    __tablename__ = "income_schedules"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    amount_cents: Mapped[int] = mapped_column(Integer)
+    payee_id: Mapped[str | None] = mapped_column(
+        ForeignKey("payees.id", ondelete="SET NULL"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    # selectin: the payer name ships on every listed schedule without N+1.
+    payee: Mapped["Payee | None"] = relationship(lazy="selectin")
+
+    @property
+    def payer(self) -> str | None:
+        return self.payee.name if self.payee else None
 
 
 class Payee(Base):

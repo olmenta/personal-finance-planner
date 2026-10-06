@@ -131,6 +131,60 @@ export interface ScheduleOut {
   estimated: boolean;
 }
 
+// ---- Income schedules (income-schedules) -------------------------------------
+
+/** Income uses the payment patterns minus "no_date": undated income can't be planned. */
+export type IncomePattern = Exclude<SchedulePattern, "no_date">;
+
+export interface IncomeScheduleIn extends Omit<ScheduleIn, "pattern"> {
+  pattern: IncomePattern;
+  /** Payer name, resolved to a payee by the backend; "" clears it. */
+  payer?: string | null;
+}
+
+export interface IncomeScheduleOut extends Omit<ScheduleOut, "category_id" | "pattern"> {
+  pattern: IncomePattern;
+  payee_id: string | null;
+  payer: string | null;
+  /** Σ of its occurrences over the next 12 months. */
+  yearly_cents: number;
+}
+
+export type IncomeStatus = "received" | "pending" | "late" | "missed";
+
+export interface IncomeOccurrence {
+  schedule_id: string;
+  name: string;
+  payee_id: string | null;
+  payer: string | null;
+  day: number | null;
+  amount_cents: number;
+  estimated: boolean;
+  received_cents: number;
+  /** received − expected; null unless received. */
+  difference_cents: number | null;
+  status: IncomeStatus;
+  transaction_ids: string[];
+}
+
+export interface UnplannedIncome {
+  transaction_id: string;
+  payee_id: string | null;
+  label: string;
+  date: string;
+  amount_cents: number;
+}
+
+export interface MonthIncomeView {
+  month: string;
+  has_schedules: boolean;
+  occurrences: IncomeOccurrence[];
+  unplanned: UnplannedIncome[];
+  expected_cents: number;
+  received_cents: number;
+  still_expected_cents: number;
+}
+
 export interface OverviewPaidItem {
   category_id: string;
   category_name: string;
@@ -189,6 +243,8 @@ export interface UpcomingOccurrence {
 
 export interface UpcomingMonth {
   month: string;
+  /** Σ of the month's income-schedule occurrences; null without income schedules. */
+  expected_income_cents: number | null;
   occurrences: UpcomingOccurrence[];
   payments_cents: number;
   short_cents: number | null;
@@ -201,6 +257,7 @@ export interface UpcomingMonth {
 
 export interface UpcomingView {
   income_known: boolean;
+  /** Σ expected income over the 12 months. */
   income_cents: number | null;
   months: UpcomingMonth[];
 }
@@ -499,14 +556,26 @@ export const fetchUpcoming = (from: string) =>
 export const fetchPlanSummary = (from: string) =>
   request<PlanSummary>(`/plan/summary?from=${from}`);
 
-export const fetchExpectedIncome = () =>
-  request<{ expected_monthly_cents: number | null }>("/plan/income");
+export const fetchIncomeSchedules = () => request<IncomeScheduleOut[]>("/income-schedules");
 
-export const putExpectedIncome = (cents: number) =>
-  request<{ expected_monthly_cents: number | null }>("/plan/income", {
-    method: "PUT",
-    body: JSON.stringify({ expected_monthly_cents: cents }),
+export const createIncomeSchedule = (body: IncomeScheduleIn) =>
+  request<IncomeScheduleOut>("/income-schedules", {
+    method: "POST",
+    body: JSON.stringify(body),
   });
+
+export const updateIncomeSchedule = (id: string, body: Partial<IncomeScheduleIn>) =>
+  request<IncomeScheduleOut>(`/income-schedules/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+
+export async function deleteIncomeSchedule(id: string): Promise<void> {
+  const res = await fetch(`/api/income-schedules/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new ApiError("delete_failed", res.status);
+}
+
+export const fetchMonthIncome = (month: string) => request<MonthIncomeView>(`/income/${month}`);
 
 export const fetchCategories = () =>
   request<CategoryGroupOut[]>("/categories");
@@ -709,10 +778,14 @@ export interface OnboardingProposedGroup {
   categories: OnboardingProposedCategory[];
 }
 
+/** One proposed income schedule; the review screen edits amount and day. */
 export interface OnboardingIncome {
-  sources: string[];
-  expected_monthly_cents: number | null;
-  income_day: number | null;
+  name: string;
+  payer: string | null;
+  amount_cents: number;
+  pattern: "monthly" | "some_months";
+  months: number[] | null;
+  day: number | null;
 }
 
 export interface OnboardingProposedAccount {
@@ -725,7 +798,7 @@ export interface OnboardingProposal {
   category_groups: OnboardingProposedGroup[];
   payers: string[];
   payees: string[];
-  income: OnboardingIncome;
+  income?: OnboardingIncome[];
 }
 
 export interface OnboardingSessionView {
@@ -742,7 +815,7 @@ export interface OnboardingFinalizePayload {
   category_groups: OnboardingProposedGroup[];
   payers: string[];
   payees: string[];
-  income?: OnboardingIncome;
+  income?: IncomeScheduleIn[];
 }
 
 export interface OnboardingFinalizeResult {

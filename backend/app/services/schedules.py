@@ -8,6 +8,7 @@ suggested amount up to the cent (so a suggestion never under-funds).
 
 import math
 from collections.abc import Iterable, Sequence
+from typing import Protocol
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -23,6 +24,19 @@ MIN_HORIZON = 12
 MAX_HORIZON = 120
 
 
+class ScheduleRule(Protocol):
+    """The rule fields `occurs` reads — payment and income schedules alike."""
+
+    amount_cents: int
+    pattern: str
+    months: list[int] | None
+    month: int | None
+    every_n: int | None
+    start_month: str | None
+    count: int | None
+    once_month: str | None
+
+
 def current_month() -> str:
     return clock.current_month()
 
@@ -36,7 +50,7 @@ def month_from_index(index: int) -> str:
     return f"{index // 12}-{index % 12 + 1:02d}"
 
 
-def occurs(schedule: PaymentSchedule, month: str) -> bool:
+def occurs(schedule: ScheduleRule, month: str) -> bool:
     m = month_index(month)
     mon = m % 12 + 1
     match schedule.pattern:
@@ -58,8 +72,8 @@ def occurs(schedule: PaymentSchedule, month: str) -> bool:
             return False
 
 
-def payments_in(schedules: Iterable[PaymentSchedule], month: str) -> int:
-    """Money that leaves the category in `month`."""
+def payments_in(schedules: Iterable[ScheduleRule], month: str) -> int:
+    """Money that moves in `month`: leaves a category, or arrives as income."""
     return sum(s.amount_cents for s in schedules if occurs(s, month))
 
 

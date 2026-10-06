@@ -11,6 +11,7 @@ from app.models import (
     Account,
     Category,
     CategoryGroup,
+    IncomeSchedule,
     OnboardingSession,
     Payee,
     Transaction,
@@ -21,13 +22,13 @@ from app.services.category_setup import DEFAULT_CATEGORY_TREE
 from app.services.onboarding import (
     InterviewTurn,
     OnboardingUnavailable,
-    ProposalIncome,
     ProposedAccount,
     ProposedCategory,
     ProposedGroup,
-    SetupProposal,
+    ModelProposal,
     load_prompt_config,
     merge_extracted,
+    proposed_income,
     validate_extracted,
 )
 from app.services.preferences import PreferencesStore
@@ -45,8 +46,8 @@ def _opening_turn() -> InterviewTurn:
     )
 
 
-def _proposal() -> SetupProposal:
-    return SetupProposal(
+def _proposal() -> ModelProposal:
+    return ModelProposal(
         accounts=[
             ProposedAccount(name="BBVA", type="bank"),
             ProposedAccount(name="Visa BBVA", type="credit"),
@@ -63,14 +64,26 @@ def _proposal() -> SetupProposal:
         ],
         payers=["Nómina empresa"],
         payees=["Netflix", "Gimnasio"],
-        income=ProposalIncome(
-            sources=["Nómina empresa"], expected_monthly_cents=240000, income_day=27
-        ),
     )
 
 
-def _done_turn(proposal: SetupProposal | None = None) -> InterviewTurn:
-    return InterviewTurn(message="All set!", done=True, proposal=proposal)
+FOURTEEN_PAGAS = {
+    "income": {
+        "sources": [
+            {"name": "Nómina", "payer": "Acme", "amount_cents": 200000, "day": 27,
+             "payments_per_year": 14}
+        ]
+    }
+}
+
+
+def _done_turn(proposal: ModelProposal | None = None, extracted: dict | None = None) -> InterviewTurn:
+    return InterviewTurn(
+        message="All set!",
+        done=True,
+        proposal=proposal,
+        extracted=json.dumps(extracted) if extracted else None,
+    )
 
 
 def _start(client, turn: InterviewTurn | None = None):
@@ -91,10 +104,26 @@ class TestExtractionValidation:
 
     def test_ill_typed_values_dropped(self):
         clean = validate_extracted(
-            {"income": {"income_day": "27", "expected_monthly_cents": 240000}},
+            {"income": {"sources": [{"name": "Nómina", "day": "27", "amount_cents": 240000}]}},
             self.SCHEMA,
         )
-        assert clean == {"income": {"expected_monthly_cents": 240000}}
+        assert clean == {"income": {"sources": [{"name": "Nómina", "amount_cents": 240000}]}}
+
+    def test_object_list_items_validated(self):
+        clean = validate_extracted(
+            {"income": {"sources": [
+                {"name": "Nómina", "payments_per_year": 13, "bonus": True},
+                {"bonus": True},  # nothing valid left: the item is dropped
+                "Nómina empresa",  # not an object
+            ]}},
+            self.SCHEMA,
+        )
+        assert clean == {"income": {"sources": [{"name": "Nómina"}]}}
+        assert validate_extracted({"income": {"sources": "Nómina"}}, self.SCHEMA) == {}
+
+    def test_legacy_income_field_dropped(self):
+        assert validate_extracted({"income": {"expected_monthly_cents": 240000}}, self.SCHEMA) == {}
+
 
     def test_enum_checked(self):
         assert validate_extracted({"housing": {"status": "castle"}}, self.SCHEMA) == {}
@@ -111,13 +140,43 @@ class TestExtractionValidation:
         }
 
 
+
+class TestProposedIncome:
+    def test_two_sources_with_extra_pays(self):
+        extracted = {"income": {"sources": [
+            {"name": "Nómina", "payer": "Acme", "amount_cents": 200000, "day": 27,
+             "payments_per_year": 14},
+            {"name": "Nómina Ana", "amount_cents": 150000, "day": 1, "payments_per_year": 12},
+        ]}}
+        assert [i.model_dump() for i in proposed_income(extracted)] == [
+            {"name": "Nómina", "payer": "Acme", "amount_cents": 200000, "pattern": "monthly",
+             "months": None, "day": 27},
+            {"name": "Paga extra", "payer": "Acme", "amount_cents": 200000,
+             "pattern": "some_months", "months": [6, 12], "day": 27},
+            {"name": "Nómina Ana", "payer": None, "amount_cents": 150000, "pattern": "monthly",
+             "months": None, "day": 1},
+        ]
+
+    def test_sources_without_amount_skipped(self):
+        assert proposed_income({"income": {"sources": [{"name": "Freelance"}]}}) == []
+
+    def test_legacy_answers_map_to_one_monthly_schedule(self):
+        legacy = {"income": {"sources": ["Nómina empresa"], "expected_monthly_cents": 240000,
+                             "income_day": 27}}
+        [income] = proposed_income(legacy)
+        assert (income.name, income.amount_cents, income.pattern, income.day) == (
+            "Nómina empresa", 240000, "monthly", 27)
+
+    def test_no_income_known(self):
+        assert proposed_income({}) == []
+
 class TestSessionLifecycle:
     def test_start_creates_session_with_opening_turn(self, client, db, user):
         response = _start(client)
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "active"
-        assert body["prompt_version"] == "onboarding_v2"
+        assert body["prompt_version"] == "onboarding_v3"
         assert body["transcript"][0]["role"] == "assistant"
         assert body["transcript"][0]["input_kind"] == "chips"
         assert body["transcript"][0]["options"] == ["Alone", "Jointly"]
@@ -164,7 +223,9 @@ class TestTurns:
     def test_done_stores_proposal(self, client, db, user):
         _start(client)
         with patch.object(
-            onboarding, "_call_model", MagicMock(return_value=_done_turn(_proposal()))
+            onboarding,
+            "_call_model",
+            MagicMock(return_value=_done_turn(_proposal(), extracted=FOURTEEN_PAGAS)),
         ):
             response = client.post("/onboarding/messages", json={"message": "No debts"})
         body = response.json()
@@ -174,7 +235,11 @@ class TestTurns:
             {"name": "BBVA", "type": "bank"},
             {"name": "Visa BBVA", "type": "credit"},
         ]
-        assert body["proposal"]["income"]["income_day"] == 27
+        # Fourteen pagas proposed as two schedules, built in code from the extraction.
+        assert [(i["name"], i["pattern"], i["months"], i["payer"]) for i in body["proposal"]["income"]] == [
+            ("Nómina", "monthly", None, "Acme"),
+            ("Paga extra", "some_months", [6, 12], "Acme"),
+        ]
 
     def test_done_without_proposal_reasked_once(self, client, db, user):
         _start(client)
@@ -232,7 +297,8 @@ class TestFinalize:
             ],
             "payers": ["Nómina empresa"],
             "payees": ["Netflix"],
-            "income": {"sources": ["Nómina empresa"], "expected_monthly_cents": 240000, "income_day": 27},
+            "income": [{"name": "Nómina", "payer": "Nómina empresa", "amount_cents": 240000,
+                        "pattern": "monthly", "day": 27}],
         }
         response = client.post(f"/onboarding/{session_id}/finalize", json=payload)
         assert response.status_code == 200
@@ -268,20 +334,32 @@ class TestFinalize:
         names = set(db.scalars(select(Payee.name).where(Payee.user_id == user.id)))
         assert names == {"Nómina empresa", "Netflix"}
 
-    def test_preferences_written_with_income(self, client, db, user):
+    def test_income_schedules_created_and_preferences_written(self, client, db, user):
         session_id = self._finish(client)
         payload = {
             "category_groups": [],
             "payers": [],
             "payees": [],
-            "income": {"sources": ["Nómina"], "expected_monthly_cents": 240000, "income_day": 27},
+            # Reviewed: salary edited to 2.050 €, extra pay kept.
+            "income": [
+                {"name": "Nómina", "payer": "Acme", "amount_cents": 205000, "pattern": "monthly",
+                 "day": 27},
+                {"name": "Paga extra", "payer": "Acme", "amount_cents": 200000,
+                 "pattern": "some_months", "months": [6, 12], "day": 27},
+            ],
         }
-        client.post(f"/onboarding/{session_id}/finalize", json=payload)
+        assert client.post(f"/onboarding/{session_id}/finalize", json=payload).status_code == 200
+        schedules = {s["name"]: s for s in client.get("/income-schedules").json()}
+        assert schedules["Nómina"]["amount_cents"] == 205000
+        assert schedules["Paga extra"]["months"] == [6, 12]
+        assert schedules["Nómina"]["payee_id"] == schedules["Paga extra"]["payee_id"] is not None
+        assert client.get("/plan/upcoming?from=2026-10").json()["income_known"] is True
+        # No budget income is written: monthly income stays derived from transactions.
+        assert client.get("/budget/2026-10").json()["income_cents"] == 0
         record = PreferencesStore(db).get(user.id)
         assert record is not None
-        assert record.prompt_version == "onboarding_v2"
-        assert record.preferences["income"]["expected_monthly_cents"] == 240000
-        assert record.preferences["income"]["income_day"] == 27
+        assert record.prompt_version == "onboarding_v3"
+        assert "expected_monthly_cents" not in record.preferences.get("income", {})
         session = db.get(OnboardingSession, session_id)
         assert session.status == "completed"
         assert session.completed_at is not None
@@ -350,6 +428,7 @@ class TestFinalize:
                 )
             ],
             payees=["Netflix"],
+            income=[{"name": "Nómina", "amount_cents": 200000, "pattern": "monthly"}],
         )
         with patch.object(PreferencesStore, "put", side_effect=RuntimeError("boom")):
             with pytest.raises(RuntimeError):
@@ -358,6 +437,7 @@ class TestFinalize:
         names = set(db.scalars(select(Category.name).where(Category.user_id == user.id)))
         assert "Nueva" not in names
         assert db.scalar(select(Payee).where(Payee.user_id == user.id)) is None
+        assert db.scalar(select(IncomeSchedule).where(IncomeSchedule.user_id == user.id)) is None
 
 
 class TestStatus:

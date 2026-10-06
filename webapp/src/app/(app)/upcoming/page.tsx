@@ -8,22 +8,29 @@ import { Icon } from "@/components/ui/Icon";
 import { Input } from "@/components/ui/Input";
 import { Panel } from "@/components/ui/Panel";
 import { ErrorPanel, SkeletonPanel } from "@/components/ui/QueryStates";
+import { IncomeEditorDialog } from "@/components/plan/IncomeEditor";
 import {
+  createIncomeSchedule,
   fetchPlanSummary,
   fetchUpcoming,
-  putExpectedIncome,
   type UpcomingMonth,
 } from "@/lib/api";
 import { euroCents, parseEuroToCents } from "@/lib/format";
-import { invalidateMoneyQueries } from "@/lib/planQueries";
+import { invalidateIncomeQueries } from "@/lib/planQueries";
 import { monthLabel } from "@/lib/schedules";
 import { useSelectedMonth } from "@/lib/selectedMonth";
 
 /* Upcoming payments (spec: payment-projection): the year at a glance and, per
-   month, whether every payment is covered — computed by allocating the
-   expected fixed income (never bonuses) in priority order. */
+   month, whether every payment is covered — computed by allocating each
+   month's expected income (income schedules, never bonuses) in priority order. */
 
-function SummaryCard({ label, value, note, warn }: Readonly<{ label: string; value: string; note: string; warn?: boolean }>) {
+function SummaryCard({
+  label,
+  value,
+  note,
+  warn,
+  action,
+}: Readonly<{ label: string; value: string; note: string; warn?: boolean; action?: React.ReactNode }>) {
   return (
     <Panel>
       <div className="ol-eyebrow" style={{ color: "var(--text-subtle)" }}>{label}</div>
@@ -39,6 +46,7 @@ function SummaryCard({ label, value, note, warn }: Readonly<{ label: string; val
         {value}
       </div>
       <div style={{ font: "500 13px var(--font-sans)", color: "var(--text-muted)", marginTop: 2 }}>{note}</div>
+      {action && <div style={{ marginTop: 10 }}>{action}</div>}
     </Panel>
   );
 }
@@ -94,7 +102,12 @@ function MonthRow({ m, open, onToggle }: Readonly<{ m: UpcomingMonth; open: bool
       >
         <span style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
           <span style={{ font: "700 15px var(--font-sans)", color: "var(--text-strong)", minWidth: 130 }}>{monthLabel(m.month)}</span>
-          <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, color: "var(--text-strong)" }}>{euroCents(m.payments_cents)}</span>
+          {m.expected_income_cents !== null && (
+            <span style={{ fontVariantNumeric: "tabular-nums", font: "600 13px var(--font-sans)", color: "var(--income)" }} title="Expected income">
+              +{euroCents(m.expected_income_cents)}
+            </span>
+          )}
+          <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600, color: "var(--text-strong)" }} title="Payments">{euroCents(m.payments_cents)}</span>
           {known && (
             <span
               style={{
@@ -170,10 +183,17 @@ function MonthRow({ m, open, onToggle }: Readonly<{ m: UpcomingMonth; open: bool
 function IncomePrompt() {
   const queryClient = useQueryClient();
   const [value, setValue] = React.useState("");
+  const [day, setDay] = React.useState("");
   const cents = parseEuroToCents(value);
   const save = useMutation({
-    mutationFn: (c: number) => putExpectedIncome(c),
-    onSuccess: () => invalidateMoneyQueries(queryClient),
+    mutationFn: (c: number) =>
+      createIncomeSchedule({
+        name: "Monthly income",
+        amount_cents: c,
+        pattern: "monthly",
+        day: day ? Math.min(31, Math.max(1, Number(day))) : null,
+      }),
+    onSuccess: () => invalidateIncomeQueries(queryClient),
   });
   return (
     <Panel>
@@ -191,7 +211,20 @@ function IncomePrompt() {
           <div style={{ font: "500 13px var(--font-sans)", color: "var(--text-muted)", marginBottom: 10 }}>
             Your fixed take-home pay each month. Bonuses don&apos;t count until they arrive.
           </div>
-          <Input label="Fixed monthly income" prefix="€" inputMode="decimal" placeholder="0,00" value={value} onChange={(e) => setValue(e.target.value)} />
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ flex: "2 1 180px" }}>
+              <Input label="Fixed monthly income" prefix="€" inputMode="decimal" placeholder="0,00" value={value} onChange={(e) => setValue(e.target.value)} />
+            </div>
+            <div style={{ flex: "1 1 120px" }}>
+              <Input
+                label="Day it arrives (optional)"
+                inputMode="numeric"
+                placeholder="—"
+                value={day}
+                onChange={(e) => setDay(e.target.value.replace(/\D/g, "").slice(0, 2))}
+              />
+            </div>
+          </div>
         </div>
         <Button type="submit" disabled={cents === null || cents <= 0 || save.isPending}>Save income</Button>
       </form>
@@ -204,6 +237,7 @@ export default function UpcomingPage() {
   const upcoming = useQuery({ queryKey: ["upcoming", month], queryFn: () => fetchUpcoming(month) });
   const summary = useQuery({ queryKey: ["plan-summary", month], queryFn: () => fetchPlanSummary(month) });
   const [open, setOpen] = React.useState<string | null>(null);
+  const [editingIncome, setEditingIncome] = React.useState(false);
 
   const s = summary.data;
   const gap = s?.gap_cents ?? null;
@@ -224,9 +258,18 @@ export default function UpcomingPage() {
             {!upcoming.data.income_known && <IncomePrompt />}
             <div className="grid-dash-top">
               <SummaryCard
-                label="Fixed income, next 12 months"
+                label="Expected income, next 12 months"
                 value={s.income_cents === null ? "—" : euroCents(s.income_cents)}
-                note={s.income_known ? `${euroCents(upcoming.data.income_cents ?? 0)} × 12 · no bonuses` : "add your monthly income"}
+                note={
+                  s.income_known && s.income_cents !== null
+                    ? `${euroCents(Math.round(s.income_cents / 12))} a month on average · no bonuses`
+                    : "add your monthly income"
+                }
+                action={
+                  <Button variant="secondary" size="sm" onClick={() => setEditingIncome(true)}>
+                    Edit income
+                  </Button>
+                }
               />
               <SummaryCard
                 label="Planned costs"
@@ -252,6 +295,7 @@ export default function UpcomingPage() {
           </>
         )}
       </div>
+      <IncomeEditorDialog open={editingIncome} onOpenChange={setEditingIncome} />
     </>
   );
 }

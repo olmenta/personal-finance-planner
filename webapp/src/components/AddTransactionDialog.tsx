@@ -24,15 +24,36 @@ import {
   fetchCategories,
   fetchPayees,
 } from "@/lib/api";
-import { parseEuroToCents } from "@/lib/format";
+import { money, parseEuroToCents } from "@/lib/format";
 import { invalidateMoneyQueries } from "@/lib/planQueries";
 
-export interface AddTransactionDialogProps {
-  children: React.ReactNode;
+export interface AddTransactionPrefill {
+  kind: "income";
+  amountCents: number;
+  payee: string | null;
 }
 
-export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
-  const [open, setOpen] = React.useState(false);
+export interface AddTransactionDialogProps {
+  /** The trigger; omit it when the dialog is controlled with `open`. */
+  children?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Values the form starts with each time it opens (e.g. a late salary). */
+  prefill?: AddTransactionPrefill;
+}
+
+export function AddTransactionDialog({
+  children,
+  open: controlledOpen,
+  onOpenChange,
+  prefill,
+}: AddTransactionDialogProps) {
+  const [internalOpen, setInternalOpen] = React.useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (next: boolean) => {
+    setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   const [direction, setDirection] = React.useState("Expense");
   const [isRefund, setIsRefund] = React.useState(false);
   const [category, setCategory] = React.useState("");
@@ -44,6 +65,17 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
   // "" = the main account (resolved at render, so it follows the first load).
   const [accountId, setAccountId] = React.useState("");
   const [toAccountId, setToAccountId] = React.useState("");
+
+  // Apply the prefill once per opening.
+  const [prefilledFor, setPrefilledFor] = React.useState(false);
+  if (open && prefill && !prefilledFor) {
+    setPrefilledFor(true);
+    setDirection("Income");
+    setAmount(money(prefill.amountCents / 100));
+    setPayee(prefill.payee ?? "");
+  } else if (!open && prefilledFor) {
+    setPrefilledFor(false);
+  }
 
   const queryClient = useQueryClient();
   const { active: accounts, main } = useAccounts(open);
@@ -87,6 +119,7 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
 
   function reset() {
     setOpen(false);
+    setDirection("Expense");
     setAmount("");
     setPayee("");
     setNote("");
@@ -159,7 +192,7 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
+      {children && <DialogTrigger asChild>{children}</DialogTrigger>}
 
       <DialogContent
         className="p-0 gap-0 overflow-hidden"
@@ -188,7 +221,7 @@ export function AddTransactionDialog({ children }: AddTransactionDialogProps) {
           <div style={{ marginTop: 12, width: multiAccount ? 360 : 280, maxWidth: "100%" }}>
             <SegmentedControl
               options={multiAccount ? ["Expense", "Income", "Transfer"] : ["Expense", "Income"]}
-              defaultValue="Expense"
+              value={direction}
               onChange={setDirection}
             />
           </div>

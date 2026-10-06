@@ -7,7 +7,7 @@ Errors carry machine-readable codes (§6.7): {"code": "<snake_case>"}.
 from datetime import date as date_type
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ---- Transactions ----------------------------------------------------------
 
@@ -346,6 +346,107 @@ SCHEDULE_FIELDS = (
 )
 
 
+# ---- Income schedules -------------------------------------------------------
+# Same rule models as payments (income-schedules design D2) plus a payer name,
+# resolved to a payee on write (D3). No `no_date`: undated income can't be
+# planned, so it fails discriminator validation → 422 invalid_schedule.
+
+
+class _Payer(BaseModel):
+    payer: str | None = Field(default=None, max_length=120)
+
+    @field_validator("payer")
+    @classmethod
+    def _trim_payer(cls, value: str | None) -> str | None:
+        trimmed = (value or "").strip()
+        return trimmed or None
+
+
+class IncomeMonthlySchedule(MonthlySchedule, _Payer):
+    pass
+
+
+class IncomeSomeMonthsSchedule(SomeMonthsSchedule, _Payer):
+    pass
+
+
+class IncomeAnnualSchedule(AnnualSchedule, _Payer):
+    pass
+
+
+class IncomeEveryNSchedule(EveryNSchedule, _Payer):
+    pass
+
+
+class IncomeOnceSchedule(OnceSchedule, _Payer):
+    pass
+
+
+IncomeScheduleIn = Annotated[
+    IncomeMonthlySchedule
+    | IncomeSomeMonthsSchedule
+    | IncomeAnnualSchedule
+    | IncomeEveryNSchedule
+    | IncomeOnceSchedule,
+    Field(discriminator="pattern"),
+]
+
+
+class IncomeScheduleOut(BaseModel):
+    id: str
+    name: str
+    amount_cents: int
+    payee_id: str | None
+    payer: str | None
+    pattern: Literal["monthly", "some_months", "annual", "every_n", "once"]
+    months: list[int] | None
+    month: int | None
+    every_n: int | None
+    start_month: str | None
+    count: int | None
+    once_month: str | None
+    day: int | None
+    estimated: bool
+    yearly_cents: int  # Σ of its occurrences over the next 12 months
+
+    model_config = {"from_attributes": True}
+
+
+IncomeStatus = Literal["received", "pending", "late", "missed"]
+
+
+class IncomeOccurrence(BaseModel):
+    schedule_id: str
+    name: str
+    payee_id: str | None
+    payer: str | None
+    day: int | None
+    amount_cents: int
+    estimated: bool
+    received_cents: int
+    difference_cents: int | None  # received − expected; null unless received
+    status: IncomeStatus
+    transaction_ids: list[str]
+
+
+class UnplannedIncome(BaseModel):
+    transaction_id: str
+    payee_id: str | None
+    label: str  # payee name, else the description
+    date: date_type
+    amount_cents: int
+
+
+class MonthIncomeView(BaseModel):
+    month: str
+    has_schedules: bool
+    occurrences: list[IncomeOccurrence]
+    unplanned: list[UnplannedIncome]
+    expected_cents: int
+    received_cents: int
+    still_expected_cents: int
+
+
 class ScheduleOut(BaseModel):
     id: str
     category_id: str
@@ -516,6 +617,7 @@ class UpcomingOccurrence(BaseModel):
 
 class UpcomingMonth(BaseModel):
     month: str
+    expected_income_cents: int | None = None  # null when no income schedules
     occurrences: list[UpcomingOccurrence]
     payments_cents: int
     short_cents: int | None = None
@@ -528,24 +630,20 @@ class UpcomingMonth(BaseModel):
 
 class UpcomingView(BaseModel):
     income_known: bool
-    income_cents: int | None
+    income_cents: int | None  # Σ expected income over the 12 months
     months: list[UpcomingMonth]
 
 
 class PlanSummary(BaseModel):
     month: str
     income_known: bool
-    income_cents: int | None  # expected fixed income × 12
+    income_cents: int | None  # Σ income-schedule occurrences in the window
     scheduled_cents: int
     flexible_cents: int
     goals_cents: int
     costs_cents: int
     gap_cents: int | None
     gap_monthly_cents: int | None
-
-
-class ExpectedIncome(BaseModel):
-    expected_monthly_cents: int | None = Field(default=None, ge=0)
 
 
 # ---- Month summary (dashboard) ----------------------------------------------
@@ -597,12 +695,6 @@ class OnboardingGroupIn(BaseModel):
     categories: list[OnboardingCategoryIn] = []
 
 
-class OnboardingIncomeIn(BaseModel):
-    sources: list[str] = []
-    expected_monthly_cents: int | None = Field(default=None, ge=0)
-    income_day: int | None = Field(default=None, ge=1, le=31)
-
-
 class OnboardingAccountIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     type: Literal["bank", "credit"] = "bank"
@@ -616,7 +708,8 @@ class OnboardingFinalizeRequest(BaseModel):
     category_groups: list[OnboardingGroupIn] = []
     payers: list[str] = []
     payees: list[str] = []
-    income: OnboardingIncomeIn | None = None
+    # The reviewed income schedules (income-schedules): created at finalize.
+    income: list[IncomeScheduleIn] = []
 
 
 class OnboardingFinalizeResponse(BaseModel):
