@@ -29,3 +29,6 @@ node_modules/
 # Prototypes built with real personal data — local only
 *.local.html
 .neon
+
+# Dev MCP server tool-call log — local only, may hold personal financial data
+backend/mcp_server/.logs/
