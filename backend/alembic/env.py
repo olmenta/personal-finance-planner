@@ -12,7 +12,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Migrations run against the direct (non-pooler) Neon host.
+# Migrations run against MIGRATIONS_DATABASE_URL (on Neon: the direct, non-pooler host).
 config.set_main_option("sqlalchemy.url", get_settings().alembic_url)
 
 target_metadata = Base.metadata

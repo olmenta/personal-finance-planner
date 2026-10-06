@@ -37,13 +37,15 @@ Subscription web app that teaches people who have never budgeted to use simplifi
 
 ## Commands
 
+Database (repo root): `docker compose up -d` — local Postgres 18 (same major as Neon) on `localhost:5432` with three databases: `olmenta` (dev), `olmenta_test` (pytest), `olmenta_e2e` (Playwright). Credentials `olmenta`/`olmenta`; the URLs are in `backend/.env.example`. `docker compose down -v` drops the data.
+
 Webapp (run inside `webapp/`):
 
 - `volta run npm run dev` — dev server
 - `volta run npm run build` — production build (run before committing significant changes)
 - `volta run npm run lint` — lint
-- `volta run npm run e2e` — Playwright suite (`webapp/e2e/`). Starts its own API on :8100 against the Neon `e2e` branch (`E2E_*` in `backend/.env`) and its own Next dev server on :3100 (`.next-e2e`), so it runs next to your dev servers. "Today" is pinned to 2026-10-14 (`FIXED_TODAY` + `page.clock`); each spec file starts with `resetDb()`
-- `volta run npm run e2e:reset-db` — reset the e2e branch (migrate, truncate, seed)
+- `volta run npm run e2e` — Playwright suite (`webapp/e2e/`). Starts its own API on :8100 against the local `olmenta_e2e` database (`E2E_*` in `backend/.env`) and its own Next dev server on :3100 (`.next-e2e`), so it runs next to your dev servers. "Today" is pinned to 2026-10-14 (`FIXED_TODAY` + `page.clock`); each spec file starts with `resetDb()`
+- `volta run npm run e2e:reset-db` — reset the e2e database (migrate, truncate, seed)
 
 Backend (run inside `backend/`):
 

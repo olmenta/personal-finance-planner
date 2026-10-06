@@ -1,0 +1,30 @@
+# Local Postgres for dev, tests and e2e (same major version as Neon: 18).
+#   docker compose up -d
+# Databases (created on first start by docker/postgres/init.sql):
+#   olmenta        dev        (DATABASE_URL / MIGRATIONS_DATABASE_URL)
+#   olmenta_test   pytest     (TEST_DATABASE_URL)
+#   olmenta_e2e    Playwright (E2E_DATABASE_URL / E2E_MIGRATIONS_DATABASE_URL)
+services:
+  postgres:
+    image: postgres:18
+    container_name: olmenta-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: olmenta
+      POSTGRES_PASSWORD: olmenta
+      POSTGRES_DB: olmenta
+      TZ: Europe/Madrid
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # Postgres 18 images keep data under /var/lib/postgresql/18/docker.
+      - olmenta-pgdata:/var/lib/postgresql
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U olmenta -d olmenta"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  olmenta-pgdata:
