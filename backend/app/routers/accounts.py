@@ -10,8 +10,9 @@ from ..clock import current_month, today_madrid
 from ..db import get_db
 from ..deps import current_user
 from ..models import Account, User
-from ..schemas import AccountCreate, AccountOut, AccountUpdate
+from ..schemas import AccountCreate, AccountOut, AccountUpdate, ConvertToLoanIn, DebtsView
 from ..services import accounts as service
+from ..services import debts as debts_service
 from ..services.budget_view import payment_available_by_card
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
@@ -134,3 +135,20 @@ def update_account(
     service.sync_payment_category(db, account)
     db.flush()
     return _out(db, user, account.id)
+
+
+@router.post("/{account_id}/convert-to-loan", response_model=DebtsView)
+def convert_to_loan(
+    account_id: str,
+    payload: ConvertToLoanIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> DebtsView:
+    """A loan that was set up as a card becomes an installment loan debt
+    (spec: accounts-api, debts design D6)."""
+    account = _get_owned(db, user, account_id)
+    try:
+        debts_service.convert_to_loan(db, user, account, payload)
+    except debts_service.DebtError as error:
+        raise HTTPException(status_code=error.status, detail={"code": error.code}) from error
+    return debts_service.build_debts_view(db, user)

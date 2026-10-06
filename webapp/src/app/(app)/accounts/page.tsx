@@ -27,7 +27,9 @@ import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { TopBar } from "@/components/shell/TopBar";
 import {
   ApiError,
+  convertToLoan,
   createAccount,
+  currentMonth,
   updateAccount,
   type AccountOut,
   type AccountType,
@@ -35,6 +37,7 @@ import {
 } from "@/lib/api";
 import { euroCents, parseEuroToCents } from "@/lib/format";
 import { invalidateMoneyQueries } from "@/lib/planQueries";
+import { monthFromIndex, monthIndex, monthLabel } from "@/lib/schedules";
 
 const TYPE_META: Record<AccountType, { icon: string; tone: ChipTone; label: string }> = {
   bank: { icon: "landmark", tone: "violet", label: "Bank account" },
@@ -294,11 +297,108 @@ function EditAccountForm({
   );
 }
 
+/* A loan that was set up as a card becomes an installment loan in
+   "What you owe" (spec: accounts-api, debts design D6). */
+function ConvertToLoanDialog({
+  account,
+  onClose,
+}: Readonly<{ account: AccountOut | null; onClose: () => void }>) {
+  return (
+    <Dialog open={account !== null} onOpenChange={(o) => !o && onClose()}>
+      {account && <ConvertToLoanForm key={account.id} account={account} onClose={onClose} />}
+    </Dialog>
+  );
+}
+
+function ConvertToLoanForm({
+  account,
+  onClose,
+}: Readonly<{ account: AccountOut; onClose: () => void }>) {
+  const refresh = useAccountWrite();
+  const queryClient = useQueryClient();
+  const nextDefault = monthFromIndex(monthIndex(currentMonth()) + 1);
+  const [installment, setInstallment] = React.useState("");
+  const [left, setLeft] = React.useState("");
+  const [nextMonth, setNextMonth] = React.useState(nextDefault);
+  const [day, setDay] = React.useState(account.payment_day ? String(account.payment_day) : "");
+  const installmentCents = parseEuroToCents(installment);
+  const count = Number(left);
+  const mutation = useMutation({
+    mutationFn: () =>
+      convertToLoan(account.id, {
+        installment_cents: installmentCents ?? 0,
+        installments_left: count,
+        next_month: nextMonth,
+        day: parseDay(day) ?? null,
+      }),
+    onSuccess: () => {
+      refresh();
+      queryClient.invalidateQueries({ queryKey: ["debts"] });
+      onClose();
+    },
+  });
+  const canSubmit = !!installmentCents && installmentCents > 0 && count >= 1 && !mutation.isPending;
+  const months = Array.from({ length: 13 }, (_, k) => monthFromIndex(monthIndex(currentMonth()) + k));
+
+  return (
+    <DialogContent className="p-0 gap-0 overflow-hidden" style={dialogStyle}>
+      <DialogHeader style={{ padding: "22px 24px 18px", borderBottom: "1px solid var(--border-hairline)" }}>
+        <DialogTitle style={titleStyle}>This is a loan, not a card</DialogTitle>
+      </DialogHeader>
+      <form
+        aria-label="Convert to loan"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (canSubmit) mutation.mutate();
+        }}
+      >
+        <div style={{ padding: "22px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
+          <p style={{ font: "500 14px/1.5 var(--font-sans)", color: "var(--text-muted)", margin: 0 }}>
+            {account.name} moves to What you owe as a loan with installments. The account is archived and its
+            history stays.
+          </p>
+          <Input label="Each installment" prefix="€" inputMode="decimal" placeholder="0,00"
+            value={installment} onChange={(e) => setInstallment(e.target.value)} />
+          <Input label="Installments left" inputMode="numeric" placeholder="34"
+            value={left} onChange={(e) => setLeft(e.target.value.replace(/\D/g, ""))} />
+          <label style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            <span style={{ font: "600 13.5px var(--font-sans)", color: "var(--text-body)" }}>Next one</span>
+            <select
+              aria-label="Next one"
+              value={nextMonth}
+              onChange={(e) => setNextMonth(e.target.value)}
+              style={{ height: 44, borderRadius: 10, border: "1.5px solid var(--border-hairline)", padding: "0 10px", font: "500 14px var(--font-sans)", background: "var(--surface)", color: "var(--text-strong)" }}
+            >
+              {months.map((m) => (
+                <option key={m} value={m}>{monthLabel(m)}</option>
+              ))}
+            </select>
+          </label>
+          <Input label="Day of the month (optional)" inputMode="numeric" placeholder="—"
+            value={day} onChange={(e) => setDay(e.target.value.replace(/\D/g, "").slice(0, 2))} />
+          {mutation.isError && <ErrorNote>That didn&apos;t work — check the numbers and try again.</ErrorNote>}
+        </div>
+        <Separator style={{ background: "var(--border-hairline)" }} />
+        <div style={{ padding: "16px 24px", display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          <Button variant="ghost" size="sm" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" size="sm" type="submit" disabled={!canSubmit}>Move to What you owe</Button>
+        </div>
+      </form>
+    </DialogContent>
+  );
+}
+
 function AccountRow({
   account,
   last,
   onEdit,
-}: Readonly<{ account: AccountOut; last: boolean; onEdit: (a: AccountOut) => void }>) {
+  onConvert,
+}: Readonly<{
+  account: AccountOut;
+  last: boolean;
+  onEdit: (a: AccountOut) => void;
+  onConvert: (a: AccountOut) => void;
+}>) {
   const refresh = useAccountWrite();
   const patch = useMutation({
     mutationFn: (body: AccountUpdate) => updateAccount(account.id, body),
@@ -400,6 +500,9 @@ function AccountRow({
           }}
         >
           <DropdownMenuItem onSelect={() => onEdit(account)}>Edit</DropdownMenuItem>
+          {isCredit && !account.archived && (
+            <DropdownMenuItem onSelect={() => onConvert(account)}>This is a loan, not a card</DropdownMenuItem>
+          )}
           <DropdownMenuItem onSelect={() => patch.mutate({ archived: !account.archived })}>
             {account.archived ? "Restore" : "Archive"}
           </DropdownMenuItem>
@@ -413,6 +516,7 @@ export default function AccountsPage() {
   const query = useAccounts();
   const [adding, setAdding] = React.useState(false);
   const [editing, setEditing] = React.useState<AccountOut | null>(null);
+  const [converting, setConverting] = React.useState<AccountOut | null>(null);
   const archived = query.all.filter((a) => a.archived);
 
   // Cash and bank money you hold; card debt is reported per card.
@@ -447,6 +551,7 @@ export default function AccountsPage() {
                 account={a}
                 last={i === query.active.length - 1}
                 onEdit={setEditing}
+                onConvert={setConverting}
               />
             ))
           )}
@@ -454,7 +559,7 @@ export default function AccountsPage() {
         {archived.length > 0 && (
           <Panel title="Archived">
             {archived.map((a, i) => (
-              <AccountRow key={a.id} account={a} last={i === archived.length - 1} onEdit={setEditing} />
+              <AccountRow key={a.id} account={a} last={i === archived.length - 1} onEdit={setEditing} onConvert={setConverting} />
             ))}
           </Panel>
         )}
@@ -473,6 +578,7 @@ export default function AccountsPage() {
       </div>
       <AddAccountDialog open={adding} onClose={() => setAdding(false)} />
       <EditAccountDialog account={editing} onClose={() => setEditing(null)} />
+      <ConvertToLoanDialog account={converting} onClose={() => setConverting(null)} />
     </>
   );
 }

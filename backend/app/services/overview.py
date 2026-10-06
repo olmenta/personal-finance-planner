@@ -5,17 +5,20 @@ saved (minus overspent), so with To Be Assigned it adds up to the money in
 the cash and bank accounts: accounts = covered + left + saved + TBA −
 overspent. Card payment categories count as saved (money set aside for the
 card); credit overspending is card debt, not missing cash, so it is left out
-of `overspent`.
+of `overspent`. A card's payment category with a debt plan lists the plan
+under "to pay" like any scheduled payment; its spending is the month's
+transfers into the card, so the plan is paid when they reach it.
 """
 
+import calendar
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..clock import today_madrid
-from ..models import PaymentSchedule, Transaction, User
+from ..models import Debt, PaymentSchedule, Transaction, User
 from ..schemas import (
     BudgetCategoryView,
     BudgetMonthView,
@@ -70,6 +73,19 @@ def match_payments(
     return match
 
 
+LATE_AFTER_DAYS = 3
+
+
+def _is_late(month: str, day: int | None, today: date) -> bool:
+    """More than 3 days past its day in the current month (missing day = month end)."""
+    if today.strftime("%Y-%m") != month:
+        return False
+    year, mon = (int(p) for p in month.split("-"))
+    last = calendar.monthrange(year, mon)[1]
+    due = date(year, mon, min(day or last, last))
+    return today - due > timedelta(days=LATE_AFTER_DAYS)
+
+
 def _categories(view: BudgetMonthView) -> list[tuple[str, BudgetCategoryView]]:
     return [(g.name, c) for g in view.groups for c in g.categories]
 
@@ -79,6 +95,8 @@ def build_overview(
 ) -> OverviewView:
     view = build_view(db, user, month)
     by_category = sched.schedules_by_category(db, user)
+    today = today or today_madrid()
+    debt_categories = set(db.scalars(select(Debt.category_id).where(Debt.user_id == user.id)))
 
     paid_items: list[OverviewPaidItem] = []
     to_pay: list[OverviewPending] = []
@@ -109,7 +127,7 @@ def build_overview(
                 )
             )
 
-        if c.kind == "scheduled":
+        if c.kind == "scheduled" or (c.kind == "credit_payment" and schedules):
             pending = match.pending
             reserve = a
             for occ in match.occurrences:
@@ -127,6 +145,8 @@ def build_overview(
                         covered_cents=covered,
                         short_cents=occ.pending - covered,
                         estimated=occ.schedule.estimated,
+                        late=c.id in debt_categories
+                        and _is_late(month, occ.schedule.day, today),
                     )
                 )
                 reserve -= occ.pending
@@ -173,7 +193,7 @@ def build_overview(
     to_pay.sort(key=lambda p: (p.day or 1))
     return OverviewView(
         month=month,
-        today=today or today_madrid(),
+        today=today,
         paid=OverviewPaidSection(
             total_cents=sum(p.amount_cents for p in paid_items), items=paid_items
         ),

@@ -10,6 +10,7 @@ from ..deps import current_user
 from ..models import Category, PaymentSchedule, User
 from ..schemas import SCHEDULE_FIELDS, ScheduleIn, ScheduleOut
 from ..services.budget_view import refresh_computed_assignments
+from ..services.debts import debt_for_category
 
 router = APIRouter(tags=["schedules"])
 
@@ -40,6 +41,20 @@ def _category_or_404(db: Session, user: User, category_id: str) -> Category:
     return category
 
 
+def _not_managed(db: Session, category_id: str) -> None:
+    """Debt schedules are written only through the debts API (debts design D4)."""
+    if debt_for_category(db, category_id) is not None:
+        raise HTTPException(status_code=409, detail={"code": "managed_by_debt"})
+
+
+def _with_debt(db: Session, category_id: str, schedules: list[PaymentSchedule]) -> list[ScheduleOut]:
+    debt = debt_for_category(db, category_id)
+    return [
+        ScheduleOut.model_validate(s).model_copy(update={"debt_id": debt.id if debt else None})
+        for s in schedules
+    ]
+
+
 def _schedule_or_404(db: Session, user: User, schedule_id: str) -> PaymentSchedule:
     schedule = db.scalar(
         select(PaymentSchedule).where(
@@ -56,8 +71,8 @@ def list_schedules(
     category_id: str,
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
-) -> list[PaymentSchedule]:
-    return list(_category_or_404(db, user, category_id).schedules)
+) -> list[ScheduleOut]:
+    return _with_debt(db, category_id, list(_category_or_404(db, user, category_id).schedules))
 
 
 @router.post(
@@ -70,6 +85,10 @@ def create_schedule(
     user: User = Depends(current_user),
 ) -> PaymentSchedule:
     category = _category_or_404(db, user, category_id)
+    _not_managed(db, category.id)
+    if category.payment_account_id is not None and category.schedules:
+        # A card's payment category holds at most one schedule: its plan.
+        raise HTTPException(status_code=409, detail={"code": "card_plan_exists"})
     schedule = PaymentSchedule(user_id=user.id, category_id=category.id)
     _apply(schedule, _validate(body))
     db.add(schedule)
@@ -89,6 +108,7 @@ def update_schedule(
     """Partial update: merged onto the stored row, then re-validated whole.
     Switching pattern drops fields that don't belong to the new one."""
     schedule = _schedule_or_404(db, user, schedule_id)
+    _not_managed(db, schedule.category_id)
     merged = {f: getattr(schedule, f) for f in SCHEDULE_FIELDS} | body
     pattern_fields = {
         "monthly": {"count", "start_month"},
@@ -113,6 +133,7 @@ def delete_schedule(
     user: User = Depends(current_user),
 ) -> None:
     schedule = _schedule_or_404(db, user, schedule_id)
+    _not_managed(db, schedule.category_id)
     category_id = schedule.category_id
     db.delete(schedule)
     db.flush()

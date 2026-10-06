@@ -129,6 +129,8 @@ export interface ScheduleOut {
   once_month: string | null;
   day: number | null;
   estimated: boolean;
+  /** Set when the schedule is managed from "What you owe". */
+  debt_id?: string | null;
 }
 
 // ---- Income schedules (income-schedules) -------------------------------------
@@ -212,6 +214,8 @@ export interface OverviewPending {
   covered_cents: number;
   short_cents: number;
   estimated: boolean;
+  /** A required debt payment more than 3 days past its day. */
+  late: boolean;
 }
 
 export interface OverviewView {
@@ -574,6 +578,125 @@ export async function deleteIncomeSchedule(id: string): Promise<void> {
   const res = await fetch(`/api/income-schedules/${id}`, { method: "DELETE" });
   if (!res.ok) throw new ApiError("delete_failed", res.status);
 }
+
+// ---- Debts (debts) --------------------------------------------------------------
+
+export type DebtKind = "card" | "loan" | "personal";
+export type RatePeriod = "month" | "year";
+
+export interface DebtOut {
+  id: string;
+  kind: DebtKind;
+  category_id: string;
+  account_id: string | null;
+  name: string;
+  lender: string | null;
+  owed_cents: number;
+  rate_bp: number | null;
+  rate_period: RatePeriod | null;
+  monthly_rate_bp: number | null;
+  minimum_cents: number | null;
+  below_minimum: boolean | null;
+  required_monthly_cents: number;
+  plan_monthly_cents: number | null;
+  installment_cents: number | null;
+  installments_left: number | null;
+  next_month: string | null;
+  day: number | null;
+  due_month: string | null;
+  end_month: string | null;
+  paid_off: boolean;
+  position: number | null;
+  monthly_interest_cents: number | null;
+}
+
+export interface DebtsView {
+  debts: DebtOut[];
+  total_owed_cents: number;
+  extra_monthly_cents: number;
+  extra_target_debt_id: string | null;
+  debt_free_month: string | null;
+  cushion: { suggested_cents: number; saved_cents: number };
+}
+
+interface DebtRateIn {
+  rate_bp?: number | null;
+  rate_period?: RatePeriod | null;
+}
+
+export type DebtIn =
+  | (DebtRateIn & {
+      kind: "card";
+      account_id: string;
+      plan_monthly_cents?: number;
+      target_month?: string;
+      minimum_cents?: number;
+    })
+  | (DebtRateIn & {
+      kind: "loan";
+      name: string;
+      installment_cents: number;
+      installments_left: number;
+      next_month: string;
+      day?: number | null;
+    })
+  | (DebtRateIn & {
+      kind: "personal";
+      name: string;
+      owed_cents: number;
+      due_month?: string | null;
+      lender?: string | null;
+    });
+
+export type DebtUpdate = Partial<{
+  rate_bp: number | null;
+  rate_period: RatePeriod | null;
+  name: string;
+  plan_monthly_cents: number;
+  target_month: string;
+  minimum_cents: number | null;
+  installment_cents: number;
+  installments_left: number;
+  next_month: string;
+  day: number | null;
+  owed_cents: number;
+  due_month: string | null;
+  lender: string | null;
+}>;
+
+export interface ConvertToLoanIn {
+  installment_cents: number;
+  installments_left: number;
+  next_month: string;
+  day?: number | null;
+  rate_bp?: number | null;
+  rate_period?: RatePeriod | null;
+}
+
+export const fetchDebts = () => request<DebtsView>("/debts");
+
+export const createDebt = (body: DebtIn) =>
+  request<DebtsView>("/debts", { method: "POST", body: JSON.stringify(body) });
+
+export const updateDebt = (id: string, body: DebtUpdate) =>
+  request<DebtsView>(`/debts/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+
+export async function deleteDebt(id: string): Promise<void> {
+  const res = await fetch(`/api/debts/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new ApiError("delete_failed", res.status);
+}
+
+export const putDebtExtra = (cents: number) =>
+  request<DebtsView>("/debts/extra", {
+    method: "PUT",
+    body: JSON.stringify({ extra_monthly_cents: cents }),
+  });
+
+export const convertToLoan = (accountId: string, body: ConvertToLoanIn) =>
+  request<DebtsView>(`/accounts/${accountId}/convert-to-loan`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 
 export const fetchMonthIncome = (month: string) => request<MonthIncomeView>(`/income/${month}`);
 

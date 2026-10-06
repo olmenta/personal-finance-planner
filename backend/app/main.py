@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from .routers import (
     accounts,
     budget,
+    debts,
     categories,
     imports,
     income,
@@ -41,6 +42,7 @@ app.include_router(summary.router)
 app.include_router(onboarding.router)
 app.include_router(plan.router)
 app.include_router(income.router)
+app.include_router(debts.router)
 
 
 @app.get("/health")

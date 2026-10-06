@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -210,6 +211,8 @@ export function ScheduleEditor({
     onError,
   });
 
+  // Debt payments are written from "What you owe" only (spec: payment-schedules).
+  const managedByDebt = schedules.some((s) => s.debt_id);
   const body = toBody(draft);
   // Live preview: saved list with the draft in place of (or added to) its row.
   const preview: (ScheduleIn | ScheduleOut)[] = [
@@ -289,9 +292,11 @@ export function ScheduleEditor({
                 </button>
               ))}
               <div>
-                <Button variant="secondary" size="sm" iconLeft="plus" onClick={() => setDraft(toDraft(null, month))}>
-                  Add payment
-                </Button>
+                {!managedByDebt && (
+                  <Button variant="secondary" size="sm" iconLeft="plus" onClick={() => setDraft(toDraft(null, month))}>
+                    Add payment
+                  </Button>
+                )}
               </div>
             </div>
 
@@ -322,7 +327,18 @@ export function ScheduleEditor({
             </div>
           </div>
 
-          {/* Right: sentence-style form */}
+          {/* Right: sentence-style form (debt payments: read-only) */}
+          {managedByDebt ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, background: "var(--surface-sunk)", borderRadius: "var(--r-lg)", padding: 16 }}>
+              <div style={{ font: "600 15px var(--font-sans)", color: "var(--text-strong)" }}>Managed from What you owe</div>
+              <div style={{ font: "500 13.5px/1.5 var(--font-sans)", color: "var(--text-muted)" }}>
+                This is a debt payment. Change it from your debt plan so the order and the end date stay right.
+              </div>
+              <div>
+                <Link href="/debts"><Button variant="secondary" size="sm" iconRight="chevron-right">Open What you owe</Button></Link>
+              </div>
+            </div>
+          ) : (
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -368,6 +384,7 @@ export function ScheduleEditor({
               </Button>
             </div>
           </form>
+          )}
         </div>
       </DialogContent>
     </Dialog>

@@ -5,7 +5,7 @@ import type { QueryClient } from "@tanstack/react-query";
    the account balances and expected-versus-received income — refresh them
    all, every month (the write may not be in the month on screen). */
 export function invalidateMoneyQueries(queryClient: QueryClient): void {
-  for (const key of ["budget", "summary", "overview", "upcoming", "plan-summary", "accounts", "income"]) {
+  for (const key of ["budget", "summary", "overview", "upcoming", "plan-summary", "accounts", "income", "debts"]) {
     queryClient.invalidateQueries({ queryKey: [key] });
   }
 }
