@@ -41,7 +41,7 @@ It is a developer tool for dogfooding the future in-app coach (openspec change `
 
 3. Note the **absolute path** to `backend/`, for example `/Users/you/…/personal-finance-planner/backend`. It's called `<BACKEND>` below.
 
-4. Optionally, check the server starts. It waits silently for a client on stdin, so press Ctrl-C to stop it:
+4. Optionally, check the server starts. It waits silently for a client on stdin, so press Ctrl-C to stop it. The command to start the test MCP server, runnable from any directory, is:
 
    ```bash
    uv --directory <BACKEND> run python -m mcp_server

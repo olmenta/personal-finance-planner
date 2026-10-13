@@ -53,7 +53,7 @@ Backend (run inside `backend/`):
 - `uv run uvicorn app.main:app --reload` — dev server
 - `uv run pytest` — tests (export `TEST_DATABASE_URL` from `.env` first, or the DB tests are skipped)
 - `uv run python -m evals <onboarding|category_suggestions> [--model …]` — eval suites (live model calls)
-- `uv run python -m mcp_server` — dev MCP server (see `docs/dev-mcp-server.md`)
+- `uv run python -m mcp_server` — dev MCP server (see `docs/dev-mcp-server.md`). To start the test MCP server from anywhere, use `uv --directory /Users/seboraid/playground/seboraid/personal-finance-planner/backend run python -m mcp_server`
 
 ## Design system (Olmenta)
 
