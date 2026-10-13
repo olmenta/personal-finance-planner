@@ -18,3 +18,7 @@ schema: spec-driven
 #       - Always include a "Non-goals" section
 #     tasks:
 #       - Break tasks into chunks of max 2 hours
+
+rules:
+  tasks:
+    - When the change touches anything a user sees (a screen, a flow, button labels or copy, a money rule), add a docs task to review and update the end-user guides (docs/user-guide.md, docs/debt-guide.md) so names and steps match the app. Skip it for backend-only or developer-only changes.
