@@ -10,6 +10,7 @@ import {
   currentMonth,
   dismissProposal,
   fetchBudgetMonth,
+  ProposalChangedError,
   type CoachProposal,
 } from "@/lib/api";
 import { invalidateMoneyQueries } from "@/lib/planQueries";
@@ -30,12 +31,16 @@ const OPEN_LABEL: Partial<Record<CoachProposal["kind"], string>> = {
   unassigned: "Give it a job",
 };
 
-export function useProposalActions(p: CoachProposal) {
+export function useProposalActions(shown: CoachProposal) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [adding, setAdding] = React.useState(false);
   const [linking, setLinking] = React.useState(false);
   const [pickingSource, setPickingSource] = React.useState(false);
+  // When the numbers changed since the card was shown, the server returns the
+  // current proposal: show it and ask again (redesign F02).
+  const [changed, setChanged] = React.useState<CoachProposal | null>(null);
+  const p = changed ?? shown;
   const month = currentMonth();
   const budget = useQuery({
     queryKey: ["budget", month],
@@ -48,8 +53,14 @@ export function useProposalActions(p: CoachProposal) {
     queryClient.invalidateQueries({ queryKey: ["coach-proposals"] });
   };
   const accept = useMutation({
-    mutationFn: (from?: string) => acceptProposal(p.fingerprint, from),
+    mutationFn: (from?: string) => acceptProposal(p.fingerprint, p.revision ?? "", from),
     onSuccess: refresh,
+    onError: (error) => {
+      if (error instanceof ProposalChangedError) {
+        setChanged(error.proposal);
+        setPickingSource(false);
+      }
+    },
   });
   const dismiss = useMutation({
     mutationFn: () => dismissProposal(p.fingerprint),
@@ -77,7 +88,12 @@ export function useProposalActions(p: CoachProposal) {
 
   const sources = pickingSource && p.sources?.length ? p.sources : null;
   const takeFrom = (categoryId: string) => accept.mutate(categoryId);
-  const error = accept.isError ? "That didn't go through — try again." : null;
+  const error =
+    accept.error instanceof ProposalChangedError
+      ? "Your numbers changed since this was shown — here's the updated suggestion."
+      : accept.isError
+        ? "That didn't go through — try again."
+        : null;
 
   const dialogs = (
     <>
@@ -104,5 +120,5 @@ export function useProposalActions(p: CoachProposal) {
     </>
   );
 
-  return { primary, secondary, notNow, sources, takeFrom, error, dialogs };
+  return { proposal: p, primary, secondary, notNow, sources, takeFrom, error, dialogs };
 }

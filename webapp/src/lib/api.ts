@@ -194,6 +194,8 @@ export interface OverviewPaidItem {
   name: string | null;
   day: number | null;
   amount_cents: number;
+  /** The paid part of a payment that isn't settled yet. */
+  partial: boolean;
 }
 
 export interface OverviewAmountItem {
@@ -222,6 +224,8 @@ export interface OverviewView {
   month: string;
   today: string;
   paid: { total_cents: number; items: OverviewPaidItem[] };
+  /** Transfers into cards: settlements, kept out of "paid" (purchases already count there). */
+  card_payments: { total_cents: number; items: OverviewPaidItem[] };
   to_pay: OverviewPending[];
   to_pay_total_cents: number;
   covered_cents: number;
@@ -710,6 +714,8 @@ export type ProposalKind =
 
 export interface CoachProposal {
   fingerprint: string;
+  /** Raise / lower only: send it back to accept exactly what was reviewed. */
+  revision: string | null;
   kind: ProposalKind;
   title: string;
   body: string;
@@ -739,11 +745,31 @@ export async function dismissProposal(fingerprint: string): Promise<void> {
   if (!res.ok) throw new ApiError("dismiss_failed", res.status);
 }
 
-export const acceptProposal = (fingerprint: string, fromCategoryId?: string) =>
-  request<CoachProposalsView>(`/coach/proposals/${encodeURIComponent(fingerprint)}/accept`, {
+/** The proposal changed between showing and accepting it (409
+    proposal_changed): carries the current version to show instead. */
+export class ProposalChangedError extends Error {
+  constructor(readonly proposal: CoachProposal) {
+    super("proposal_changed");
+  }
+}
+
+export async function acceptProposal(
+  fingerprint: string,
+  revision: string,
+  fromCategoryId?: string,
+): Promise<CoachProposalsView> {
+  const res = await fetch(`/api/coach/proposals/${encodeURIComponent(fingerprint)}/accept`, {
     method: "POST",
-    body: JSON.stringify(fromCategoryId ? { from_category_id: fromCategoryId } : {}),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ revision, ...(fromCategoryId ? { from_category_id: fromCategoryId } : {}) }),
   });
+  const body = await res.json().catch(() => null);
+  if (res.status === 409 && body?.detail?.code === "proposal_changed") {
+    throw new ProposalChangedError(body.detail.proposal as CoachProposal);
+  }
+  if (!res.ok) throw new ApiError(body?.detail?.code ?? "unknown_error", res.status);
+  return body as CoachProposalsView;
+}
 
 export const fetchMonthIncome = (month: string) => request<MonthIncomeView>(`/income/${month}`);
 

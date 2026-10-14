@@ -13,8 +13,9 @@ import { useProposalActions } from "./useProposalActions";
 
 export const VISIBLE_PROPOSALS = 3;
 
-export function ProposalCard({ p }: Readonly<{ p: CoachProposal }>) {
-  const { primary, secondary, notNow, sources, takeFrom, error, dialogs } = useProposalActions(p);
+export function ProposalCard({ p: shown }: Readonly<{ p: CoachProposal }>) {
+  const { proposal: p, primary, secondary, notNow, sources, takeFrom, error, dialogs } =
+    useProposalActions(shown);
   return (
     <div
       data-testid="coach-proposal"
@@ -86,7 +87,7 @@ export function CoachFeed() {
       ) : proposals.length === 0 ? (
         <div style={{ display: "flex", gap: 10, alignItems: "flex-start", font: "500 14px/1.5 var(--font-sans)", color: "var(--text-body)" }}>
           <Icon name="check-circle" size={18} color="var(--accent)" />
-          <span>Your plan looks on track. I&apos;ll speak up when something needs you.</span>
+          <span>No suggestions right now. I&apos;ll speak up when something needs you.</span>
         </div>
       ) : (
         <>
@@ -113,8 +114,9 @@ export function CoachTopCapsule() {
   return <TopCapsule key={top.fingerprint} p={top} />;
 }
 
-function TopCapsule({ p }: Readonly<{ p: CoachProposal }>) {
-  const { primary, secondary, notNow, sources, takeFrom, dialogs } = useProposalActions(p);
+function TopCapsule({ p: shown }: Readonly<{ p: CoachProposal }>) {
+  const { proposal: p, primary, secondary, notNow, sources, takeFrom, dialogs } =
+    useProposalActions(shown);
   return (
     <div data-testid="coach-capsule" style={{ marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 }}>
       <div

@@ -139,7 +139,7 @@ def test_accepting_a_raise(client, category_ids):
     assert before > 3000
     income(client, 50000)
     [p] = by_kind(proposals(client), "overspending")
-    response = client.post(f"/coach/proposals/{p['fingerprint']}/accept", json={})
+    response = client.post(f"/coach/proposals/{p['fingerprint']}/accept", json={"revision": p["revision"]})
     assert response.status_code == 200, response.text
     budget = client.get("/budget/2026-10").json()
     row = next(c for g in budget["groups"] for c in g["categories"] if c["id"] == restaurantes)
@@ -158,10 +158,11 @@ def test_raise_needs_a_source(client, category_ids):
     [p] = by_kind(proposals(client), "overspending")
     assert [s["category_id"] for s in p["sources"]] == [ocio]
     fp = p["fingerprint"]
-    refused = client.post(f"/coach/proposals/{fp}/accept", json={})
+    refused = client.post(f"/coach/proposals/{fp}/accept", json={"revision": p["revision"]})
     assert refused.status_code == 409
     assert refused.json()["detail"]["code"] == "not_enough_to_assign"
-    ok = client.post(f"/coach/proposals/{fp}/accept", json={"from_category_id": ocio})
+    ok = client.post(f"/coach/proposals/{fp}/accept",
+                     json={"revision": p["revision"], "from_category_id": ocio})
     assert ok.status_code == 200, ok.text
     budget = client.get("/budget/2026-10").json()
     rows = {c["id"]: c for g in budget["groups"] for c in g["categories"]}
@@ -174,7 +175,7 @@ def test_lower_frees_money(client, category_ids):
     history(client, gasolina, 12000, [5500, 6200, 5800])
     before = client.get("/budget/2026-10").json()["to_be_assigned_cents"]
     [p] = by_kind(proposals(client), "underspending")
-    assert client.post(f"/coach/proposals/{p['fingerprint']}/accept", json={}).status_code == 200
+    assert client.post(f"/coach/proposals/{p['fingerprint']}/accept", json={"revision": p["revision"]}).status_code == 200
     after = client.get("/budget/2026-10").json()
     row = next(c for g in after["groups"] for c in g["categories"] if c["id"] == gasolina)
     assert row["assigned_cents"] == 6000
@@ -184,7 +185,8 @@ def test_lower_frees_money(client, category_ids):
 def test_only_raise_and_lower_are_acceptable(client):
     income(client, 21000)
     [p] = by_kind(proposals(client), "unassigned")
-    response = client.post(f"/coach/proposals/{p['fingerprint']}/accept", json={})
+    assert p["revision"] is None  # only raise and lower carry one
+    response = client.post(f"/coach/proposals/{p['fingerprint']}/accept", json={"revision": "x"})
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "not_acceptable"
     assert client.post("/coach/proposals/nope/dismiss").status_code == 404
@@ -196,7 +198,7 @@ def test_state_holds_no_amounts(client, db, user, category_ids):
     client.post(f"/coach/proposals/{p['fingerprint']}/dismiss")
     [row] = db.query(CoachProposalState).filter_by(user_id=user.id).all()
     columns = {c.name for c in CoachProposalState.__table__.columns}
-    assert columns == {"id", "user_id", "fingerprint", "state", "until", "created_at"}
+    assert columns == {"id", "user_id", "fingerprint", "state", "until", "revision", "created_at"}
     assert row.fingerprint == p["fingerprint"] and "€" not in row.fingerprint
 
 
@@ -205,3 +207,92 @@ def test_euro_format():
     assert coach.round_up(22667) == 23000
 
 
+
+# ---- redesign-safety-baseline: F02, F03 ------------------------------------------------
+
+
+def _budget_row(client, category_id: str) -> dict:
+    budget = client.get("/budget/2026-10").json()
+    return next(c for g in budget["groups"] for c in g["categories"] if c["id"] == category_id)
+
+
+def test_a_changed_proposal_is_not_applied(client, category_ids):
+    """F02: acceptance applies exactly the reviewed amount, or nothing."""
+    restaurantes = category_ids["Restaurantes"]
+    income(client, 200000, "2026-07-01")
+    history(client, restaurantes, 20000, [24000, 19000, 25000])
+    [shown] = by_kind(proposals(client), "overspending")
+    assert shown["suggested_cents"] == 23000
+    # A forgotten September expense raises the average after it was shown.
+    client.post("/transactions", json={"amount_cents": 30000, "category_id": restaurantes,
+                                       "date": "2026-09-20"})
+    response = client.post(f"/coach/proposals/{shown['fingerprint']}/accept",
+                           json={"revision": shown["revision"]})
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert detail["code"] == "proposal_changed"
+    assert detail["proposal"]["suggested_cents"] == 33000
+    assert _budget_row(client, restaurantes)["assigned_cents"] == 20000
+
+
+def test_accepting_twice_applies_once(client, category_ids):
+    restaurantes = category_ids["Restaurantes"]
+    income(client, 200000, "2026-07-01")
+    history(client, restaurantes, 20000, [24000, 19000, 25000])
+    [p] = by_kind(proposals(client), "overspending")
+    url, body = f"/coach/proposals/{p['fingerprint']}/accept", {"revision": p["revision"]}
+    before = client.get("/budget/2026-10").json()["to_be_assigned_cents"]
+    assert client.post(url, json=body).status_code == 200
+    assert client.post(url, json=body).status_code == 200
+    assert _budget_row(client, restaurantes)["assigned_cents"] == 23000
+    assert client.get("/budget/2026-10").json()["to_be_assigned_cents"] == before - 3000
+
+
+def test_accept_requires_a_revision(client, category_ids):
+    history(client, category_ids["Restaurantes"], 20000, [24000, 19000, 25000])
+    [p] = by_kind(proposals(client), "overspending")
+    assert client.post(f"/coach/proposals/{p['fingerprint']}/accept", json={}).status_code == 422
+
+
+def test_a_category_cannot_fund_itself(client, category_ids):
+    """F03: the target as its own source changes nothing."""
+    restaurantes = category_ids["Restaurantes"]
+    history(client, restaurantes, 20000, [24000, 19000, 25000])
+    [p] = by_kind(proposals(client), "overspending")
+    before = client.get("/budget/2026-10").json()
+    response = client.post(f"/coach/proposals/{p['fingerprint']}/accept",
+                           json={"revision": p["revision"], "from_category_id": restaurantes})
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "same_category"
+    after = client.get("/budget/2026-10").json()
+    assert after["to_be_assigned_cents"] == before["to_be_assigned_cents"]
+    assert _budget_row(client, restaurantes)["assigned_cents"] == 20000
+
+
+def test_a_savings_category_is_not_a_free_source(client, category_ids):
+    restaurantes, ahorro = category_ids["Restaurantes"], category_ids["Ahorro"]
+    history(client, restaurantes, 20000, [24000, 19000, 25000])
+    client.patch(f"/categories/{ahorro}", json={"savings": True})
+    income(client, 50000)
+    client.put(f"/budget/2026-10/assignments/{ahorro}", json={"amount_cents": 40000})
+    [p] = by_kind(proposals(client), "overspending")
+    response = client.post(f"/coach/proposals/{p['fingerprint']}/accept",
+                           json={"revision": p["revision"], "from_category_id": ahorro})
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "not_enough_in_source"
+    assert _budget_row(client, ahorro)["assigned_cents"] == 40000
+
+
+def test_a_valid_source_keeps_total_assigned(client, category_ids):
+    restaurantes, ocio = category_ids["Restaurantes"], category_ids["Ocio"]
+    history(client, restaurantes, 20000, [24000, 19000, 25000])
+    income(client, 5000)
+    client.put(f"/budget/2026-10/assignments/{ocio}", json={"amount_cents": 4000})
+    before = client.get("/budget/2026-10").json()
+    [p] = by_kind(proposals(client), "overspending")
+    client.post(f"/coach/proposals/{p['fingerprint']}/accept",
+                json={"revision": p["revision"], "from_category_id": ocio})
+    after = client.get("/budget/2026-10").json()
+    assert after["to_be_assigned_cents"] == before["to_be_assigned_cents"]
+    total = lambda v: sum(c["assigned_cents"] for g in v["groups"] for c in g["categories"])
+    assert total(after) == total(before)

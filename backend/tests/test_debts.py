@@ -264,7 +264,9 @@ def test_card_plan_pending_then_paid_by_a_transfer(client):
                                     "amount_cents": 45000, "date": "2026-10-14"})
     overview = client.get("/overview/2026-10").json()
     assert overview["to_pay"] == []
-    assert "Debt plan" in [p["name"] for p in overview["paid"]["items"]]
+    # Paying the card is a settlement: it goes to card_payments, not paid (F05).
+    assert "Debt plan" in [p["name"] for p in overview["card_payments"]["items"]]
+    assert "Debt plan" not in [p["name"] for p in overview["paid"]["items"]]
 
 
 def test_installment_late_after_three_days(client, monkeypatch):

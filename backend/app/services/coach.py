@@ -7,6 +7,7 @@ here leaves the app. State (dismissed for a week, accepted) is kept per
 fingerprint, never with amounts.
 """
 
+import hashlib
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -42,10 +43,11 @@ MONTH_NAMES = [
 
 
 class CoachError(Exception):
-    def __init__(self, status: int, code: str):
+    def __init__(self, status: int, code: str, proposal: "Proposal | None" = None):
         super().__init__(code)
         self.status = status
         self.code = code
+        self.proposal = proposal  # proposal_changed: the current version
 
 
 @dataclass
@@ -61,6 +63,18 @@ class Proposal:
     @property
     def urgency(self) -> int:
         return URGENCY[self.kind]
+
+    @property
+    def revision(self) -> str | None:
+        """Binds acceptance to the reviewed amounts (redesign F02): any change
+        in what a raise or lower would do yields a new revision."""
+        if self.action not in ("raise", "lower"):
+            return None
+        d = self.payload
+        sources = ",".join(sorted(s["category_id"] for s in d.get("sources") or []))
+        raw = (f"{self.fingerprint}|{d['category_id']}|{d['current_cents']}|"
+               f"{d['suggested_cents']}|{d['diff_cents']}|{sources}")
+        return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
 def eur(cents: int) -> str:
@@ -299,7 +313,8 @@ def visible(db: Session, user: User) -> list[Proposal]:
     return [p for p in detect(db, user) if shown(p)]
 
 
-def _record(db: Session, user: User, fp: str, state: str, until: datetime | None) -> None:
+def _record(db: Session, user: User, fp: str, state: str, until: datetime | None,
+            revision: str | None = None) -> None:
     row = db.scalar(select(CoachProposalState).where(
         CoachProposalState.user_id == user.id, CoachProposalState.fingerprint == fp))
     if row is None:
@@ -307,6 +322,7 @@ def _record(db: Session, user: User, fp: str, state: str, until: datetime | None
         db.add(row)
     row.state = state
     row.until = until
+    row.revision = revision
     db.flush()
 
 
@@ -322,13 +338,22 @@ def dismiss(db: Session, user: User, fp: str) -> None:
     _record(db, user, fp, "dismissed", _now() + timedelta(days=DISMISS_DAYS))
 
 
-def accept(db: Session, user: User, fp: str, from_category_id: str | None) -> None:
-    """Apply a raise or lower through the budget's own operations (design D4)."""
+def accept(db: Session, user: User, fp: str, revision: str,
+           from_category_id: str | None) -> None:
+    """Apply exactly the reviewed raise or lower (redesign F02, F03): the
+    revision must match the recomputed proposal, a repeated acceptance is a
+    no-op, and a funding source follows the budget's move rules."""
+    from .budget_moves import MoveError, validate_source
     from .budget_view import build_view, ensure_assignment, materialize_month
 
+    state = _states(db, user).get(fp)
+    if state is not None and state.state == "accepted" and state.revision == revision:
+        return  # retry of an applied acceptance
     proposal = _find(db, user, fp)
     if proposal.action not in ("raise", "lower"):
         raise CoachError(409, "not_acceptable")
+    if proposal.revision != revision:
+        raise CoachError(409, "proposal_changed", proposal)
     month = sched.current_month()
     data = proposal.payload
     bm = materialize_month(db, user, month)
@@ -339,10 +364,17 @@ def accept(db: Session, user: User, fp: str, from_category_id: str | None) -> No
     if proposal.action == "raise":
         view = build_view(db, user, month)
         if from_category_id:
-            source_view = next((c for g in view.groups for c in g.categories
-                                if c.id == from_category_id), None)
+            try:
+                source_view = validate_source(view, data["category_id"], from_category_id, diff)
+            except MoveError as error:
+                if error.code == "same_category":
+                    raise CoachError(422, "same_category") from error
+                raise CoachError(409, "not_enough_in_source") from error
+            if source_view.kind != "flexible":
+                # Savings, payments and card reserves are not free money.
+                raise CoachError(409, "not_enough_in_source")
             source = ensure_assignment(db, user, bm, from_category_id)
-            if source_view is None or source is None or source_view.available_cents < diff:
+            if source is None:
                 raise CoachError(409, "not_enough_in_source")
             source.assigned_cents -= diff
             source.suggestion_state = "edited"
@@ -351,5 +383,5 @@ def accept(db: Session, user: User, fp: str, from_category_id: str | None) -> No
     target.assigned_cents = data["suggested_cents"]
     target.suggestion_state = "edited"
     db.flush()
-    _record(db, user, fp, "accepted", None)
+    _record(db, user, fp, "accepted", None, revision)
 

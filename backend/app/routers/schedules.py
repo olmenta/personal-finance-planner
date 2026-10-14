@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps import current_user
 from ..models import Category, PaymentSchedule, User
-from ..schemas import SCHEDULE_FIELDS, ScheduleIn, ScheduleOut
+from ..schemas import horizon_error, SCHEDULE_FIELDS, ScheduleIn, ScheduleOut
 from ..services.budget_view import refresh_computed_assignments
 from ..services.debts import debt_for_category
 
@@ -21,7 +21,8 @@ def _validate(body: dict):
     try:
         return _validator.validate_python(body)
     except ValidationError as exc:
-        raise HTTPException(status_code=422, detail={"code": "invalid_schedule"}) from exc
+        code = "outside_planning_horizon" if horizon_error(exc) else "invalid_schedule"
+        raise HTTPException(status_code=422, detail={"code": code}) from exc
 
 
 def _apply(schedule: PaymentSchedule, valid) -> None:

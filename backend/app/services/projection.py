@@ -10,6 +10,7 @@ real coverage; its income still due (pending or late) carries into M+1.
 Nothing here moves money; it is recomputed on every read.
 """
 
+import math
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
@@ -27,12 +28,31 @@ from .budget_view import build_view
 from .overview import build_overview
 
 
-def _allocate(wanted: dict[str, float], money: float) -> tuple[dict[str, float], float]:
+def _allocate(wanted: dict[str, int], money: int) -> tuple[dict[str, int], int]:
+    """Fill `wanted` from `money` in whole cents (redesign F06). When it doesn't
+    fit, each item gets the floor of its pro-rata share and the leftover cents
+    go one by one to the largest remainders (ties in iteration order), so the
+    allocation never exceeds the money and a missing cent stays missing."""
     total = sum(wanted.values())
+    available = max(0, money)
     if total <= 0:
-        return {k: 0.0 for k in wanted}, money
-    ratio = min(1.0, max(0.0, money) / total)
-    return {k: v * ratio for k, v in wanted.items()}, money - total * ratio
+        return {k: 0 for k in wanted}, money
+    if available >= total:
+        return dict(wanted), money - total
+    shares = {k: v * available // total for k, v in wanted.items()}
+    leftover = available - sum(shares.values())
+    by_remainder = sorted(
+        wanted, key=lambda k: -((wanted[k] * available) % total)
+    )
+    for k in by_remainder[:leftover]:
+        shares[k] += 1
+    return shares, money - available
+
+
+def _cents_up(amount: float) -> int:
+    """Wanted amounts are float cents from the schedule math; round them up to
+    whole cents like `schedules.amounts` does for suggestions."""
+    return math.ceil(amount - 1e-9)
 
 
 def _is_goal_only(schedules: list[PaymentSchedule]) -> bool:
@@ -65,18 +85,18 @@ def _plan(db: Session, user: User, month: str) -> tuple[_Plan, object]:
 
 
 def _occurrences(
-    plan: _Plan, month: str, available: dict[str, float] | None
+    plan: _Plan, month: str, available: dict[str, int] | None
 ) -> list[UpcomingOccurrence]:
     """This month's payments; with `available`, mark coverage in day order."""
     result = []
     for category_id, schedules in plan.dated.items():
-        reserve = available.get(category_id, 0.0) if available is not None else None
+        reserve = available.get(category_id, 0) if available is not None else None
         due = sorted((s for s in schedules if sched.occurs(s, month)), key=lambda s: s.day or 1)
         for s in due:
             covered = short = None
             if reserve is not None:
-                got = max(0.0, min(float(s.amount_cents), reserve))
-                short = round(s.amount_cents - got)
+                got = max(0, min(s.amount_cents, reserve))
+                short = s.amount_cents - got
                 covered = short == 0
                 reserve -= s.amount_cents
             result.append(
@@ -133,11 +153,19 @@ def upcoming(db: Session, user: User, month: str) -> UpcomingView:
     ]
 
     # Projected end of M.
-    saved: dict[str, float] = {cid: 0.0 for cid in [*plan.dated, *plan.goals]}
+    saved: dict[str, int] = {cid: 0 for cid in [*plan.dated, *plan.goals]}
     for item in overview.saved.items:
         if item.category_id in saved:
-            saved[item.category_id] = float(item.amount_cents)
-    tba = float(max(0, overview.to_be_assigned_cents))
+            saved[item.category_id] = item.amount_cents
+    # Signed, never clipped (redesign F01): an over-assigned month, its cash
+    # overspending and the uncovered part of its pending payments all reduce
+    # what the next month starts with. Covered pending payments are already
+    # inside To Be Assigned, so nothing is counted twice.
+    tba = (
+        overview.to_be_assigned_cents
+        - overview.overspent_cents
+        - sum(p.short_cents for p in overview.to_pay)
+    )
     if income_known:
         tba += income_service.month_income(db, user, month).still_expected_cents
 
@@ -154,32 +182,32 @@ def upcoming(db: Session, user: User, month: str) -> UpcomingView:
             continue
         expected = income_service.expected_in(incomes, m)
         money = expected + tba
-        pay = {cid: float(sched.payments_in(s, m)) for cid, s in plan.dated.items()}
-        need_now = {cid: max(0.0, pay[cid] - saved[cid]) for cid in plan.dated}
+        pay = {cid: sched.payments_in(s, m) for cid, s in plan.dated.items()}
+        need_now = {cid: max(0, pay[cid] - saved[cid]) for cid in plan.dated}
         quota = {
-            cid: max(sched.category_normal(s, m), sched.catch_up(s, m, round(saved[cid])))
+            cid: _cents_up(max(sched.category_normal(s, m), sched.catch_up(s, m, saved[cid])))
             for cid, s in plan.dated.items()
         }
-        later = {cid: max(0.0, quota[cid] - need_now[cid]) for cid in plan.dated}
-        goal_wanted = {cid: sched.category_normal(s, m) for cid, s in plan.goals.items()}
+        later = {cid: max(0, quota[cid] - need_now[cid]) for cid in plan.dated}
+        goal_wanted = {cid: _cents_up(sched.category_normal(s, m)) for cid, s in plan.goals.items()}
 
         a1, money = _allocate(need_now, money)
-        a2, money = _allocate({k: float(v) for k, v in plan.flexible_budget.items()}, money)
+        a2, money = _allocate(dict(plan.flexible_budget), money)
         a3, money = _allocate(later, money)
         a4, money = _allocate(goal_wanted, money)
 
         available = {cid: saved[cid] + a1[cid] + a3[cid] for cid in plan.dated}
         occ = _occurrences(plan, m, available)
-        uncovered = 0.0
+        uncovered = 0
         for cid in plan.dated:
             end = available[cid] - pay[cid]
             if end < 0:
                 uncovered += -end
-            saved[cid] = max(0.0, end)
+            saved[cid] = max(0, end)
         for cid in plan.goals:
             saved[cid] += a4[cid]
-        unassigned = max(0.0, money)
-        tba = unassigned - uncovered
+        unassigned = max(0, money)
+        tba = money - uncovered  # a deficit keeps carrying (F01)
 
         months.append(
             UpcomingMonth(
@@ -189,10 +217,10 @@ def upcoming(db: Session, user: User, month: str) -> UpcomingView:
                 payments_cents=sum(o.amount_cents for o in occ),
                 short_cents=sum(o.short_cents or 0 for o in occ),
                 flexible_budget_cents=flexible_budget,
-                flexible_funded_cents=round(sum(a2.values())),
-                set_aside_wanted_cents=round(sum(later.values()) + sum(goal_wanted.values())),
-                set_aside_funded_cents=round(sum(a3.values()) + sum(a4.values())),
-                unassigned_cents=round(unassigned),
+                flexible_funded_cents=sum(a2.values()),
+                set_aside_wanted_cents=sum(later.values()) + sum(goal_wanted.values()),
+                set_aside_funded_cents=sum(a3.values()) + sum(a4.values()),
+                unassigned_cents=unassigned,
             )
         )
     return UpcomingView(

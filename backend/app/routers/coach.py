@@ -17,6 +17,7 @@ def _out(p: service.Proposal) -> CoachProposalOut:
     data = p.payload
     return CoachProposalOut(
         fingerprint=p.fingerprint,
+        revision=p.revision,
         kind=p.kind,  # type: ignore[arg-type]
         title=p.title,
         body=p.body,
@@ -34,7 +35,10 @@ def _out(p: service.Proposal) -> CoachProposalOut:
 
 
 def _fail(error: service.CoachError) -> HTTPException:
-    return HTTPException(status_code=error.status, detail={"code": error.code})
+    detail: dict = {"code": error.code}
+    if error.proposal is not None:
+        detail["proposal"] = _out(error.proposal).model_dump()
+    return HTTPException(status_code=error.status, detail=detail)
 
 
 @router.get("/proposals", response_model=CoachProposalsView)
@@ -58,12 +62,12 @@ def dismiss(
 @router.post("/proposals/{fingerprint}/accept", response_model=CoachProposalsView)
 def accept(
     fingerprint: str,
-    body: AcceptProposalIn = Body(default=AcceptProposalIn()),
+    body: AcceptProposalIn = Body(...),
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> CoachProposalsView:
     try:
-        service.accept(db, user, fingerprint, body.from_category_id)
+        service.accept(db, user, fingerprint, body.revision, body.from_category_id)
     except service.CoachError as error:
         raise _fail(error) from error
     return list_proposals(db, user)

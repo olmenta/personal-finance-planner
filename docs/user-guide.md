@@ -94,6 +94,8 @@ Some costs have dates: rent every month, school fees from September to June, ins
 
 Olmenta then works out the monthly amount for you. School fees of 632 € from September to June become 526,67 € every month, July and August included. You never type that number: the category is assigned it automatically.
 
+A dated payment can be planned up to 10 years ahead; further than that, Olmenta asks you to add it later.
+
 If you started late and what's saved isn't enough for a payment that's coming, Olmenta shows a higher amount to **be on time**. It drops back to normal once you catch up.
 
 ### Moving money
@@ -113,7 +115,7 @@ Mark a category as **savings** (emergency fund, a trip, the kids' savings) and i
 The home screen answers three questions:
 
 - **What do I have to solve this month?**
-  - **Already paid this month** lists the payments that already went out.
+  - **Already paid this month** lists the payments and spending that already went out. A bill you've paid only in part shows as "paid in part", and the rest stays under "Still to pay". **Card payments** appear on their own line: the purchases were already counted when you made them, so paying the card isn't counted as spending again.
   - **Still to pay this month** lists what's coming, with a "covered" or "short X €" tag on each.
   - **Left to spend** is what remains in your day-to-day categories.
 - **Where's the rest of my money?** **Saved for the future** and **Unassigned**.
@@ -180,9 +182,11 @@ It suggests, from most to least urgent:
 - **Money with no job**: give it one in the budget.
 - **A category always has money left** (all of the last 3 months): **Lower it** and free that money for something else.
 
-**Raise it** and **Lower it** change this month's amount in one tap, and the next months follow. If there isn't enough left to assign for a raise, the coach shows the categories you can take the money from.
+**Raise it** and **Lower it** change this month's amount in one tap, and the next months follow. If there isn't enough left to assign for a raise, the coach shows the categories you can take the money from. If your numbers changed since the suggestion appeared (say, you recorded another expense), nothing is applied: the coach shows the updated suggestion so you can check it first.
 
 You see three suggestions at a time; **See more** shows the rest. **Not now** hides a suggestion for a week. If the situation is still there after that, it comes back.
+
+When there's nothing to suggest, the coach says so: "No suggestions right now." That isn't a promise that your plan is fine; check the home screen and Upcoming payments for the full picture.
 
 Your coach works out every suggestion from your own numbers, inside Olmenta. Nothing is sent anywhere to write them.
 

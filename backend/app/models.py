@@ -226,6 +226,8 @@ class CoachProposalState(Base):
     fingerprint: Mapped[str] = mapped_column(String(120))
     state: Mapped[str] = mapped_column(String(12))  # dismissed | accepted
     until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The accepted proposal's revision hash (a retry of it is a no-op).
+    revision: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 

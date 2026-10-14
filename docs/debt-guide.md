@@ -51,7 +51,7 @@ Use this for a card that carries an old balance you're paying down.
 From then on:
 
 - the plan amount is set aside every month in the card's payment category, on top of the money for new purchases;
-- the card payment shows in **Still to pay this month**, and counts as paid when you transfer the money to the card.
+- the card payment shows in **Still to pay this month**, and counts as paid when you transfer the money to the card. Once paid, it appears under **Card payments** on the home screen, not as new spending.
 
 **What you owe on a card.** It's the card's balance minus the money already set aside for purchases you budgeted. This month's plan doesn't count until you actually transfer it: setting money aside isn't the same as paying.
 

@@ -7,7 +7,8 @@ Errors carry machine-readable codes (§6.7): {"code": "<snake_case>"}.
 from datetime import date as date_type
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 # ---- Transactions ----------------------------------------------------------
 
@@ -321,9 +322,31 @@ class EveryNSchedule(_ScheduleBase):
     start_month: MonthStr
 
 
+HORIZON_ERROR = "outside_planning_horizon"
+
+
+def check_horizon(month: str | None) -> str | None:
+    """Dated payments must fall within the catch-up horizon (120 months from
+    now), so a zero monthly amount never hides a payment (redesign F10)."""
+    if month is None:
+        return month
+    from .services import schedules as sched
+
+    last = sched.month_index(sched.current_month()) + sched.MAX_HORIZON - 1
+    if sched.month_index(month) > last:
+        raise PydanticCustomError(HORIZON_ERROR, "beyond the planning horizon")
+    return month
+
+
+def horizon_error(exc: ValidationError) -> bool:
+    return any(e.get("type") == HORIZON_ERROR for e in exc.errors())
+
+
 class OnceSchedule(_ScheduleBase):
     pattern: Literal["once"]
     once_month: MonthStr
+
+    _horizon = field_validator("once_month")(classmethod(lambda cls, v: check_horizon(v)))
 
 
 class NoDateSchedule(_ScheduleBase):
@@ -557,6 +580,7 @@ class OverviewPaidItem(BaseModel):
     name: str | None  # schedule name; null = the category's other spending
     day: int | None
     amount_cents: int
+    partial: bool = False  # the paid part of a payment that isn't settled yet
 
 
 class OverviewAmountItem(BaseModel):
@@ -568,6 +592,14 @@ class OverviewAmountItem(BaseModel):
 
 
 class OverviewPaidSection(BaseModel):
+    total_cents: int
+    items: list[OverviewPaidItem]
+
+
+class OverviewCardPayments(BaseModel):
+    """Transfers into cards this month: settlements, not new spending. The
+    purchases were already counted in `paid` through their categories."""
+
     total_cents: int
     items: list[OverviewPaidItem]
 
@@ -594,6 +626,7 @@ class OverviewView(BaseModel):
     month: str
     today: date_type
     paid: OverviewPaidSection
+    card_payments: OverviewCardPayments
     to_pay: list[OverviewPending]
     to_pay_total_cents: int
     covered_cents: int
@@ -769,6 +802,8 @@ class PersonalDebtIn(_DebtRate):
     name: str = Field(min_length=1, max_length=120)
     owed_cents: int = Field(gt=0)
     due_month: MonthStr | None = None
+
+    _horizon = field_validator("due_month")(classmethod(lambda cls, v: check_horizon(v)))
     lender: str | None = Field(default=None, max_length=120)
 
 
@@ -793,6 +828,8 @@ class DebtUpdate(BaseModel):
     # personal
     owed_cents: int | None = Field(default=None, gt=0)
     due_month: MonthStr | None = None
+
+    _horizon = field_validator("due_month")(classmethod(lambda cls, v: check_horizon(v)))
     lender: str | None = Field(default=None, max_length=120)
 
     model_config = {"extra": "forbid"}
@@ -864,6 +901,7 @@ class ProposalSource(BaseModel):
 
 class CoachProposalOut(BaseModel):
     fingerprint: str
+    revision: str | None = None  # raise / lower: send it back to accept
     kind: Literal[
         "late_income", "late_debt_payment", "short_months",
         "overspending", "unassigned", "underspending",
@@ -891,4 +929,5 @@ class CoachProposalsView(BaseModel):
 
 
 class AcceptProposalIn(BaseModel):
+    revision: str  # the revision the user reviewed (redesign F02)
     from_category_id: str | None = None
