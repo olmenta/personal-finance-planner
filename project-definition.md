@@ -42,7 +42,7 @@ The product's core promise: **"Know where your money goes each month, and know w
 8. **Roll with the punches: cover overspending in the month it happens.**
    - When a category goes over, the money already left the bank, so it is covered right away by moving money from another category. The app suggests the source in one tap and never blocks expense entry.
    - Only if the month closes uncovered is the amount deducted from next month's To Be Assigned, and the category starts clean (never a negative carry-over).
-   - If a category overspends month after month, the coach proposes raising its budget.
+   - If a category overspends month after month, the coach proposes raising its budget; if it always has money left, it proposes lowering it. Both are one-tap coach proposals.
 9. **Refunds return to their category.** An inflow with a category is a refund: it lowers that category's spending and never counts as income.
 10. **Credit cards the YNAB way** (planned with accounts and transfers).
     - A card purchase is spending in its category at purchase time.
@@ -92,7 +92,7 @@ The app always answers: *"What do I have to solve this month?"* (paid, still to 
 - Multi-currency support (a card billed in another currency is recorded in euros)
 - Multiple budgets per user (e.g. separating personal projects' costs from the household budget)
 - Chat about debts: a short coach interview, opened from the always-visible "Work on my debts" button, to add or re-plan debts by talking
-- Coach proposals on the plan (repeated overspending, monthly plan adjustments) and onboarding extraction of payment schedules
+- More coach proposals (where to adjust when the annual plan doesn't fit, unplanned income toward debts) and onboarding extraction of payment schedules
 - Advanced reports
 - Reminders / notifications
 - **Expense capture via WhatsApp (AI)** — on roadmap
@@ -273,6 +273,7 @@ Notes:
 - Probable income (bonuses) is never budgeted; expected *fixed* income feeds the annual plan.
 - Savings goals are future expenses (a payment on a date), not "have X by a date" targets.
 - Credit cards follow YNAB (payment category, card debt); multi-currency stays out of v1.
+- Coach proposals (2026-10-13): rule-based, no LLM — late income, late debt payment, short months ahead, repeated overspending (raise), money with no job, repeated underspending (lower). One feed in the coach rail and on /coach (the scripted chat and its input are gone), the most urgent one on the dashboard; three visible, "Not now" hides one for a week, state kept server-side without amounts.
 - Debts (2026-10-07): card, installment loan or personal, each linked to the category that pays it; what's owed is derived (card balance minus what's set aside for new spending, installments left, amount minus payments). Required payments are payment schedules; the optional extra goes to the highest known interest first. A loan set up as a card is converted with "This is a loan, not a card". Chat capture of debts is the next step.
 - Expected income is a list of income schedules (2026-10-06), not one monthly figure: same rules as payments, a payer that is a payee, matched to real income at read time (by payee, then by amount). It feeds the projection, the annual plan and expected-versus-received, never To Be Assigned. A salary more than 3 days late shows a coach nudge on the dashboard.
 - Category kind is derived (payments → scheduled); only "savings" is a user choice.

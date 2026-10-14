@@ -851,3 +851,44 @@ class DebtsView(BaseModel):
     extra_target_debt_id: str | None
     debt_free_month: str | None
     cushion: DebtCushion
+
+
+# ---- Coach proposals (spec: coach-proposals) --------------------------------
+
+
+class ProposalSource(BaseModel):
+    category_id: str
+    name: str
+    available_cents: int
+
+
+class CoachProposalOut(BaseModel):
+    fingerprint: str
+    kind: Literal[
+        "late_income", "late_debt_payment", "short_months",
+        "overspending", "unassigned", "underspending",
+    ]
+    title: str
+    body: str
+    action: Literal["raise", "lower", "add_income", "link_income", "open"]
+    amount_cents: int
+    # raise / lower
+    category_id: str | None = None
+    current_cents: int | None = None
+    suggested_cents: int | None = None
+    diff_cents: int | None = None
+    sources: list[ProposalSource] | None = None
+    # add_income / link_income
+    schedule_id: str | None = None
+    payer: str | None = None
+    # open
+    href: str | None = None
+
+
+class CoachProposalsView(BaseModel):
+    proposals: list[CoachProposalOut]
+    total: int
+
+
+class AcceptProposalIn(BaseModel):
+    from_category_id: str | None = None

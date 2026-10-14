@@ -211,6 +211,24 @@ class DebtSettings(Base):
     extra_monthly_cents: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class CoachProposalState(Base):
+    """What the user did with a coach proposal (coach-proposals design D3).
+
+    Holds only the opaque fingerprint, the state and the time — no amounts or
+    names — so acceptance can be measured later without financial data.
+    """
+
+    __tablename__ = "coach_proposal_states"
+    __table_args__ = (UniqueConstraint("user_id", "fingerprint", name="uq_coach_state_user_fp"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    fingerprint: Mapped[str] = mapped_column(String(120))
+    state: Mapped[str] = mapped_column(String(12))  # dismissed | accepted
+    until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class Payee(Base):
     """Who was paid (expense) / who paid (income) — one entity, label-only split.
 

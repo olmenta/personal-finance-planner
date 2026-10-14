@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from sqlalchemy import case, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -77,9 +78,18 @@ def materialize_month(db: Session, user: User, month: str) -> BudgetMonth:
     saved = month_chain(db, user, month).rollover
     by_category = sched.schedules_by_category(db, user)
 
-    bm = BudgetMonth(user_id=user.id, month=month)
-    db.add(bm)
-    db.flush()
+    try:
+        # Savepoint: two requests can open the same month at once (the
+        # dashboard and the coach feed load in parallel); the loser reuses it.
+        with db.begin_nested():
+            bm = BudgetMonth(user_id=user.id, month=month)
+            db.add(bm)
+            db.flush()
+    except IntegrityError:
+        existing = get_budget_month(db, user, month)
+        if existing is None:
+            raise
+        return existing
 
     previous = get_budget_month(db, user, prev_month(month))
     prev_assignments: dict[str, int] = {}

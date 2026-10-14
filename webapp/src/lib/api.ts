@@ -698,6 +698,53 @@ export const convertToLoan = (accountId: string, body: ConvertToLoanIn) =>
     body: JSON.stringify(body),
   });
 
+// ---- Coach proposals (coach-proposals) ------------------------------------------
+
+export type ProposalKind =
+  | "late_income"
+  | "late_debt_payment"
+  | "short_months"
+  | "overspending"
+  | "unassigned"
+  | "underspending";
+
+export interface CoachProposal {
+  fingerprint: string;
+  kind: ProposalKind;
+  title: string;
+  body: string;
+  action: "raise" | "lower" | "add_income" | "link_income" | "open";
+  amount_cents: number;
+  category_id: string | null;
+  current_cents: number | null;
+  suggested_cents: number | null;
+  diff_cents: number | null;
+  sources: { category_id: string; name: string; available_cents: number }[] | null;
+  schedule_id: string | null;
+  payer: string | null;
+  href: string | null;
+}
+
+export interface CoachProposalsView {
+  proposals: CoachProposal[];
+  total: number;
+}
+
+export const fetchCoachProposals = () => request<CoachProposalsView>("/coach/proposals");
+
+export async function dismissProposal(fingerprint: string): Promise<void> {
+  const res = await fetch(`/api/coach/proposals/${encodeURIComponent(fingerprint)}/dismiss`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new ApiError("dismiss_failed", res.status);
+}
+
+export const acceptProposal = (fingerprint: string, fromCategoryId?: string) =>
+  request<CoachProposalsView>(`/coach/proposals/${encodeURIComponent(fingerprint)}/accept`, {
+    method: "POST",
+    body: JSON.stringify(fromCategoryId ? { from_category_id: fromCategoryId } : {}),
+  });
+
 export const fetchMonthIncome = (month: string) => request<MonthIncomeView>(`/income/${month}`);
 
 export const fetchCategories = () =>

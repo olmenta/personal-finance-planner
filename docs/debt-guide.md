@@ -121,7 +121,7 @@ Debt payments are part of your month:
 
 - **Budget:** they're assigned automatically in their categories.
 - **Home screen:** they show in **Still to pay this month**, with "covered" or "short X €".
-- **Late payments:** when a payment is more than 3 days past its day and hasn't gone out, a note appears on the home screen: "Your Ikea payment was due on the 5th and hasn't gone out yet". It links to What you owe. You can dismiss it.
+- **Late payments:** when a payment is more than 3 days past its day and hasn't gone out, your coach tells you: "Your Ikea payment is late. It was due on the 5th and hasn't gone out yet." **See my plan** takes you to What you owe; **Not now** hides it for a week.
 
 ## A loan that was set up as a card
 

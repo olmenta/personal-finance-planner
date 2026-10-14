@@ -6,7 +6,7 @@ import { Api, euroCents as eur, pinClock, resetDb } from "./support/app";
    2. June's extra pay shows in Upcoming payments;
    3. a lower salary reads "received · X € less" in the budget breakdown;
    4. unplanned income is linked with "This is…";
-   5. a late income nudges from the dashboard and "Add it" clears it.
+   5. a late income shows in the dashboard coach capsule and "Add it" clears it.
    Steps share one database and run in order. */
 
 test.describe.configure({ mode: "serial" });
@@ -72,17 +72,19 @@ test("unplanned income is linked with This is…", async ({ page }) => {
   await expect(dialog).not.toContainText("Unplanned income");
 });
 
-test("a late income nudges from the dashboard until it's added", async ({ page }) => {
+test("a late income shows in the coach capsule until it's added", async ({ page }) => {
   await api.incomeSchedule({ name: "Pensión", payer: "INSS", amount_cents: 70000, pattern: "monthly", day: 5 });
   await page.goto("/");
-  const nudge = page.getByTestId("late-income-nudge");
-  await expect(nudge).toContainText(`Your Pensión (${eur(70000)}) usually arrives on the 5th and isn't here yet`);
+  const nudge = page.getByTestId("coach-capsule");
+  await expect(nudge).toContainText("Your Pensión isn't here yet");
+  await expect(nudge).toContainText(`It usually arrives on the 5th (${eur(70000)})`);
 
-  await nudge.getByText("Add it").click();
+  await nudge.getByRole("button", { name: "Add it" }).click();
   const dialog = page.getByRole("dialog", { name: "Add transaction" });
   await expect(dialog.getByLabel("Amount")).toHaveValue("700,00");
   await expect(dialog.getByLabel("Payer")).toHaveValue("INSS");
   await dialog.getByRole("button", { name: "Add income" }).click();
 
-  await expect(nudge).toBeHidden();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText("Your Pensión isn't here yet")).toHaveCount(0);
 });
