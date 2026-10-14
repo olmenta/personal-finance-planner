@@ -17,7 +17,7 @@ import { invalidateMoneyQueries } from "@/lib/planQueries";
 
 /* The actions of a coach proposal (coach-proposals design D5): one-tap raise
    and lower go to the API; adding or linking income and opening a screen
-   stay in the browser. Shared by the feed card and the dashboard capsule. */
+   stay in the browser. Used by ProposalCard on Home. */
 
 export interface ProposalAction {
   label: string;
@@ -64,7 +64,10 @@ export function useProposalActions(shown: CoachProposal) {
   });
   const dismiss = useMutation({
     mutationFn: () => dismissProposal(p.fingerprint),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["coach-proposals"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["coach-proposals"] });
+      queryClient.invalidateQueries({ queryKey: ["home"] });
+    },
   });
 
   let primary: ProposalAction | null = null;

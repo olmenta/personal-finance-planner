@@ -4,12 +4,14 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 import { IconButton } from "@/components/ui/IconButton";
+import { isActive } from "./Sidebar";
 
 const items = [
   { href: "/", icon: "home", label: "Home" },
-  { href: "/budgets", icon: "pie-chart", label: "Report" },
-  { href: "/coach", icon: "sparkles", label: "Coach" },
-  { href: "/settings", icon: "settings", label: "Settings" },
+  { href: "/budgets", icon: "pie-chart", label: "Budget" },
+  { href: "/transactions", icon: "receipt", label: "Transactions" },
+  { href: "/future", icon: "calendar", label: "Future" },
+  { href: "/accounts", icon: "wallet", label: "Accounts" },
 ];
 
 function NavItem({
@@ -26,12 +28,13 @@ function NavItem({
   return (
     <Link
       href={href}
+      aria-current={active ? "page" : undefined}
       style={{
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         gap: 4,
-        minWidth: 56,
+        minWidth: 48,
         textDecoration: "none",
       }}
     >
@@ -58,22 +61,12 @@ export function BottomNav() {
   const router = useRouter();
 
   return (
-    <div className="app-bottomnav">
+    <nav className="app-bottomnav" aria-label="Main">
       {items.slice(0, 2).map((it) => (
-        <NavItem key={it.href} {...it} active={pathname === it.href} />
+        <NavItem key={it.href} {...it} active={isActive(it.href, pathname)} />
       ))}
-      <div style={{ width: 60, flex: "none" }} />
-      {items.slice(2).map((it) => (
-        <NavItem key={it.href} {...it} active={pathname === it.href} />
-      ))}
-      <div
-        style={{
-          position: "absolute",
-          top: -18,
-          left: "50%",
-          transform: "translateX(-50%)",
-        }}
-      >
+      {/* The add button sits in the bar's flow, raised above it (five tabs). */}
+      <div style={{ marginTop: -30, flex: "none" }}>
         <IconButton
           icon="plus"
           variant="fab"
@@ -81,6 +74,9 @@ export function BottomNav() {
           onClick={() => router.push("/transactions")}
         />
       </div>
-    </div>
+      {items.slice(2).map((it) => (
+        <NavItem key={it.href} {...it} active={isActive(it.href, pathname)} />
+      ))}
+    </nav>
   );
 }

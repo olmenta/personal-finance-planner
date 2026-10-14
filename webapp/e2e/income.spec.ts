@@ -6,7 +6,7 @@ import { Api, euroCents as eur, pinClock, resetDb } from "./support/app";
    2. June's extra pay shows in Upcoming payments;
    3. a lower salary reads "received · X € less" in the budget breakdown;
    4. unplanned income is linked with "This is…";
-   5. a late income shows in the dashboard coach capsule and "Add it" clears it.
+   5. a late income is Home's priority action and "Add it" clears it.
    Steps share one database and run in order. */
 
 test.describe.configure({ mode: "serial" });
@@ -48,7 +48,7 @@ test("sets up fourteen pagas in Settings", async ({ page }) => {
 });
 
 test("June's extra pay shows in Upcoming payments", async ({ page }) => {
-  await page.goto("/upcoming");
+  await page.goto("/future");
   const june = page.getByRole("button", { name: /June 2027/ });
   await expect(june).toContainText(`+${eur(400000)}`);
   await expect(page.getByRole("button", { name: /May 2027/ })).toContainText(`+${eur(200000)}`);
@@ -72,10 +72,10 @@ test("unplanned income is linked with This is…", async ({ page }) => {
   await expect(dialog).not.toContainText("Unplanned income");
 });
 
-test("a late income shows in the coach capsule until it's added", async ({ page }) => {
+test("a late income is the priority action until it's added", async ({ page }) => {
   await api.incomeSchedule({ name: "Pensión", payer: "INSS", amount_cents: 70000, pattern: "monthly", day: 5 });
   await page.goto("/");
-  const nudge = page.getByTestId("coach-capsule");
+  const nudge = page.getByTestId("priority-action");
   await expect(nudge).toContainText("Your Pensión isn't here yet");
   await expect(nudge).toContainText(`It usually arrives on the 5th (${eur(70000)})`);
 

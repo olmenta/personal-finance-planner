@@ -7,15 +7,20 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Icon } from "@/components/ui/Icon";
 
 const items = [
-  { href: "/", icon: "dashboard", label: "Overview" },
+  { href: "/", icon: "home", label: "Home" },
+  { href: "/budgets", icon: "pie-chart", label: "Budget" },
   { href: "/transactions", icon: "receipt", label: "Transactions" },
+  { href: "/future", icon: "calendar", label: "Future" },
   { href: "/accounts", icon: "wallet", label: "Accounts" },
-  { href: "/budgets", icon: "pie-chart", label: "Budgets" },
-  { href: "/upcoming", icon: "calendar", label: "Upcoming" },
-  { href: "/debts", icon: "landmark", label: "What you owe" },
-  { href: "/goals", icon: "target", label: "Goals" },
-  { href: "/coach", icon: "sparkles", label: "Coach" },
 ];
+
+/* The five destinations (spec: navigation). Screens reached from one keep it
+   highlighted: What you owe lives under Accounts. */
+export function isActive(href: string, pathname: string): boolean {
+  if (href === "/") return pathname === "/";
+  if (href === "/accounts" && pathname.startsWith("/debts")) return true;
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 function SideItem({
   href,
@@ -31,6 +36,7 @@ function SideItem({
   return (
     <Link
       href={href}
+      aria-current={active ? "page" : undefined}
       style={{
         display: "flex",
         alignItems: "center",
@@ -100,7 +106,7 @@ export function Sidebar() {
           Menu
         </div>
         {items.map((it) => (
-          <SideItem key={it.href} {...it} active={pathname === it.href} />
+          <SideItem key={it.href} {...it} active={isActive(it.href, pathname)} />
         ))}
       </nav>
 

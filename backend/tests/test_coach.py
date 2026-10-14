@@ -103,7 +103,7 @@ def test_short_months_grouped(client, category_ids):
                                            "pattern": "monthly", "day": 1})
     [p] = by_kind(proposals(client), "short_months")
     assert p["title"] == "March and June won't be fully covered"
-    assert p["href"] == "/upcoming?month=2027-03"
+    assert p["href"] == "/future?month=2027-03"
 
 
 def test_late_income_first(client, category_ids, monkeypatch):

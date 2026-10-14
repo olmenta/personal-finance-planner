@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import React from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -30,6 +31,7 @@ import {
   convertToLoan,
   createAccount,
   currentMonth,
+  fetchDebts,
   updateAccount,
   type AccountOut,
   type AccountType,
@@ -512,6 +514,37 @@ function AccountRow({
   );
 }
 
+/* What you owe lives under Accounts (spec: debts, navigation). */
+function DebtsCard() {
+  const debts = useQuery({ queryKey: ["debts"], queryFn: fetchDebts });
+  const data = debts.data;
+  const active = (data?.debts ?? []).filter((d) => !d.paid_off);
+  return (
+    <Panel
+      title="What you owe"
+      action={
+        <Link href="/debts" style={{ textDecoration: "none" }}>
+          <Button variant="secondary" size="sm" iconRight="chevron-right">Open</Button>
+        </Link>
+      }
+    >
+      <div data-testid="debts-card" style={{ font: "500 14px/1.5 var(--font-sans)", color: "var(--text-body)" }}>
+        {!data ? (
+          "…"
+        ) : active.length === 0 ? (
+          "Nothing owed. If you have a card balance, a loan or money you owe someone, add it to get a plan."
+        ) : (
+          <>
+            <b style={{ fontVariantNumeric: "tabular-nums" }}>{euroCents(data.total_owed_cents)}</b> across{" "}
+            {active.length} {active.length === 1 ? "debt" : "debts"}
+            {data.debt_free_month ? ` · debt-free in ${monthLabel(data.debt_free_month)} if you keep the plan` : ""}
+          </>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
 export default function AccountsPage() {
   const query = useAccounts();
   const [adding, setAdding] = React.useState(false);
@@ -556,6 +589,7 @@ export default function AccountsPage() {
             ))
           )}
         </Panel>
+        <DebtsCard />
         {archived.length > 0 && (
           <Panel title="Archived">
             {archived.map((a, i) => (
