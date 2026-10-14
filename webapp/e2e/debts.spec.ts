@@ -4,7 +4,7 @@ import { Api, euroCents as eur, pinClock, resetDb } from "./support/app";
 /* debt-paydown, task 7.3 — on 14 October 2026:
    1. a card debt with a plan from a target month, order and debt-free month;
    2. a loan and a personal debt with a date;
-   3. the late-installment nudge on the dashboard;
+   3. the late installment shown by the coach on the dashboard;
    4. "Work on my debts" opens the editor from a row;
    5. a loan set up as a card is converted from the accounts screen.
    Steps share one database and run in order. */
@@ -89,11 +89,13 @@ test("a loan and a personal debt with a date join the plan in order", async ({ p
   await expect(row(page, "Jose y Ruby")).toContainText("due March 2027");
 });
 
-test("a late installment nudges from the dashboard", async ({ page }) => {
+test("the coach shows a late installment on the dashboard", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("late-debt-nudge")).toContainText(
-    "Your Ikea payment was due on the 5th and hasn't gone out yet",
-  );
+  const capsule = page.getByTestId("coach-capsule");
+  await expect(capsule).toContainText("Your Ikea payment is late");
+  await expect(capsule).toContainText("It was due on the 5th and hasn't gone out yet");
+  await capsule.getByRole("button", { name: "See my plan" }).click();
+  await expect(page).toHaveURL(/\/debts$/);
 });
 
 test("Work on my debts opens the plan of a row", async ({ page }) => {

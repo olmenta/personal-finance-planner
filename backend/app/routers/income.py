@@ -10,6 +10,7 @@ from ..db import get_db
 from ..deps import current_user
 from ..models import IncomeSchedule, User
 from ..schemas import (
+    horizon_error,
     SCHEDULE_FIELDS,
     IncomeScheduleIn,
     IncomeScheduleOut,
@@ -35,7 +36,8 @@ def _validate(body: dict):
     try:
         return _validator.validate_python(body)
     except ValidationError as exc:
-        raise HTTPException(status_code=422, detail={"code": "invalid_schedule"}) from exc
+        code = "outside_planning_horizon" if horizon_error(exc) else "invalid_schedule"
+        raise HTTPException(status_code=422, detail={"code": code}) from exc
 
 
 def _out(schedule: IncomeSchedule) -> IncomeScheduleOut:

@@ -191,9 +191,16 @@ def test_request_values_never_exported(captured_spans):
         return {"ok": True}
 
     exporter = captured_spans("development", include_content=True, app=app)
-    TestClient(app).post("/echo", json={"description": PLANTED, "amount_cents": 4520})
-    text = _exported_text(exporter)
-    assert "/echo" in text and PLANTED not in text and "4520" not in text
+    TestClient(app).post("/echo", json={"description": PLANTED, "amount_cents": 731942})
+    # Look only at structured attributes: ids and timestamps are numbers too,
+    # and a short amount could appear inside them by chance.
+    attributes = [
+        str(value)
+        for span in exporter.exported_spans_as_dict()
+        for value in (span.get("attributes") or {}).values()
+    ]
+    assert any("/echo" in value for value in attributes)
+    assert not any(PLANTED in value or "731942" in value for value in attributes)
 
 
 def test_no_token_no_exporter(monkeypatch, tmp_path):

@@ -92,11 +92,9 @@
 .grid-goals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-/* Coach rail collapses first; the dashboard capsule stands in for it */
-.coach-capsule-fallback { display: none; }
+/* Coach rail collapses first; the dashboard coach capsule keeps the top proposal */
 @media (max-width: 1439px) {
   .app-coach-rail { display: none; }
-  .coach-capsule-fallback { display: block; }
 }
 
 /* Zero-based budget — Assign mode */

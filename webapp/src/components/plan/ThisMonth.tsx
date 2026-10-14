@@ -121,11 +121,18 @@ export function ThisMonthPanel({ overview }: Readonly<{ overview: OverviewView }
                   <DayChip day={p.day} />
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {p.name ? `${p.category_name} · ${p.name}` : p.category_name}
+                    {p.partial && <span style={{ color: "var(--text-muted)" }}> · paid in part</span>}
                   </span>
                 </span>
                 <span style={amount}>{euroCents(p.amount_cents)}</span>
               </div>
             ))}
+          </div>
+        )}
+        {overview.card_payments.total_cents > 0 && (
+          <div style={{ ...row, borderBottom: 0, color: "var(--text-muted)" }} data-testid="card-payments">
+            <span>Card payments (the purchases already count above)</span>
+            <span style={amount}>{euroCents(overview.card_payments.total_cents)}</span>
           </div>
         )}
       </Section>

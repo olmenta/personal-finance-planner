@@ -236,7 +236,11 @@ export default function UpcomingPage() {
   const [month] = useSelectedMonth();
   const upcoming = useQuery({ queryKey: ["upcoming", month], queryFn: () => fetchUpcoming(month) });
   const summary = useQuery({ queryKey: ["plan-summary", month], queryFn: () => fetchPlanSummary(month) });
-  const [open, setOpen] = React.useState<string | null>(null);
+  // `?month=` (from a coach proposal) opens that month's row. Rows render only
+  // after the client query resolves, so reading the URL here can't mismatch SSR.
+  const [open, setOpen] = React.useState<string | null>(() =>
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("month"),
+  );
   const [editingIncome, setEditingIncome] = React.useState(false);
 
   const s = summary.data;

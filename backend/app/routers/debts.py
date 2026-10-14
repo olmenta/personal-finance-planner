@@ -8,12 +8,16 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps import current_user
 from ..models import Debt, User
-from ..schemas import DebtExtraIn, DebtIn, DebtsView, DebtUpdate
+from ..schemas import horizon_error, DebtExtraIn, DebtIn, DebtsView, DebtUpdate
 from ..services import debts as service
 
 router = APIRouter(tags=["debts"])
 
 _create: TypeAdapter = TypeAdapter(DebtIn)
+
+
+def _code(exc: ValidationError) -> str:
+    return "outside_planning_horizon" if horizon_error(exc) else "invalid_debt"
 
 
 def _fail(error: service.DebtError) -> HTTPException:
@@ -41,7 +45,7 @@ def create_debt(
     try:
         valid = _create.validate_python(body)
     except ValidationError as exc:
-        raise HTTPException(status_code=422, detail={"code": "invalid_debt"}) from exc
+        raise HTTPException(status_code=422, detail={"code": _code(exc)}) from exc
     try:
         service.create_debt(db, user, valid)
     except service.DebtError as error:
@@ -60,7 +64,7 @@ def update_debt(
     try:
         valid = DebtUpdate.model_validate(body)
     except ValidationError as exc:
-        raise HTTPException(status_code=422, detail={"code": "invalid_debt"}) from exc
+        raise HTTPException(status_code=422, detail={"code": _code(exc)}) from exc
     try:
         service.update_debt(db, user, debt, valid)
     except service.DebtError as error:

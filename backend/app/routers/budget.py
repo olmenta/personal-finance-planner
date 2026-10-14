@@ -15,6 +15,7 @@ from ..schemas import (
     MoveRequest,
 )
 from ..services import budget_view
+from ..services.budget_moves import MoveError, validate_source
 from ..services.schedules import schedules_by_category
 
 router = APIRouter(prefix="/budget", tags=["budget"])
@@ -96,17 +97,13 @@ def move_money(
 
     view = budget_view.build_view(db, user, month)
     if source is not None:
-        available = next(
-            c.available_cents
-            for g in view.groups
-            for c in g.categories
-            if c.id == payload.from_category_id
-        )
-        if payload.amount_cents > available:
+        try:
+            validate_source(view, payload.to_category_id, payload.from_category_id,
+                            payload.amount_cents)
+        except MoveError as error:
             raise HTTPException(
-                status_code=422,
-                detail={"code": "insufficient_available", "available_cents": available},
-            )
+                status_code=error.status, detail={"code": error.code, **error.extra}
+            ) from error
         source.assigned_cents -= payload.amount_cents
         source.suggestion_state = "edited"
     elif payload.amount_cents > max(0, view.to_be_assigned_cents):

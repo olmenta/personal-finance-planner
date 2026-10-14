@@ -194,6 +194,8 @@ export interface OverviewPaidItem {
   name: string | null;
   day: number | null;
   amount_cents: number;
+  /** The paid part of a payment that isn't settled yet. */
+  partial: boolean;
 }
 
 export interface OverviewAmountItem {
@@ -222,6 +224,8 @@ export interface OverviewView {
   month: string;
   today: string;
   paid: { total_cents: number; items: OverviewPaidItem[] };
+  /** Transfers into cards: settlements, kept out of "paid" (purchases already count there). */
+  card_payments: { total_cents: number; items: OverviewPaidItem[] };
   to_pay: OverviewPending[];
   to_pay_total_cents: number;
   covered_cents: number;
@@ -697,6 +701,75 @@ export const convertToLoan = (accountId: string, body: ConvertToLoanIn) =>
     method: "POST",
     body: JSON.stringify(body),
   });
+
+// ---- Coach proposals (coach-proposals) ------------------------------------------
+
+export type ProposalKind =
+  | "late_income"
+  | "late_debt_payment"
+  | "short_months"
+  | "overspending"
+  | "unassigned"
+  | "underspending";
+
+export interface CoachProposal {
+  fingerprint: string;
+  /** Raise / lower only: send it back to accept exactly what was reviewed. */
+  revision: string | null;
+  kind: ProposalKind;
+  title: string;
+  body: string;
+  action: "raise" | "lower" | "add_income" | "link_income" | "open";
+  amount_cents: number;
+  category_id: string | null;
+  current_cents: number | null;
+  suggested_cents: number | null;
+  diff_cents: number | null;
+  sources: { category_id: string; name: string; available_cents: number }[] | null;
+  schedule_id: string | null;
+  payer: string | null;
+  href: string | null;
+}
+
+export interface CoachProposalsView {
+  proposals: CoachProposal[];
+  total: number;
+}
+
+export const fetchCoachProposals = () => request<CoachProposalsView>("/coach/proposals");
+
+export async function dismissProposal(fingerprint: string): Promise<void> {
+  const res = await fetch(`/api/coach/proposals/${encodeURIComponent(fingerprint)}/dismiss`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new ApiError("dismiss_failed", res.status);
+}
+
+/** The proposal changed between showing and accepting it (409
+    proposal_changed): carries the current version to show instead. */
+export class ProposalChangedError extends Error {
+  constructor(readonly proposal: CoachProposal) {
+    super("proposal_changed");
+  }
+}
+
+export async function acceptProposal(
+  fingerprint: string,
+  revision: string,
+  fromCategoryId?: string,
+): Promise<CoachProposalsView> {
+  const res = await fetch(`/api/coach/proposals/${encodeURIComponent(fingerprint)}/accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ revision, ...(fromCategoryId ? { from_category_id: fromCategoryId } : {}) }),
+  });
+  const body = await res.json().catch(() => null);
+  if (res.status === 409 && body?.detail?.code === "proposal_changed") {
+    throw new ProposalChangedError(body.detail.proposal as CoachProposal);
+  }
+  if (!res.ok) throw new ApiError(body?.detail?.code ?? "unknown_error", res.status);
+  return body as CoachProposalsView;
+}
 
 export const fetchMonthIncome = (month: string) => request<MonthIncomeView>(`/income/${month}`);
 

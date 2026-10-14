@@ -359,8 +359,23 @@ def build_prototype_budget(client, flex_month: str) -> None:
     set_income(client, 470000)
 
 
+def settle_start(client, month: str) -> None:
+    """Record in `month` exactly the income that covers what it owes, so the
+    next month is simulated from zero. Since redesign F01 the projection
+    carries an over-assigned month and its unpaid payments forward instead of
+    clipping them to zero; the prototype fixture assigns September without
+    any money, so without this its deficit would (rightly) reach October."""
+    v = client.get(f"/overview/{month}").json()
+    short = sum(p["short_cents"] for p in v["to_pay"])
+    needed = short + v["overspent_cents"] - v["to_be_assigned_cents"]
+    if needed > 0:
+        client.post("/transactions", json={"amount_cents": needed, "kind": "income",
+                                           "date": f"{month}-01"})
+
+
 def test_projection_matches_the_prototype_october(client):
     build_prototype_budget(client, "2026-09")  # nothing saved, October simulated from zero
+    settle_start(client, "2026-09")
     view = client.get("/plan/upcoming?from=2026-09").json()
     assert view["income_known"] is True and len(view["months"]) == 12
     october = view["months"][1]
@@ -374,6 +389,7 @@ def test_projection_matches_the_prototype_october(client):
 
 def test_structural_gap_surfaces_as_unfunded_set_asides(client):
     build_prototype_budget(client, "2026-09")
+    settle_start(client, "2026-09")
     months = client.get("/plan/upcoming?from=2026-09").json()["months"][1:]
     assert all(m["short_cents"] == 0 for m in months)
     assert any(m["set_aside_funded_cents"] < m["set_aside_wanted_cents"] for m in months)
@@ -451,3 +467,94 @@ def test_fourteen_pagas_counted_once_each_in_the_summary(client):
 
 def test_plan_income_endpoints_are_gone(client):
     assert client.get("/plan/income").status_code == 404
+
+
+# ---- redesign-safety-baseline: F01, F06 ------------------------------------------------
+
+
+def test_a_current_deficit_is_not_forgotten(client, monkeypatch):
+    """F01: October over-assigned by 100 € must not make November look covered."""
+    from datetime import date
+
+    from app import clock
+
+    monkeypatch.setattr(clock, "today_madrid", lambda: date(2026, 10, 14))
+    cid = new_category(client, "Seguro")
+    add_schedule(client, cid, name="Cuota", amount_cents=10000, pattern="monthly", day=28)
+    client.post("/income-schedules", json={"name": "Nómina", "amount_cents": 10000,
+                                           "pattern": "monthly", "start_month": "2026-11",
+                                           "count": 12, "day": 1})
+    view = client.get("/plan/upcoming?from=2026-10").json()
+    october, november = view["months"][0], view["months"][1]
+    assert october["short_cents"] == 0  # assigned, so covered on paper
+    [payment] = november["occurrences"]
+    assert payment["covered"] is False and payment["short_cents"] == 10000
+
+
+def test_one_cent_cannot_cover_two():
+    """F06: whole-cent allocation never rounds a shortage away."""
+    from app.services.projection import _allocate
+
+    shares, rest = _allocate({"a": 1, "b": 1}, 1)
+    assert sorted(shares.values()) == [0, 1] and rest == 0
+    shares, rest = _allocate({"a": 300, "b": 100}, 200)
+    assert shares == {"a": 150, "b": 50} and rest == 0
+    shares, rest = _allocate({"a": 1, "b": 1}, -50)
+    assert shares == {"a": 0, "b": 0} and rest == -50
+
+
+# ---- redesign-safety-baseline: F04, F05 ------------------------------------------------
+
+
+def test_a_bill_paid_in_part(client, category_ids):
+    """F04: the paid portion shows as paid in part; the rest stays pending."""
+    luz = category_ids["Suministros"]
+    client.get("/budget/2026-10")
+    add_schedule(client, luz, name="Luz", amount_cents=10000, pattern="monthly", day=12)
+    client.post("/transactions", json={"amount_cents": 4000, "category_id": luz, "date": "2026-10-12"})
+    v = overview(client)
+    [paid] = [p for p in v["paid"]["items"] if p["name"] == "Luz"]
+    assert (paid["amount_cents"], paid["partial"]) == (4000, True)
+    [pending] = v["to_pay"]
+    assert pending["amount_cents"] == 6000
+    assert_identity(v)
+
+
+def test_a_card_purchase_counts_once(client, category_ids):
+    """F05: the settlement is reported apart from spending."""
+    super_ = category_ids["Supermercado"]
+    bank = client.post("/accounts", json={"name": "Banco", "type": "bank",
+                                          "opening_balance_cents": 100000}).json()["id"]
+    visa = client.post("/accounts", json={"name": "Visa", "type": "credit"}).json()["id"]
+    client.get("/budget/2026-10")
+    client.put(f"/budget/2026-10/assignments/{super_}", json={"amount_cents": 20000})
+    client.post("/transactions", json={"amount_cents": 6000, "category_id": super_,
+                                       "account_id": visa, "date": "2026-10-05"})
+    client.post("/transfers", json={"from_account_id": bank, "to_account_id": visa,
+                                    "amount_cents": 6000, "date": "2026-10-10"})
+    v = overview(client)
+    assert v["paid"]["total_cents"] == 6000
+    assert v["card_payments"]["total_cents"] == 6000
+    assert_identity(v)
+
+
+# ---- redesign-safety-baseline: F10 -----------------------------------------------------
+
+
+def test_payments_beyond_the_horizon_are_rejected(client):
+    cid = new_category(client, "Muy lejos")
+    far = client.post(f"/categories/{cid}/schedules", json={
+        "name": "Lejos", "amount_cents": 100000, "pattern": "once", "once_month": "2037-10"})
+    assert far.status_code == 422
+    assert far.json()["detail"]["code"] == "outside_planning_horizon"
+    assert client.get(f"/categories/{cid}/schedules").json() == []
+    near = client.post(f"/categories/{cid}/schedules", json={
+        "name": "Cerca", "amount_cents": 180000, "pattern": "once", "once_month": "2028-04"})
+    assert near.status_code == 201
+
+
+def test_personal_debt_due_beyond_the_horizon_is_rejected(client):
+    response = client.post("/debts", json={"kind": "personal", "name": "Lejos",
+                                           "owed_cents": 1000, "due_month": "2037-10"})
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "outside_planning_horizon"

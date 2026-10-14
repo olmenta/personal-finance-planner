@@ -14,8 +14,7 @@ import { ErrorPanel, SkeletonPanel } from "@/components/ui/QueryStates";
 import { TransactionRow } from "@/components/ui/TransactionRow";
 import { transferTitle, useAccounts } from "@/components/AccountPicker";
 import { TopBar } from "@/components/shell/TopBar";
-import { LateDebtNudge } from "@/components/plan/LateDebtNudge";
-import { LateIncomeNudge } from "@/components/plan/LateIncomeNudge";
+import { CoachTopCapsule } from "@/components/coach/CoachFeed";
 import { ThisMonthPanel, ThisMonthSide } from "@/components/plan/ThisMonth";
 import {
   fetchCategories,
@@ -304,9 +303,8 @@ export default function OverviewPage() {
       <TopBar title="Overview" sub="Welcome back" />
       <div className="app-content">
         <OnboardingNudge />
-        {/* Lateness is about today's month, whatever month is on screen. */}
-        {overview && <LateIncomeNudge month={overview.today.slice(0, 7)} />}
-        {overview && <LateDebtNudge month={overview.today.slice(0, 7)} />}
+        {/* The most urgent coach proposal (spec: coach-proposals). */}
+        <CoachTopCapsule />
         {overview ? (
           <div className="grid-dash-mid">
             <ThisMonthPanel overview={overview} />
@@ -318,12 +316,6 @@ export default function OverviewPage() {
             <SkeletonPanel rows={4} rowHeight={40} />
           </div>
         )}
-
-        {/* The web reference keeps coach insights in the rail; the capsule
-            appears only when the rail is collapsed (<1440px). */}
-        <div className="coach-capsule-fallback">
-          <CoachCapsule message="You're spending 18% more on dining this month" cta="See why" />
-        </div>
 
         {summary ? <SpendChart summary={summary} /> : <SkeletonPanel rows={3} rowHeight={52} />}
 

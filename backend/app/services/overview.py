@@ -24,6 +24,7 @@ from ..schemas import (
     BudgetMonthView,
     OverviewAmountItem,
     OverviewAmountSection,
+    OverviewCardPayments,
     OverviewPaidItem,
     OverviewPaidSection,
     OverviewPending,
@@ -99,6 +100,7 @@ def build_overview(
     debt_categories = set(db.scalars(select(Debt.category_id).where(Debt.user_id == user.id)))
 
     paid_items: list[OverviewPaidItem] = []
+    card_items: list[OverviewPaidItem] = []  # settlements, kept out of `paid` (F05)
     to_pay: list[OverviewPending] = []
     left_items: list[OverviewAmountItem] = []
     saved_items: list[OverviewAmountItem] = []
@@ -108,19 +110,24 @@ def build_overview(
         a = c.available_cents
         schedules = by_category.get(c.id, [])
         match = match_payments(schedules, month, c.spent_cents)
+        # A card's payment category "spends" by receiving transfers: that's
+        # settling the card, not new spending (F05).
+        bucket = card_items if c.kind == "credit_payment" else paid_items
         for occ in match.occurrences:
-            if occ.paid:
-                paid_items.append(
+            # Paid, or the paid part of one that isn't settled yet (F04).
+            if occ.paid or occ.allocated > 0:
+                bucket.append(
                     OverviewPaidItem(
                         category_id=c.id,
                         category_name=c.name,
                         name=occ.schedule.name,
                         day=occ.schedule.day,
                         amount_cents=occ.allocated,
+                        partial=not occ.paid,
                     )
                 )
         if match.leftover_spent > 0:
-            paid_items.append(
+            bucket.append(
                 OverviewPaidItem(
                     category_id=c.id, category_name=c.name, name=None, day=None,
                     amount_cents=match.leftover_spent,
@@ -196,6 +203,9 @@ def build_overview(
         today=today,
         paid=OverviewPaidSection(
             total_cents=sum(p.amount_cents for p in paid_items), items=paid_items
+        ),
+        card_payments=OverviewCardPayments(
+            total_cents=sum(p.amount_cents for p in card_items), items=card_items
         ),
         to_pay=to_pay,
         to_pay_total_cents=sum(p.amount_cents for p in to_pay),

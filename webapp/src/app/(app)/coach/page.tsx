@@ -1,4 +1,5 @@
-import { CoachConversation, CoachHeader } from "@/components/shell/CoachConversation";
+import { CoachFeed } from "@/components/coach/CoachFeed";
+import { CoachHeader } from "@/components/shell/CoachConversation";
 
 export default function CoachPage() {
   return (
@@ -16,7 +17,7 @@ export default function CoachPage() {
       }}
     >
       <CoachHeader note="Always here" />
-      <CoachConversation />
+      <CoachFeed />
     </div>
   );
 }
