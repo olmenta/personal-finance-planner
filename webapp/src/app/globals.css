@@ -82,7 +82,6 @@
 }
 
 .app-sidebar { display: flex; }
-.app-coach-rail { display: flex; }
 .app-bottomnav { display: none; }
 .app-topbar-extras { display: flex; }
 
@@ -92,10 +91,7 @@
 .grid-goals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
-/* Coach rail collapses first; the dashboard coach capsule keeps the top proposal */
-@media (max-width: 1439px) {
-  .app-coach-rail { display: none; }
-}
+.app-topbar-mobile { display: none; }
 
 /* Zero-based budget — Assign mode */
 .tba-sticky {
@@ -132,6 +128,7 @@
   }
   .app-content { padding: 18px 18px 24px; }
   .app-topbar-extras { display: none; }
+  .app-topbar-mobile { display: inline-flex; }
   .grid-dash-top { grid-template-columns: 1fr; }
   .grid-dash-mid { grid-template-columns: 1fr; }
   .grid-goals { grid-template-columns: 1fr; }

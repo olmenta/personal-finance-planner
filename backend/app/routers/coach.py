@@ -7,37 +7,16 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..deps import current_user
 from ..models import User
-from ..schemas import AcceptProposalIn, CoachProposalOut, CoachProposalsView
+from ..schemas import AcceptProposalIn, CoachProposalsView
 from ..services import coach as service
 
 router = APIRouter(prefix="/coach", tags=["coach"])
 
 
-def _out(p: service.Proposal) -> CoachProposalOut:
-    data = p.payload
-    return CoachProposalOut(
-        fingerprint=p.fingerprint,
-        revision=p.revision,
-        kind=p.kind,  # type: ignore[arg-type]
-        title=p.title,
-        body=p.body,
-        action=p.action,  # type: ignore[arg-type]
-        amount_cents=p.amount_cents,
-        category_id=data.get("category_id"),
-        current_cents=data.get("current_cents"),
-        suggested_cents=data.get("suggested_cents"),
-        diff_cents=data.get("diff_cents"),
-        sources=data.get("sources"),
-        schedule_id=data.get("schedule_id"),
-        payer=data.get("payer"),
-        href=data.get("href"),
-    )
-
-
 def _fail(error: service.CoachError) -> HTTPException:
     detail: dict = {"code": error.code}
     if error.proposal is not None:
-        detail["proposal"] = _out(error.proposal).model_dump()
+        detail["proposal"] = service.proposal_out(error.proposal).model_dump()
     return HTTPException(status_code=error.status, detail=detail)
 
 
@@ -46,7 +25,7 @@ def list_proposals(
     db: Session = Depends(get_db), user: User = Depends(current_user)
 ) -> CoachProposalsView:
     proposals = service.visible(db, user)
-    return CoachProposalsView(proposals=[_out(p) for p in proposals], total=len(proposals))
+    return CoachProposalsView(proposals=[service.proposal_out(p) for p in proposals], total=len(proposals))
 
 
 @router.post("/proposals/{fingerprint}/dismiss", status_code=204)

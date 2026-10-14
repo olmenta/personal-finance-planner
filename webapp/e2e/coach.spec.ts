@@ -4,7 +4,7 @@ import { Api, euroCents as eur, pinClock, resetDb } from "./support/app";
 /* coach-proposals, task 6.3 — on 14 October 2026, with three closed months:
    1. Restaurantes went over twice → the coach raises it, taking the money from Supermercado;
    2. "Not now" hides a proposal;
-   3. the coach page shows 3 proposals and "See more", and no text input. */
+   3. Home shows the priority action and grouped suggestions, and no text input. */
 
 test.describe.configure({ mode: "serial" });
 
@@ -40,38 +40,45 @@ test.beforeEach(async ({ page }) => {
 const proposal = (page: Page, title: string) =>
   page.getByTestId("coach-proposal").filter({ hasText: title });
 
-test("the coach page shows three proposals, more on demand, and no text box", async ({ page }) => {
-  await page.goto("/coach");
-  const feed = page.getByTestId("coach-feed");
-  await expect(feed.getByTestId("coach-proposal")).toHaveCount(3);
-  const more = feed.getByRole("button", { name: /^See more \(\d+\)$/ });
-  await expect(more).toBeVisible();
-  await more.click();
-  await expect(feed.getByTestId("coach-proposal")).not.toHaveCount(3);
+test("Home shows one priority, grouped suggestions and no text box", async ({ page }) => {
+  await page.goto("/coach"); // the coach lives on Home now
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByTestId("priority-action")).toContainText("Restaurantes keeps going over");
+  const adjustments = page.getByTestId("group-adjustments");
+  await expect(adjustments).toContainText("Budget adjustments (3)");
+  await adjustments.getByRole("button", { name: /Budget adjustments/ }).click();
+  await expect(adjustments.getByTestId("coach-proposal")).toHaveCount(3);
+  // The priority isn't repeated inside its group.
+  await expect(adjustments).not.toContainText("Restaurantes keeps going over");
   await expect(page.getByPlaceholder("Ask the coach…")).toHaveCount(0);
 });
 
 test("Restaurantes keeps going over and is raised in one tap", async ({ page }) => {
-  await page.goto("/coach");
-  const card = proposal(page, "Restaurantes keeps going over");
+  await page.goto("/");
+  const card = page.getByTestId("priority-action").getByTestId("coach-proposal");
   await expect(card).toContainText(`You usually spend about ${eur(23000)}. Raise it from ${eur(20000)}?`);
   await card.getByRole("button", { name: "Raise it" }).click();
   // Not enough left to assign in October: the card asks where the 30 € come from.
   await expect(card).toContainText(`There isn't ${eur(3000)} left to assign. Take it from:`);
   await card.getByRole("button", { name: /^Supermercado · / }).click();
-  await expect(card).toHaveCount(0);
+  await expect(page.getByText("Restaurantes keeps going over")).toHaveCount(0);
 
   await page.goto("/budgets");
   await expect(page.getByTestId("category-row-Restaurantes")).toContainText(eur(23000));
 });
 
 test("Not now hides a proposal", async ({ page }) => {
-  await page.goto("/coach");
-  const card = proposal(page, "Gasolina always has money left");
-  await expect(card).toBeVisible();
+  await page.goto("/");
+  const openAdjustments = async () => {
+    const group = page.getByTestId("group-adjustments");
+    await group.getByRole("button", { name: /Budget adjustments/ }).click();
+    return group;
+  };
+  let group = await openAdjustments();
+  const card = group.getByTestId("coach-proposal").filter({ hasText: "Gasolina always has money left" });
   await card.getByRole("button", { name: "Not now" }).click();
   await expect(card).toHaveCount(0);
   await page.reload();
-  await page.getByTestId("coach-feed").getByRole("button", { name: /^See more/ }).click({ timeout: 2000 }).catch(() => {});
-  await expect(proposal(page, "Gasolina always has money left")).toHaveCount(0);
+  group = await openAdjustments();
+  await expect(group.getByTestId("coach-proposal").filter({ hasText: "Gasolina" })).toHaveCount(0);
 });

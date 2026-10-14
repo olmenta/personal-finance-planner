@@ -8,6 +8,7 @@ import { CategorizationReviewDialog } from "@/components/review/CategorizationRe
 import { DeleteTransactionDialog } from "@/components/DeleteTransactionDialog";
 import { EditTransactionDialog } from "@/components/EditTransactionDialog";
 import { ImportBankTransactionsDialog } from "@/components/ImportBankTransactionsDialog";
+import { SpendChart } from "@/components/SpendChart";
 import { accountName, transferTitle, useAccounts } from "@/components/AccountPicker";
 import {
   DropdownMenu,
@@ -25,6 +26,7 @@ import { TopBar } from "@/components/shell/TopBar";
 import {
   fetchCategories,
   fetchPendingImport,
+  fetchSummary,
   fetchTransactions,
   toneForCategory,
   type AccountOut,
@@ -226,6 +228,8 @@ function EmptyState() {
 
 export default function TransactionsPage() {
   const [month] = useSelectedMonth();
+  // Weekly spending: secondary analysis, below the list (moved from Home).
+  const summary = useQuery({ queryKey: ["summary", month], queryFn: () => fetchSummary(month) });
   const [filter, setFilter] = React.useState("All");
   const [editing, setEditing] = React.useState<TransactionOut | null>(null);
   const [deleting, setDeleting] = React.useState<TransactionOut | null>(null);
@@ -388,6 +392,7 @@ export default function TransactionsPage() {
           </section>
         )}
         {body}
+        {summary.data && <SpendChart summary={summary.data} />}
       </div>
       <EditTransactionDialog transaction={editing} onClose={() => setEditing(null)} />
       <DeleteTransactionDialog transaction={deleting} onClose={() => setDeleting(null)} />

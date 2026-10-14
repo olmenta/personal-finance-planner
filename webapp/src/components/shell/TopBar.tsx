@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import React from "react";
 import {
   DropdownMenu,
@@ -179,6 +181,10 @@ export function TopBar({ title, sub }: Readonly<{ title: string; sub?: string }>
           </Select>
         </div>
 
+        <Link href="/settings" className="app-topbar-mobile" aria-label="Settings"
+          style={{ color: "var(--text-muted)", padding: 6 }}>
+          <Icon name="settings" size={20} />
+        </Link>
         <NotificationBell />
       </div>
     </header>

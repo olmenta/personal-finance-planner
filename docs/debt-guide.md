@@ -21,7 +21,7 @@ Some payments are **required** and some are **optional**:
 
 ## Where to find it
 
-Open **What you owe** in the sidebar. On mobile, it's the button at the bottom of the home screen's side column.
+Open **Accounts** and tap **What you owe** (the card shows your total and your debt-free month).
 
 The screen shows:
 
@@ -51,7 +51,7 @@ Use this for a card that carries an old balance you're paying down.
 From then on:
 
 - the plan amount is set aside every month in the card's payment category, on top of the money for new purchases;
-- the card payment shows in **Still to pay this month**, and counts as paid when you transfer the money to the card. Once paid, it appears under **Card payments** on the home screen, not as new spending.
+- the card payment shows in **Still to pay** on Home, and counts as paid when you transfer the money to the card. Once paid, it appears under **Card payments**, not as new spending.
 
 **What you owe on a card.** It's the card's balance minus the money already set aside for purchases you budgeted. This month's plan doesn't count until you actually transfer it: setting money aside isn't the same as paying.
 
@@ -65,7 +65,7 @@ From then on:
 
 You don't need to know the exact balance. Olmenta works it out: installments left × installment. It also knows the month of the last one.
 
-The installment is assigned automatically every month in its category, shows in **Still to pay this month**, and counts as paid when the expense is recorded (typed or imported).
+The installment is assigned automatically every month in its category, shows in **Still to pay** on Home, and counts as paid when the expense is recorded (typed or imported).
 
 ### Money you owe someone
 
@@ -120,7 +120,7 @@ It's a suggestion, never a block. You can set the extra anyway.
 Debt payments are part of your month:
 
 - **Budget:** they're assigned automatically in their categories.
-- **Home screen:** they show in **Still to pay this month**, with "covered" or "short X €".
+- **Home:** they show in **Still to pay**, with "covered" or "short X €".
 - **Late payments:** when a payment is more than 3 days past its day and hasn't gone out, your coach tells you: "Your Ikea payment is late. It was due on the 5th and hasn't gone out yet." **See my plan** takes you to What you owe; **Not now** hides it for a week.
 
 ## A loan that was set up as a card

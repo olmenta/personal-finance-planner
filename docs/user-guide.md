@@ -31,7 +31,7 @@ You can come back to the setup chat any time at `/onboarding`.
 
 ### Accounts
 
-**Accounts** (in the sidebar) lists where your money sits:
+**Accounts** lists where your money sits:
 
 - **Cash** and **bank accounts** hold your money.
 - **Cards** hold debt. A card shows "You owe X €", not a red negative number.
@@ -110,20 +110,35 @@ If you spend more than a category has, it shows as overspent and Olmenta offers 
 
 Mark a category as **savings** (emergency fund, a trip, the kids' savings) and its money shows as "saved for the future" instead of "left to spend". Nothing else changes; it's a label that keeps the picture honest.
 
-## This month: the home screen
+## Getting around
 
-The home screen answers three questions:
+Olmenta has five places, always one tap away (the sidebar on a computer, the bar at the bottom on a phone):
 
-- **What do I have to solve this month?**
-  - **Already paid this month** lists the payments and spending that already went out. A bill you've paid only in part shows as "paid in part", and the rest stays under "Still to pay". **Card payments** appear on their own line: the purchases were already counted when you made them, so paying the card isn't counted as spending again.
-  - **Still to pay this month** lists what's coming, with a "covered" or "short X €" tag on each.
-  - **Left to spend** is what remains in your day-to-day categories.
-- **Where's the rest of my money?** **Saved for the future** and **Unassigned**.
-- **Will the next months be covered?** A preview of the next three months, with a link to Upcoming payments.
+- **Home**: what to resolve now.
+- **Budget**: give your money its jobs; manage categories.
+- **Transactions**: everything that happened, imports, and your weekly spending.
+- **Future**: upcoming payments and whether the next months are covered.
+- **Accounts**: your accounts and cards, and **What you owe**.
 
-At the bottom of the side column, a check line shows that it all adds up: the money in your accounts equals what's to pay, plus what's left to spend, plus what's saved, plus what's unassigned.
+**Settings** is at the bottom of the sidebar, or the gear icon at the top on a phone. The **+** button adds a transaction from anywhere.
 
-When something needs your attention, your coach's most important suggestion appears at the top (see [Your coach](#your-coach)).
+## Home
+
+Home answers one question: **what do I need to resolve now?** It refreshes every time you open it.
+
+- **At the top:** the month, when it was updated, and the date of your last transaction. If something makes the numbers incomplete (transactions without a category, an import waiting for review, nothing recorded for two weeks), a **Review data** note says what and links to it.
+- **One sentence from your coach** with the most important fact, like "2 categories need money before I can give you a reliable amount to spend", or "Your month is organized".
+- **This month:**
+  - **Paid**: what already went out this month. A bill paid only in part shows as "paid in part". **Card payments** appear on their own line, because the purchases were already counted when you made them.
+  - **Still to pay**, with how much is covered and how much is short.
+  - **Left to spend**, when your month is organized. If it isn't, you see **Needs organizing** and why: money assigned that you don't have, categories that went over, card spending that wasn't budgeted, or payments that aren't covered. Each one comes with its amount.
+  - **Saved for the future** and **Unassigned**.
+  - **View exact breakdown** shows that it all adds up: the money in your accounts equals what's set aside for this month's payments, plus what's left to spend, plus what's saved, plus what's unassigned.
+- **Do this first:** your coach's most urgent suggestion (see [Your coach](#your-coach)).
+- **Also worth a look:** the other suggestions, grouped by cause, up to three groups (**See more** shows the rest).
+- **Future:** whether the coming months are covered under your current plan and expected income, or what needs attention, or that coverage is unknown until you add your income.
+
+A negative "left to spend" next to money that's unassigned doesn't mean your bank account is overdrawn. It means the plan needs organizing: give that unassigned money to the categories that went over.
 
 ## Income
 
@@ -131,7 +146,7 @@ Olmenta needs to know what income you expect, so it can tell you whether your pl
 
 ### Telling Olmenta what you expect
 
-In **Settings → Income** (or **Edit income** in Upcoming payments), add each fixed income once:
+In **Settings → Income** (or **Edit income** in Future), add each fixed income once:
 
 - a name ("Nómina", "Pensión", "Alquiler piso");
 - the net amount, what actually lands in your account;
@@ -157,9 +172,9 @@ Olmenta matches incomes by who paid them, or by amount when there's no payer. If
 
 When an income is late, your coach tells you, with **Add it** (if it arrived and you didn't record it) or **It's already here** (to link it).
 
-## Upcoming payments and the year ahead
+## Future: the year ahead
 
-**Upcoming** shows the next 12 months if you keep your current plan:
+**Future** shows the next 12 months if you keep your current plan:
 
 - **Expected income, next 12 months.**
 - **Planned costs**, split into payments, day-to-day and goals.
@@ -171,13 +186,13 @@ Each month's money goes first to that month's payments, then to day-to-day, then
 
 ## Your coach
 
-Your coach keeps an eye on your plan and speaks up when something needs you. On a large screen it lives in the panel on the right; on any screen, open **Coach**. The most important suggestion also appears at the top of the home screen.
+Your coach keeps an eye on your plan and speaks up when something needs you. It lives on **Home**: the most urgent suggestion is **Do this first**, and the rest are grouped under **Also worth a look**.
 
 It suggests, from most to least urgent:
 
 - **An income hasn't arrived** (more than 3 days late): add it, or link it if it's already recorded.
 - **A debt payment is late**: see your debt plan.
-- **A month ahead won't be fully covered**: see that month in Upcoming payments, while there's still time to plan.
+- **A month ahead won't be fully covered**: see that month in Future, while there's still time to plan.
 - **A category keeps going over** (2 of the last 3 months): **Raise it** to what you actually spend.
 - **Money with no job**: give it one in the budget.
 - **A category always has money left** (all of the last 3 months): **Lower it** and free that money for something else.
@@ -186,7 +201,7 @@ It suggests, from most to least urgent:
 
 You see three suggestions at a time; **See more** shows the rest. **Not now** hides a suggestion for a week. If the situation is still there after that, it comes back.
 
-When there's nothing to suggest, the coach says so: "No suggestions right now." That isn't a promise that your plan is fine; check the home screen and Upcoming payments for the full picture.
+When there's nothing to suggest, the coach says so: "No suggestions right now." That isn't a promise that your plan is fine; check Home's month status and Future for the full picture.
 
 Your coach works out every suggestion from your own numbers, inside Olmenta. Nothing is sent anywhere to write them.
 

@@ -738,6 +738,59 @@ export interface CoachProposalsView {
 
 export const fetchCoachProposals = () => request<CoachProposalsView>("/coach/proposals");
 
+// ---- Home (home) ----------------------------------------------------------------
+
+export interface HomeSummary {
+  /** M = T + L + F + U */
+  accounts_cents: number;
+  covered_cents: number;
+  left_to_spend_cents: number;
+  saved_cents: number;
+  unassigned_cents: number;
+  paid_cents: number;
+  card_payments_cents: number;
+  still_to_pay_cents: number;
+  short_cents: number;
+}
+
+export type HomeReasonCode =
+  | "over_assigned"
+  | "overspent_categories"
+  | "unbudgeted_card_spending"
+  | "uncovered_payments";
+
+export interface HomeReason {
+  code: HomeReasonCode;
+  amount_cents: number;
+  items: { category_id: string; name: string; amount_cents: number }[];
+}
+
+export interface HomeView {
+  month: string;
+  generated_at: string;
+  status: "organized" | "needs_organizing" | "no_accounts";
+  reasons: HomeReason[];
+  summary: HomeSummary;
+  data: {
+    last_transaction_date: string | null;
+    uncategorized_count: number;
+    pending_import: boolean;
+    income_known: boolean;
+    limited: boolean;
+  };
+  future: {
+    status: "on_track" | "needs_attention" | "unknown";
+    month: string | null;
+    short_cents: number;
+    set_aside_gap_cents: number;
+  };
+  priority: CoachProposal | null;
+  groups: { key: string; title: string; proposals: CoachProposal[] }[];
+  snapshot_version: string;
+}
+
+export const fetchHome = () => request<HomeView>("/home");
+
 export async function dismissProposal(fingerprint: string): Promise<void> {
   const res = await fetch(`/api/coach/proposals/${encodeURIComponent(fingerprint)}/dismiss`, {
     method: "POST",

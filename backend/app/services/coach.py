@@ -102,6 +102,29 @@ def round_up(cents: float) -> int:
     return int(math.ceil(cents / ROUND_TO_CENTS - 1e-9) * ROUND_TO_CENTS)
 
 
+def proposal_out(p: Proposal) -> "CoachProposalOut":
+    from ..schemas import CoachProposalOut
+
+    data = p.payload
+    return CoachProposalOut(
+        fingerprint=p.fingerprint,
+        revision=p.revision,
+        kind=p.kind,  # type: ignore[arg-type]
+        title=p.title,
+        body=p.body,
+        action=p.action,  # type: ignore[arg-type]
+        amount_cents=p.amount_cents,
+        category_id=data.get("category_id"),
+        current_cents=data.get("current_cents"),
+        suggested_cents=data.get("suggested_cents"),
+        diff_cents=data.get("diff_cents"),
+        sources=data.get("sources"),
+        schedule_id=data.get("schedule_id"),
+        payer=data.get("payer"),
+        href=data.get("href"),
+    )
+
+
 # ---- Detectors --------------------------------------------------------------------------
 
 
@@ -167,7 +190,7 @@ def _short_months(db: Session, user: User, month: str) -> list[Proposal]:
              "Planning for it now is easier than in that month.",
         action="open",
         amount_cents=sum(m.short_cents or 0 for m in short),
-        payload={"href": f"/upcoming?month={first.month}", "months": [m.month for m in short]},
+        payload={"href": f"/future?month={first.month}", "months": [m.month for m in short]},
     )]
 
 

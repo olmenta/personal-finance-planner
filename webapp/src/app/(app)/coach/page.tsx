@@ -1,23 +1,6 @@
-import { CoachFeed } from "@/components/coach/CoachFeed";
-import { CoachHeader } from "@/components/shell/CoachConversation";
+import { redirect } from "next/navigation";
 
+/* The coach lives on Home now (spec: navigation). */
 export default function CoachPage() {
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        maxWidth: 760,
-        margin: "0 auto",
-        width: "100%",
-        background: "var(--surface)",
-        borderLeft: "1px solid var(--border-hairline)",
-        borderRight: "1px solid var(--border-hairline)",
-      }}
-    >
-      <CoachHeader note="Always here" />
-      <CoachFeed />
-    </div>
-  );
+  redirect("/");
 }

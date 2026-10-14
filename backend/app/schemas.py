@@ -5,6 +5,7 @@ Errors carry machine-readable codes (§6.7): {"code": "<snake_case>"}.
 """
 
 from datetime import date as date_type
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
@@ -931,3 +932,67 @@ class CoachProposalsView(BaseModel):
 class AcceptProposalIn(BaseModel):
     revision: str  # the revision the user reviewed (redesign F02)
     from_category_id: str | None = None
+
+
+# ---- Home (spec: home) ------------------------------------------------------
+
+
+class HomeSummary(BaseModel):
+    """The month overview mapped to M = T + L + F + U (redesign §3.4)."""
+
+    accounts_cents: int  # M
+    covered_cents: int  # T: money set aside for this month's pending payments
+    left_to_spend_cents: int  # L: day-to-day balances net of overspending
+    saved_cents: int  # F
+    unassigned_cents: int  # U: To Be Assigned
+    paid_cents: int  # flow, not part of the identity
+    card_payments_cents: int  # flow, not part of the identity
+    still_to_pay_cents: int  # the full pending obligation (D)
+    short_cents: int  # the uncovered part of it
+
+
+class HomeReasonItem(BaseModel):
+    category_id: str
+    name: str
+    amount_cents: int
+
+
+class HomeReason(BaseModel):
+    code: Literal["over_assigned", "overspent_categories", "unbudgeted_card_spending",
+                  "uncovered_payments"]
+    amount_cents: int
+    items: list[HomeReasonItem] = []
+
+
+class HomeData(BaseModel):
+    last_transaction_date: date_type | None
+    uncategorized_count: int
+    pending_import: bool
+    income_known: bool
+    limited: bool
+
+
+class HomeFuture(BaseModel):
+    status: Literal["on_track", "needs_attention", "unknown"]
+    month: str | None = None  # first month needing attention
+    short_cents: int = 0
+    set_aside_gap_cents: int = 0
+
+
+class HomeGroup(BaseModel):
+    key: Literal["late", "coming_up", "adjustments", "unassigned"]
+    title: str
+    proposals: list[CoachProposalOut]
+
+
+class HomeView(BaseModel):
+    month: str
+    generated_at: datetime
+    status: Literal["organized", "needs_organizing", "no_accounts"]
+    reasons: list[HomeReason]
+    summary: HomeSummary
+    data: HomeData
+    future: HomeFuture
+    priority: CoachProposalOut | None
+    groups: list[HomeGroup]
+    snapshot_version: str

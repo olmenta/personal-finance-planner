@@ -166,7 +166,7 @@ test("sets up the real payments through the editor", async ({ page }) => {
 
 /* ---- 2. the October split ---------------------------------------------------- */
 
-test("the dashboard splits October and the accounts check holds", async ({ page }) => {
+test("Home splits October and the exact breakdown adds up", async ({ page }) => {
   await api.assign(E2E_MONTH, ids["Supermercado"], 40000);
   await api.income(470000, "2026-10-01");
   await api.expense(ids["Alquiler"], 95200, "2026-10-01");
@@ -176,37 +176,31 @@ test("the dashboard splits October and the accounts check holds", async ({ page 
   await api.expense(ids["Supermercado"], 12345, "2026-10-10");
 
   await page.goto("/");
-  await expect(page.getByText("October 2026 · what to solve now")).toBeVisible();
-
+  const month = page.getByTestId("month-widget");
   // Rent, subscriptions and the school fee are paid; plus the supermarket.
-  await expect(section(page, "Already paid this month")).toContainText(eur(95200 + 4021 + 63200 + 12345));
+  await expect(month).toContainText(eur(95200 + 4021 + 63200 + 12345));
+  // Manameli (day 15) and the AMPA insurance (day 20) are pending and set aside.
+  await expect(month).toContainText(eur(106000));
+  await expect(month).toContainText("all covered");
+  await expect(page.getByTestId("left-to-spend")).toContainText(eur(40000 - 12345));
 
-  // Manameli (day 15) and the AMPA insurance (day 20) are pending, both set aside.
-  const toPay = section(page, "Still to pay this month");
-  await expect(toPay).toContainText(eur(106000));
-  const pending = toPay.locator("..");
-  for (const name of ["Manameli · Última cuota", "Colegio Tomi · Seguro AMPA"]) {
-    const line = pending.getByText(name, { exact: true }).locator("../..");
-    await expect(line).toContainText("set aside");
-  }
-
-  await expect(section(page, "Left to spend")).toContainText(eur(40000 - 12345));
-
-  // In your accounts = income − spending; the split on the line adds up to it.
+  // Money in accounts = set aside + left to spend + saved + unassigned.
+  await month.getByRole("button", { name: "View exact breakdown" }).click();
+  const breakdown = page.getByTestId("breakdown");
   const accountsCents = 470000 - 95200 - 4021 - 63200 - 12345;
-  const check = page.getByText(/^In your accounts:/);
-  await expect(check).toContainText(`In your accounts: ${eur(accountsCents)} = to pay ${eur(106000)}`);
-  await expect(check).toContainText(`to spend ${eur(27655)}`);
-  const text = (await check.textContent()) ?? "";
-  const saved = cents(/saved ([^+]+)\+/.exec(text)?.[1] ?? "");
-  const unassigned = cents(/unassigned (.+)$/.exec(text)?.[1] ?? "");
+  await expect(breakdown).toContainText(`Money in your accounts ${eur(accountsCents)}`);
+  await expect(breakdown).toContainText(`set aside for this month's payments ${eur(106000)}`);
+  await expect(breakdown).toContainText(`left to spend ${eur(27655)}`);
+  const text = (await breakdown.textContent()) ?? "";
+  const saved = cents(/saved for the future ([^+]+?)\+/.exec(text)?.[1] ?? "");
+  const unassigned = cents(/unassigned ([^P]+?)Paid/.exec(text)?.[1] ?? "");
   expect(106000 + 27655 + saved + unassigned).toBe(accountsCents);
 });
 
 /* ---- 3. the year's gap -------------------------------------------------------- */
 
-test("Upcoming payments shows the year's gap", async ({ page }) => {
-  await page.goto("/upcoming");
+test("Future shows the year's gap", async ({ page }) => {
+  await page.goto("/future");
   await page.getByLabel("Fixed monthly income").fill("2100,00");
   await page.getByRole("button", { name: "Save income" }).click();
 
@@ -242,8 +236,11 @@ test("a pending payment that lost its money shows how short it is", async ({ pag
   await api.move(E2E_MONTH, ids["Manameli"], ids["Supermercado"], 50200);
 
   await page.goto("/");
-  const line = page.getByText("Manameli · Última cuota", { exact: true }).locator("../..");
-  await expect(line).toContainText(`short ${eur(50200)}`);
-  await expect(section(page, "Left to spend")).toContainText(eur(27655 + 50200));
-  await expect(page.getByText(/^In your accounts:/)).toContainText(eur(470000 - 95200 - 4021 - 63200 - 12345));
+  const month = page.getByTestId("month-widget");
+  await expect(month).toContainText(`${eur(50200)} short`);
+  await expect(page.getByTestId("left-to-spend")).toContainText("Needs organizing");
+  await expect(page.getByTestId("reasons")).toContainText(`${eur(50200)} of this month's payments isn't covered yet`);
+  await month.getByRole("button", { name: "View exact breakdown" }).click();
+  await expect(page.getByTestId("breakdown")).toContainText(`left to spend ${eur(27655 + 50200)}`);
+  await expect(page.getByTestId("breakdown")).toContainText(eur(470000 - 95200 - 4021 - 63200 - 12345));
 });
