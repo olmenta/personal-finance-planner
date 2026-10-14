@@ -2,11 +2,11 @@
 
 ## Purpose
 
-AI-assisted category suggestions for ingested transactions: the backend calls the Anthropic API per import batch to propose a category per row, validates the result against the user's real category tree, and degrades gracefully to null suggestions — suggestions are review defaults, never auto-confirmations.
+AI-assisted category suggestions for ingested transactions: the backend calls the LLM layer's `category_suggestions` route in chunks of rows to propose a category per row, validates the result against the user's real category tree, and degrades gracefully to null suggestions — suggestions are review defaults, never auto-confirmations.
 ## Requirements
 ### Requirement: AI category suggestion for ingested rows
 
-The backend SHALL suggest a category per ingested row by calling the Anthropic API (from Python only, never the browser) with the user's category tree, a sample of the user's recent categorized transactions as worked examples (up to ~100 distinct description → category pairs, newest first), and the rows' date, description, amount, and — when the source provided one — the row's free-text category hint, in one structured-output request per batch. Each suggestion SHALL carry a `confidence` of `high`, `medium`, or `low` (missing values degrade to `low`). Each suggestion MAY carry a proposed `payee` — the cleaned merchant/payer name extracted from the description, null when unclear; staged rows resolve it find-or-create so the review shows it before anything is confirmed, and discarding the batch removes payees no other transaction references. Returned category ids SHALL be validated against the user's real categories — unknown ids become null. Any failure of the suggestion call (missing key, rate limit, timeout) SHALL degrade to null suggestions and SHALL NOT fail the import. Suggestions are defaults for human review and SHALL never confirm transactions by themselves.
+The backend SHALL suggest a category per ingested row by calling the LLM layer's `category_suggestions` route (from Python only, never the browser; the provider and model are configuration, see llm-layer) with the user's category tree, a sample of the user's recent categorized transactions as worked examples (up to ~100 distinct description → category pairs, newest first), and the rows' date, description, amount, and — when the source provided one — the row's free-text category hint, in structured-output requests of up to 200 rows each. The rows' date, description, amount and category hint are sent to the configured model provider; no account fields are added, though a bank description may itself contain account references. Each suggestion SHALL carry a `confidence` of `high`, `medium`, or `low` (missing values degrade to `low`). Each suggestion MAY carry a proposed `payee` — the cleaned merchant/payer name extracted from the description, null when unclear; staged rows resolve it find-or-create so the review shows it before anything is confirmed, and discarding the batch removes payees no other transaction references. Returned category ids SHALL be validated against the user's real categories — unknown ids become null. Any failure of a request (missing key, rate limit, timeout) SHALL degrade that chunk's rows to null suggestions and SHALL NOT fail the import. Suggestions are defaults for human review and SHALL never confirm transactions by themselves.
 
 #### Scenario: Recognizable merchant
 
@@ -23,9 +23,9 @@ The backend SHALL suggest a category per ingested row by calling the Anthropic A
 - **WHEN** a staged row's description is "COMPRA TARJ. 4188 MERCADONA VALENCIA"
 - **THEN** the row is staged referencing a payee named "Mercadona" for the user to review
 
-#### Scenario: Anthropic unavailable
+#### Scenario: Model provider unavailable
 
-- **WHEN** the Anthropic API call fails during an import
+- **WHEN** the suggestion request fails during an import
 - **THEN** the batch stages all rows with `category_id = null` and the import succeeds
 
 #### Scenario: Hallucinated category id
@@ -37,4 +37,3 @@ The backend SHALL suggest a category per ingested row by calling the Anthropic A
 
 - **WHEN** a custom CSV row carries the free-text hint "comida"
 - **THEN** the hint is included in the suggestion prompt for that row
-

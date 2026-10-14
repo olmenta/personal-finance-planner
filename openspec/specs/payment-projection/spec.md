@@ -15,9 +15,8 @@ The API SHALL expose `GET /plan/upcoming?from=YYYY-MM`, returning 12 months.
   - scheduled categories keep what's left after their pending payments;
   - savings keep their available;
   - flexible categories start at zero;
-  - positive To Be Assigned carries;
-  - the first month's projected end SHALL also include its still-expected income (the amounts of its `pending` and `late` income occurrences, see income-schedules).
-- **Money of a later month** is that month's expected income (Σ of its income-schedule occurrences) plus the carried To Be Assigned. It is allocated in priority order: (1) payments due that month, (2) flexible categories' current assignments, (3) catch-up set-asides for later payments, (4) `no_date` goals. A level that doesn't fit is filled pro-rata, and leftovers are carried unassigned.
+  - To Be Assigned carries **signed**: the first month's projected end SHALL start from its real To Be Assigned (negative when more was assigned than the money that arrived), minus its cash overspending (`overspent_cents`) and minus the uncovered part of its pending payments (Σ `short_cents`, which will become overspending when paid), plus its still-expected income (the amounts of its `pending` and `late` income occurrences, see income-schedules). A deficit SHALL never be clipped to zero; later months' uncovered payments keep reducing the carried balance as before.
+- **Money of a later month** is that month's expected income (Σ of its income-schedule occurrences) plus the carried To Be Assigned. It is allocated in priority order: (1) payments due that month, (2) flexible categories' current assignments, (3) catch-up set-asides for later payments, (4) `no_date` goals. A level that doesn't fit is filled pro-rata **in whole cents**: each item gets the floor of its share and the remaining cents go one by one to the items with the largest remainders (ties by priority order), so the allocated cents never exceed the money available. Coverage and `short_cents` SHALL be computed on those integer amounts. Leftovers are carried unassigned.
 - **Per month** the response SHALL report `expected_income_cents`, its occurrences with `covered` and `short_cents`, `flexible_funded_cents` versus `flexible_budget_cents`, `set_aside_funded_cents` versus `set_aside_wanted_cents`, and `unassigned_cents`. The top-level `income_cents` SHALL be the Σ of expected income over the 12 months.
 - **No income schedules.** The response SHALL set `income_known = false` and report occurrences without coverage.
 
@@ -45,6 +44,16 @@ The API SHALL expose `GET /plan/upcoming?from=YYYY-MM`, returning 12 months.
 
 - **WHEN** the user has no income schedules
 - **THEN** the projection returns occurrences and totals with `income_known = false` and no coverage flags
+
+#### Scenario: A current deficit is not forgotten
+
+- **WHEN** October has a 100,00 € payment assigned with no money (To Be Assigned −100,00 €) and a 100,00 € salary is expected only from November, when another 100,00 € payment falls
+- **THEN** November reports that payment with `covered = false` and `short_cents = 10000`
+
+#### Scenario: One cent can't cover two
+
+- **WHEN** a month has two 0,01 € payments due and 0,01 € to allocate
+- **THEN** one payment reports `covered = true` and the other `covered = false` with `short_cents = 1`
 
 ### Requirement: Annual plan summary and expected income
 

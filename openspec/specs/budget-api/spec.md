@@ -104,12 +104,12 @@ When a budget month is created, each category with payments SHALL be assigned it
 #### Scenario: New month pre-fills from history
 
 - **WHEN** June is first requested and May has assignments
-- **THEN** June's assignments equal May's with `suggestion_state = "draft"`
+- **THEN** June's assignments for categories without payments equal May's with `suggestion_state = "draft"`
 
 #### Scenario: First month starts empty
 
 - **WHEN** the first-ever month is requested
-- **THEN** all assignments are zero and no category is in `draft` state
+- **THEN** every category without payments is assigned zero, and no category is in `draft` state
 
 #### Scenario: Confirm preserves edits
 
@@ -206,4 +206,3 @@ Each category in `GET /budget/{month}` SHALL include `kind` (`credit_payment` fo
 
 - **WHEN** October's view is requested and "Colegio Tomi" has schedules
 - **THEN** its row carries `kind = "scheduled"`, `normal_cents = 58292` and `catch_up_cents = 72140`
-

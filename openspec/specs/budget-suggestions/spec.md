@@ -13,13 +13,13 @@ When a budget month opens, the system SHALL assign each category with payments i
 #### Scenario: Month opens with history
 
 - **WHEN** June opens and May had assignments
-- **THEN** every category shows May's assignment as a draft value
+- **THEN** every category without payments shows May's assignment as a draft value
 - **AND** the to-be-assigned hero reflects the drafted total
 
 #### Scenario: First month — no history
 
 - **WHEN** a budget month opens and no prior month exists
-- **THEN** assignments start at zero with no draft state
+- **THEN** categories without payments start at zero with no draft state, while categories with payments get their computed amount
 - **AND** the screen shows an empty-state inviting the first assignment (directional copy, no apology)
 
 #### Scenario: Category with payments is computed, not drafted

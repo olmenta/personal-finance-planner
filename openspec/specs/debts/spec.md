@@ -190,17 +190,3 @@ A plan below the minimum SHALL show why it matters before saving.
 
 - **WHEN** the user skips the minimum question
 - **THEN** the debt saves without it
-
-### Requirement: Late debt payment nudge
-
-While a required debt payment of the current month is `late` in the month overview, the dashboard SHALL show one coach capsule naming it ("Your Ikea installment was due on the 5th and hasn't gone out yet"), or the count and total when several are late. It SHALL link to "What you owe", with a dismiss control kept per browser for those payments in that month.
-
-#### Scenario: Installment late
-
-- **WHEN** on 14 October a loan installment due on day 5 is unpaid
-- **THEN** the dashboard shows the nudge naming it
-
-#### Scenario: Paid installment clears the nudge
-
-- **WHEN** the installment's expense is recorded
-- **THEN** the nudge disappears
