@@ -6,7 +6,7 @@ import { ProposalCard } from "@/components/coach/ProposalCard";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { Panel } from "@/components/ui/Panel";
-import type { HomeReason, HomeView } from "@/lib/api";
+import type { HomeReason, HomeSummary, HomeView } from "@/lib/api";
 import { euroCents } from "@/lib/format";
 import { monthLabel } from "@/lib/schedules";
 
@@ -113,8 +113,43 @@ export function CoachLine({ home }: Readonly<{ home: HomeView }>) {
   );
 }
 
-export function MonthWidget({ home }: Readonly<{ home: HomeView }>) {
-  const [open, setOpen] = React.useState(false);
+/** M = T + L + F + U, exactly as the server computed it. */
+export function Breakdown({ summary: s }: Readonly<{ summary: HomeSummary }>) {
+  return (
+    <div data-testid="breakdown" style={{ marginTop: 8, background: "var(--surface-sunk)", borderRadius: "var(--r-md)", padding: "10px 12px", font: "500 13.5px/1.7 var(--font-sans)", fontVariantNumeric: "tabular-nums" }}>
+      <div><b>Money in your accounts {euroCents(s.accounts_cents)}</b> =</div>
+      <div>set aside for this month&apos;s payments {euroCents(s.covered_cents)}</div>
+      <div>+ left to spend {euroCents(s.left_to_spend_cents)}</div>
+      <div>+ saved for the future {euroCents(s.saved_cents)}</div>
+      <div>+ unassigned {euroCents(s.unassigned_cents)}</div>
+      <div style={muted}>Paid and card payments already left your accounts, so they&apos;re not part of this sum.</div>
+    </div>
+  );
+}
+
+export function reasonList(reasons: HomeReason[]) {
+  return (
+    <ul style={{ margin: "6px 0 2px", paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }} data-testid="reasons">
+      {reasons.map((r) => (
+        <li key={r.code} style={{ font: "500 13.5px var(--font-sans)", color: "var(--text-body)" }}>
+          {reasonText(r)}
+          {r.items.length > 0 && (
+            <span style={muted}>: {r.items.map((i) => `${i.name} ${euroCents(i.amount_cents)}`).join(", ")}</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export interface MonthWidgetProps {
+  home: Pick<HomeView, "summary" | "status" | "reasons">;
+  /** Start with the exact breakdown expanded ("View how it's split"). */
+  breakdownOpen?: boolean;
+}
+
+export function MonthWidget({ home, breakdownOpen = false }: Readonly<MonthWidgetProps>) {
+  const [open, setOpen] = React.useState(breakdownOpen);
   const s = home.summary;
   const organized = home.status === "organized";
   return (
@@ -148,18 +183,7 @@ export function MonthWidget({ home }: Readonly<{ home: HomeView }>) {
           <span style={{ font: "700 13.5px var(--font-sans)", color: "#8A5300" }}>Needs organizing</span>
         )}
       </div>
-      {!organized && home.reasons.length > 0 && (
-        <ul style={{ margin: "6px 0 2px", paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }} data-testid="reasons">
-          {home.reasons.map((r) => (
-            <li key={r.code} style={{ font: "500 13.5px var(--font-sans)", color: "var(--text-body)" }}>
-              {reasonText(r)}
-              {r.items.length > 0 && (
-                <span style={muted}>: {r.items.map((i) => `${i.name} ${euroCents(i.amount_cents)}`).join(", ")}</span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      {!organized && home.reasons.length > 0 && reasonList(home.reasons)}
       <div style={row}>
         <span>Saved for the future</span>
         <span style={amount}>{euroCents(s.saved_cents)}</span>
@@ -175,16 +199,7 @@ export function MonthWidget({ home }: Readonly<{ home: HomeView }>) {
       >
         {open ? "Hide the breakdown" : "View exact breakdown"}
       </button>
-      {open && (
-        <div data-testid="breakdown" style={{ marginTop: 8, background: "var(--surface-sunk)", borderRadius: "var(--r-md)", padding: "10px 12px", font: "500 13.5px/1.7 var(--font-sans)", fontVariantNumeric: "tabular-nums" }}>
-          <div><b>Money in your accounts {euroCents(s.accounts_cents)}</b> =</div>
-          <div>set aside for this month&apos;s payments {euroCents(s.covered_cents)}</div>
-          <div>+ left to spend {euroCents(s.left_to_spend_cents)}</div>
-          <div>+ saved for the future {euroCents(s.saved_cents)}</div>
-          <div>+ unassigned {euroCents(s.unassigned_cents)}</div>
-          <div style={muted}>Paid and card payments already left your accounts, so they&apos;re not part of this sum.</div>
-        </div>
-      )}
+      {open && <Breakdown summary={s} />}
     </Panel>
       </div>
   );
@@ -241,29 +256,41 @@ export function RecommendationGroups({ home }: Readonly<{ home: HomeView }>) {
   );
 }
 
-export function FutureWidget({ home }: Readonly<{ home: HomeView }>) {
+/** The Future status in words, with where to act (spec: home). */
+export function futureSentence(home: Pick<HomeView, "future">): { lead: string; text: string; link: { href: string; label: string } } {
   const f = home.future;
-  let text: string;
-  let link = { href: "/future", label: "Open Future" };
   if (f.status === "unknown") {
-    text = "Add your expected income to see whether the coming months are covered.";
-    link = { href: "/settings#income", label: "Add income" };
-  } else if (f.status === "needs_attention") {
+    return {
+      lead: "Coverage unknown.",
+      text: "Add your expected income to see whether the coming months are covered.",
+      link: { href: "/settings#income", label: "Add income" },
+    };
+  }
+  if (f.status === "needs_attention") {
     const parts = [
       f.short_cents > 0 ? `${euroCents(f.short_cents)} of payments won't be covered` : null,
       f.set_aside_gap_cents > 0 ? `${euroCents(f.set_aside_gap_cents)} less is set aside than planned` : null,
     ].filter(Boolean);
-    text = `From ${f.month ? monthLabel(f.month) : "a coming month"}: ${parts.join(" and ")}. Planning for it now is easier.`;
-  } else {
-    text = "Under your current plan and expected income, the next 12 months' payments are covered.";
+    return {
+      lead: "Needs attention.",
+      text: `From ${f.month ? monthLabel(f.month) : "a coming month"}: ${parts.join(" and ")}. Planning for it now is easier.`,
+      link: { href: "/future", label: "Open Future" },
+    };
   }
+  return {
+    lead: "On track.",
+    text: "Under your current plan and expected income, the next 12 months' payments are covered.",
+    link: { href: "/future", label: "Open Future" },
+  };
+}
+
+export function FutureWidget({ home }: Readonly<{ home: HomeView }>) {
+  const { lead, text, link } = futureSentence(home);
   return (
     <div data-testid="future-widget">
       <Panel title="Future">
       <p style={{ font: "500 14px/1.5 var(--font-sans)", color: "var(--text-body)", margin: "0 0 10px" }}>
-        {f.status === "needs_attention" && <b>Needs attention. </b>}
-        {f.status === "unknown" && <b>Coverage unknown. </b>}
-        {f.status === "on_track" && <b>On track. </b>}
+        <b>{lead} </b>
         {text}
       </p>
       <Link href={link.href} style={{ textDecoration: "none" }}>

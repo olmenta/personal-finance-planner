@@ -14,8 +14,9 @@ const items = [
   { href: "/accounts", icon: "wallet", label: "Accounts" },
 ];
 
-/* The five destinations (spec: navigation). Screens reached from one keep it
-   highlighted: What you owe lives under Accounts. */
+/* The five destinations, then Settings and the user (spec: navigation,
+   mockup redesign.png). Screens reached from one keep it highlighted: What
+   you owe lives under Accounts. */
 export function isActive(href: string, pathname: string): boolean {
   if (href === "/") return pathname === "/";
   if (href === "/accounts" && pathname.startsWith("/debts")) return true;
@@ -101,68 +102,17 @@ export function Sidebar() {
         </span>
       </div>
 
-      <nav style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 26 }}>
-        <div className="ol-eyebrow" style={{ color: "var(--text-subtle)", padding: "0 13px 8px" }}>
-          Menu
-        </div>
+      <nav aria-label="Main" style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 30 }}>
         {items.map((it) => (
           <SideItem key={it.href} {...it} active={isActive(it.href, pathname)} />
         ))}
       </nav>
 
-      <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
-        <div
-          style={{
-            background: "var(--grad-coach)",
-            borderRadius: "var(--r-xl)",
-            padding: 16,
-            color: "#fff",
-          }}
-        >
-          <span
-            style={{
-              display: "inline-flex",
-              width: 30,
-              height: 30,
-              borderRadius: "var(--r-sm)",
-              background: "rgba(255,255,255,.1)",
-              alignItems: "center",
-              justifyContent: "center",
-              marginBottom: 10,
-            }}
-          >
-            <Icon name="sparkles" size={16} color="var(--mint-400)" />
-          </span>
-          <div style={{ font: "700 14.5px var(--font-sans)", letterSpacing: "-0.2px" }}>
-            Olmenta Pro
-          </div>
-          <div
-            style={{
-              font: "500 12.5px/1.45 var(--font-sans)",
-              color: "rgba(255,255,255,.7)",
-              margin: "4px 0 12px",
-            }}
-          >
-            Deeper coaching, unlimited goals.
-          </div>
-          <button
-            type="button"
-            style={{
-              width: "100%",
-              background: "#fff",
-              color: "var(--ink-900)",
-              border: "none",
-              borderRadius: 999,
-              padding: "9px",
-              font: "600 13.5px var(--font-sans)",
-              cursor: "pointer",
-            }}
-          >
-            Upgrade
-          </button>
-        </div>
+      <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 10 }}>
+        <SideItem href="/settings" icon="settings" label="Settings" active={isActive("/settings", pathname)} />
         <Link
           href="/settings"
+          aria-label="Your profile"
           style={{
             display: "flex",
             alignItems: "center",
@@ -171,7 +121,7 @@ export function Sidebar() {
             textDecoration: "none",
           }}
         >
-          <Avatar name="Maya Ortiz" size={38} />
+          <Avatar name="Maya Ortiz" size={40} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ font: "700 13.5px var(--font-sans)", color: "var(--text-strong)" }}>
               Maya Ortiz
@@ -188,7 +138,7 @@ export function Sidebar() {
               maya@olmenta.app
             </div>
           </div>
-          <Icon name="settings" size={18} color="var(--text-subtle)" />
+          <Icon name="chevron-right" size={18} color="var(--text-subtle)" />
         </Link>
       </div>
     </aside>

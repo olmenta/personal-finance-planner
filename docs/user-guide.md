@@ -52,6 +52,8 @@ Recording an expense takes less than five seconds. Tap the **+** button (on mobi
 2. Pick the category. When you type who you paid, Olmenta remembers the category you used last time.
 3. Save. The date is today unless you change it.
 
+You can also just tell your coach on Home: "gasté 40 en Mercadona". It prepares the transaction for you to confirm (see [Talking to your coach](#talking-to-your-coach)).
+
 Switch to **Income** for money coming in. Income usually has no category: it goes to Ready to assign. An income with a category is a **refund**: it puts money back into that category instead of counting as income.
 
 If you have more than one account, you can also record a **transfer** between them. Transfers are never income or spending; they just move money from one account to another. Paying your card from your bank is a transfer.
@@ -114,31 +116,73 @@ Mark a category as **savings** (emergency fund, a trip, the kids' savings) and i
 
 Olmenta has five places, always one tap away (the sidebar on a computer, the bar at the bottom on a phone):
 
-- **Home**: what to resolve now.
+- **Home**: your conversation with Olmenta: what to resolve now, your questions, and quick changes.
 - **Budget**: give your money its jobs; manage categories.
 - **Transactions**: everything that happened, imports, and your weekly spending.
 - **Future**: upcoming payments and whether the next months are covered.
 - **Accounts**: your accounts and cards, and **What you owe**.
 
-**Settings** is at the bottom of the sidebar, or the gear icon at the top on a phone. The **+** button adds a transaction from anywhere.
+**Settings** is at the bottom of the sidebar, above your name, or the gear icon at the top on a phone. The **+** button adds a transaction from anywhere.
 
 ## Home
 
-Home answers one question: **what do I need to resolve now?** It refreshes every time you open it.
+Home is **your conversation with Olmenta**. Each time you open it, your coach brings your month up to date in a message at the end of the conversation. Below it is the box where you ask questions or record expenses, and everything you've said stays in the history (**Your history is kept**).
 
-- **At the top:** the month, when it was updated, and the date of your last transaction. If something makes the numbers incomplete (transactions without a category, an import waiting for review, nothing recorded for two weeks), a **Review data** note says what and links to it.
-- **One sentence from your coach** with the most important fact, like "2 categories need money before I can give you a reliable amount to spend", or "Your month is organized".
-- **This month:**
+### The month message
+
+The month message answers one question: **what do I need to resolve now?** It's written fresh from your numbers on every visit and isn't saved, so the history doesn't fill up with greetings.
+
+- **How much money you have**, and how much of it is already set aside for payments and savings.
+- **View how it's split** opens this month in detail:
   - **Paid**: what already went out this month. A bill paid only in part shows as "paid in part". **Card payments** appear on their own line, because the purchases were already counted when you made them.
   - **Still to pay**, with how much is covered and how much is short.
   - **Left to spend**, when your month is organized. If it isn't, you see **Needs organizing** and why: money assigned that you don't have, categories that went over, card spending that wasn't budgeted, or payments that aren't covered. Each one comes with its amount.
   - **Saved for the future** and **Unassigned**.
-  - **View exact breakdown** shows that it all adds up: the money in your accounts equals what's set aside for this month's payments, plus what's left to spend, plus what's saved, plus what's unassigned.
+  - **The exact breakdown** shows that it all adds up: the money in your accounts equals what's set aside for this month's payments, plus what's left to spend, plus what's saved, plus what's unassigned.
+- **One sentence with the most important fact**, like "2 categories need money before I can give you a reliable amount to spend" (with the categories listed), or "Your month is organized".
+- **Whether this month's payments are covered, and the months ahead**: covered under your current plan and expected income, what needs attention, or unknown until you add your income. A link takes you to Future.
 - **Do this first:** your coach's most urgent suggestion (see [Your coach](#your-coach)).
-- **Also worth a look:** the other suggestions, grouped by cause, up to three groups (**See more** shows the rest).
-- **Future:** whether the coming months are covered under your current plan and expected income, or what needs attention, or that coverage is unknown until you add your income.
+- **More suggestions:** the others, grouped by cause, up to three groups (**See more** shows the rest).
+- **At the end:** the month, when it was updated, and your last transaction. If something makes the numbers incomplete (transactions without a category, an import waiting for review, nothing recorded for two weeks), a **Review data** note says what and links to it.
 
 A negative "left to spend" next to money that's unassigned doesn't mean your bank account is overdrawn. It means the plan needs organizing: give that unassigned money to the categories that went over.
+
+### The box at the bottom
+
+- **+** opens the form to add a transaction.
+- **Ask or record an expense…** is where you write to your coach. Press Enter (or the send button) to send.
+- If you leave Home halfway through a message, it's still there when you come back. Home also remembers where you were in the conversation.
+
+### History
+
+The **History** button at the top lists every change you confirmed in the conversation, newest first, with **Undo** while it's still possible.
+
+## Talking to your coach
+
+Write the way you'd talk. Your coach reads your real numbers before answering and replies in your language.
+
+**Asking.** "¿Cuánto tendría que guardar para el seguro del coche?", "¿Cómo voy este mes?", "¿En qué me he gastado el dinero?". The answer comes with cards that show the exact figures from your budget. For a coming payment, the card shows what's saved of what you'll need, your current monthly plan next to what it takes to make it, and how many contributions are left. **Review adjustment** shows what the change would do; **Reviewing doesn't change your budget**.
+
+**Recording an expense.** "gasté 40 en Mercadona" becomes a ready-to-confirm transaction, in the category you used last time with that payee. If it's a new payee, the coach asks which category.
+
+**Changing your budget.** "Cubre Restaurantes y Gasolina con lo que tengo sin asignar" or "pon 300 en el súper". Your coach can record transactions, set a day-to-day category's amount, and move money between categories (several moves at once when you ask to cover more than one thing). It can't change payments, income or debts: it tells you where to do it.
+
+**Nothing changes until you confirm.** Every change arrives as a preview:
+
+- what changes in each category, before and after;
+- what happens to your money to be assigned;
+- **Money in accounts: unchanged** for budget changes, because only the job of the money changes;
+- **Confirm**, **Edit** (change the amounts and see the new preview), or **Cancel**.
+
+A group of moves applies completely or not at all. If there isn't enough money for all of it, nothing changes and the coach suggests another way.
+
+**Needs updating.** If your numbers change between the preview and your confirmation (say, you record another expense), nothing is applied. You see **Needs updating** with the current numbers, ready to check and confirm again.
+
+**Undo.** After confirming, the change shows as **Done** with an **Undo** button. Undo puts back exactly what was there before, as long as nothing it touched has changed since. If something has, Undo isn't offered anymore: ask your coach for a new review instead. Undone changes stay in History.
+
+**When the coach can't answer.** Sometimes the coach is unavailable for a moment. Your message is kept, Home and every form keep working, and **Try again** sends it once more without duplicating it.
+
+To answer you, your coach uses an AI model: your message and the numbers it looks up are sent to it for that answer, and the model never decides an amount on its own. Every figure you see in a card or a preview comes from Olmenta's own calculations. Your coach treats the text of your transactions (like bank descriptions) as information, never as instructions.
 
 ## Income
 
@@ -186,7 +230,7 @@ Each month's money goes first to that month's payments, then to day-to-day, then
 
 ## Your coach
 
-Your coach keeps an eye on your plan and speaks up when something needs you. It lives on **Home**: the most urgent suggestion is **Do this first**, and the rest are grouped under **Also worth a look**.
+Your coach keeps an eye on your plan and speaks up when something needs you. Its suggestions come in Home's month message: the most urgent one is **Do this first**, and the rest open from **more suggestions**, grouped by cause. You can also talk to it (see [Talking to your coach](#talking-to-your-coach)).
 
 It suggests, from most to least urgent:
 
@@ -199,11 +243,11 @@ It suggests, from most to least urgent:
 
 **Raise it** and **Lower it** change this month's amount in one tap, and the next months follow. If there isn't enough left to assign for a raise, the coach shows the categories you can take the money from. If your numbers changed since the suggestion appeared (say, you recorded another expense), nothing is applied: the coach shows the updated suggestion so you can check it first.
 
-You see three suggestions at a time; **See more** shows the rest. **Not now** hides a suggestion for a week. If the situation is still there after that, it comes back.
+You see up to three groups at a time; **See more** shows the rest. **Not now** hides a suggestion for a week. If the situation is still there after that, it comes back.
 
 When there's nothing to suggest, the coach says so: "No suggestions right now." That isn't a promise that your plan is fine; check Home's month status and Future for the full picture.
 
-Your coach works out every suggestion from your own numbers, inside Olmenta. Nothing is sent anywhere to write them.
+Your coach works out these suggestions from your own numbers, inside Olmenta. Nothing is sent anywhere to write them. (Answers to your questions do use an AI model; see [Talking to your coach](#talking-to-your-coach).)
 
 ## Credit cards
 
@@ -233,3 +277,5 @@ If your card already carried a balance when you started, that old balance is a d
 - **Covered / short**: whether the money set aside is enough for a payment.
 - **Refund**: money back from a purchase. It returns to the purchase's category and isn't income.
 - **Transfer**: money moving between your own accounts. It's never income or spending.
+- **Preview**: what a change from the conversation would do, shown before anything changes.
+- **Undo**: putting back exactly what a confirmed change replaced, while nothing it touched has changed since.

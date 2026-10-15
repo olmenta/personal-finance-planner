@@ -1,12 +1,16 @@
 import { expect, test } from "@playwright/test";
 import { Api, euroCents as eur, pinClock, resetDb } from "./support/app";
 
-/* redesign-home-navigation, task 5.3 — on 14 October 2026:
-   1. five destinations on desktop and on mobile;
-   2. "Needs organizing" with reasons, and a breakdown that adds up;
-   3. Future coverage unknown without income;
-   4. /upcoming and /coach redirect;
-   5. What you owe is reached from Accounts. */
+/* redesign-home-navigation 5.3 and coach-conversation-actions 9.3 — on
+   14 October 2026:
+   1. five destinations, Settings and the user on desktop; no upsell;
+   2. Home is the conversation: header, History, composer;
+   3. the snapshot message says "Needs organizing" and why, and "View how
+      it's split" shows a breakdown that adds up;
+   4. Future coverage unknown without income;
+   5. /upcoming and /coach redirect;
+   6. What you owe is reached from Accounts;
+   7. mobile shows the five destinations and Settings. */
 
 test.describe.configure({ mode: "serial" });
 
@@ -34,21 +38,37 @@ test("the sidebar has the five destinations", async ({ page }) => {
   }
   await expect(nav.getByRole("link", { name: "Goals" })).toHaveCount(0);
   await expect(nav.getByRole("link", { name: "Coach" })).toHaveCount(0);
+  const sidebar = page.locator(".app-sidebar");
+  await expect(sidebar.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
+  await expect(sidebar).toContainText("Maya Ortiz");
+  await expect(sidebar).not.toContainText("Olmenta Pro");
+});
+
+test("Home is the conversation with Olmenta", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Home" })).toBeVisible();
+  await expect(page.getByText("Your conversation with Olmenta")).toBeVisible();
+  await expect(page.getByTestId("history-button")).toBeVisible();
+  await expect(page.getByPlaceholder("Ask or record an expense…")).toBeVisible();
+  await expect(page.getByText("Your history is kept")).toBeVisible();
+  await expect(page.getByTestId("snapshot-message")).toContainText("I've updated your month.");
 });
 
 test("Home says the month needs organizing, and why", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("coach-line")).toContainText("1 category needs money before I can give you a reliable amount to spend");
+  const line = page.getByTestId("coach-line");
+  await expect(line).toContainText("1 category needs money before I can give you a reliable amount to spend");
+  await expect(line.getByTestId("reasons")).toContainText(`Ocio ${eur(4500)}`);
+  await page.getByRole("button", { name: "View how it's split" }).click();
   await expect(page.getByTestId("left-to-spend")).toContainText("Needs organizing");
-  await expect(page.getByTestId("reasons")).toContainText(`Ocio ${eur(4500)}`);
-  await page.getByRole("button", { name: "View exact breakdown" }).click();
   await expect(page.getByTestId("breakdown")).toContainText(`left to spend -${eur(4500)}`.replace("--", "-"));
 });
 
 test("Future coverage is unknown without expected income", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("future-widget")).toContainText("Coverage unknown");
-  await expect(page.getByTestId("future-widget").getByRole("button", { name: "Add income" })).toBeVisible();
+  const future = page.getByTestId("future-line");
+  await expect(future).toContainText("Coverage unknown");
+  await expect(future.getByRole("link", { name: "Add income" })).toBeVisible();
 });
 
 test("old links redirect", async ({ page }) => {

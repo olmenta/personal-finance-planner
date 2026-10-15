@@ -6,6 +6,7 @@ Eval suites for the live prompts, built with `pydantic_evals` (spec: `llm-layer`
 cd backend
 uv run python -m evals category_suggestions            # route defaults
 uv run python -m evals onboarding
+uv run python -m evals coach                           # needs TEST_DATABASE_URL too
 uv run python -m evals onboarding --model anthropic:claude-sonnet-4-6   # compare another model
 ```
 
@@ -16,6 +17,7 @@ uv run python -m evals onboarding --model anthropic:claude-sonnet-4-6   # compar
 |---|---|---|
 | `onboarding` | Synthetic interview answers plus one full interview | Expected extraction fields settled (or deliberately not settled when the user skips); proposal shape (cards are credit accounts, loans are categories); an LLM judge (route `judge`) on proposal quality |
 | `category_suggestions` | Labeled Spanish bank rows against the default tree | Category accuracy; payee normalization |
+| `coach` | One message each on a month built through the API on the test database (rolled back): how much to save, "gasté 40 en Mercadona", cover two categories, a job loss, instructions planted in a transaction note, month status in Spanish and English | Right tool for the intent; the expected widget; the proposed transaction or grouped moves; no euro amount in the text that a tool didn't return; no proposals for questions or planted text; an LLM judge on language and on tone for a shortfall |
 
 ## Rule: no prompt-version bump without an eval run
 

@@ -15,8 +15,7 @@ from ..schemas import (
     MoveRequest,
 )
 from ..services import budget_view
-from ..services.budget_moves import MoveError, validate_source
-from ..services.schedules import schedules_by_category
+from ..services.budget_moves import MoveError, apply_move, set_assignment
 
 router = APIRouter(prefix="/budget", tags=["budget"])
 
@@ -40,18 +39,10 @@ def assign(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> AssignResponse:
-    bm = budget_view.materialize_month(db, user, month)
-    assignment = budget_view.ensure_assignment(db, user, bm, category_id)
-    if assignment is None:
-        raise HTTPException(status_code=404, detail={"code": "category_not_found"})
-    if schedules_by_category(db, user).get(category_id):
-        # Categories with payments are assigned their computed monthly amount;
-        # change the payments (or move money explicitly) instead.
-        raise HTTPException(status_code=409, detail={"code": "assignment_from_payments"})
-
-    assignment.assigned_cents = payload.amount_cents
-    assignment.suggestion_state = "edited"
-    db.flush()
+    try:
+        assignment = set_assignment(db, user, month, category_id, payload.amount_cents)
+    except MoveError as error:
+        raise HTTPException(status_code=error.status, detail={"code": error.code}) from error
 
     view = budget_view.build_view(db, user, month)
     return AssignResponse(
@@ -82,42 +73,13 @@ def move_money(
     available, so a source assignment may go negative when the money comes
     from its rollover (budget-rules design D6).
     """
-    if payload.from_category_id == payload.to_category_id:
-        raise HTTPException(status_code=422, detail={"code": "same_category"})
-
-    bm = budget_view.materialize_month(db, user, month)
-    target = budget_view.ensure_assignment(db, user, bm, payload.to_category_id)
-    source = (
-        budget_view.ensure_assignment(db, user, bm, payload.from_category_id)
-        if payload.from_category_id
-        else None
-    )
-    if target is None or (payload.from_category_id and source is None):
-        raise HTTPException(status_code=404, detail={"code": "category_not_found"})
-
-    view = budget_view.build_view(db, user, month)
-    if source is not None:
-        try:
-            validate_source(view, payload.to_category_id, payload.from_category_id,
-                            payload.amount_cents)
-        except MoveError as error:
-            raise HTTPException(
-                status_code=error.status, detail={"code": error.code, **error.extra}
-            ) from error
-        source.assigned_cents -= payload.amount_cents
-        source.suggestion_state = "edited"
-    elif payload.amount_cents > max(0, view.to_be_assigned_cents):
+    try:
+        apply_move(db, user, month, payload.from_category_id, payload.to_category_id,
+                   payload.amount_cents)
+    except MoveError as error:
         raise HTTPException(
-            status_code=422,
-            detail={
-                "code": "insufficient_to_be_assigned",
-                "available_cents": max(0, view.to_be_assigned_cents),
-            },
-        )
-
-    target.assigned_cents += payload.amount_cents
-    target.suggestion_state = "edited"
-    db.flush()
+            status_code=error.status, detail={"code": error.code, **error.extra}
+        ) from error
     return budget_view.build_view(db, user, month)
 
 

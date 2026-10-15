@@ -1,59 +1,40 @@
-"use client";
+import { ConversationView } from "@/components/chat/ConversationView";
+import { HistorySheet } from "@/components/chat/HistorySheet";
+import { Icon } from "@/components/ui/Icon";
+import Link from "next/link";
 
-import { useQuery } from "@tanstack/react-query";
-import { AddTransactionDialog } from "@/components/AddTransactionDialog";
-import {
-  CoachLine,
-  FutureWidget,
-  HomeHeaderLine,
-  MonthWidget,
-  NoAccounts,
-  PriorityAction,
-  RecommendationGroups,
-} from "@/components/home/HomeWidgets";
-import { OnboardingNudge } from "@/components/home/OnboardingNudge";
-import { TopBar } from "@/components/shell/TopBar";
-import { Button } from "@/components/ui/Button";
-import { ErrorPanel, SkeletonPanel } from "@/components/ui/QueryStates";
-import { fetchHome } from "@/lib/api";
-
-/* Home (spec: home): what to resolve now. One server snapshot per visit
-   (GET /home): month status, the exact breakdown, one priority action,
-   grouped suggestions and the Future status. Categories live in Budget,
-   activity in Transactions, commitments in Future. */
+/* Home (spec: home, coach-conversation): your conversation with Olmenta.
+   The month arrives as a coach message on every visit; questions, recorded
+   expenses and confirmed changes stay in the history. */
 export default function HomePage() {
-  const home = useQuery({ queryKey: ["home"], queryFn: fetchHome });
-
   return (
-    <>
-      <TopBar title="Home" sub="What to resolve now" />
-      <div className="app-content" style={{ maxWidth: 760 }}>
-        <OnboardingNudge />
-        {home.isError ? (
-          <ErrorPanel message="We couldn't load your month." onRetry={() => home.refetch()} />
-        ) : !home.data ? (
-          <>
-            <SkeletonPanel rows={1} rowHeight={40} />
-            <SkeletonPanel rows={5} rowHeight={36} />
-          </>
-        ) : home.data.status === "no_accounts" ? (
-          <NoAccounts />
-        ) : (
-          <>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
-              <HomeHeaderLine home={home.data} />
-              <AddTransactionDialog>
-                <Button variant="secondary" size="sm" iconLeft="plus">Add transaction</Button>
-              </AddTransactionDialog>
-            </div>
-            <CoachLine home={home.data} />
-            <MonthWidget home={home.data} />
-            <PriorityAction home={home.data} />
-            <RecommendationGroups home={home.data} />
-            <FutureWidget home={home.data} />
-          </>
-        )}
-      </div>
-    </>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+      <header
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 16,
+          padding: "22px 28px 14px",
+          maxWidth: 1088,
+          width: "100%",
+          margin: "0 auto",
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{ font: "700 28px var(--font-sans)", letterSpacing: "-0.8px", color: "var(--text-strong)" }}>Home</h1>
+          <div style={{ font: "500 14.5px var(--font-sans)", color: "var(--text-muted)", marginTop: 2 }}>
+            Your conversation with Olmenta
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <HistorySheet />
+          <Link href="/settings" className="app-topbar-mobile" aria-label="Settings" style={{ color: "var(--text-muted)", padding: 6 }}>
+            <Icon name="settings" size={20} />
+          </Link>
+        </div>
+      </header>
+      <ConversationView />
+    </div>
   );
 }

@@ -74,7 +74,11 @@ export class Api {
     await this.send("POST", "/income-schedules", body);
   }
 
-  async expense(categoryId: string, amountCents: number, date: string): Promise<void> {
-    await this.send("POST", "/transactions", { amount_cents: amountCents, category_id: categoryId, date });
+  async expense(categoryId: string, amountCents: number, date: string, payee?: string): Promise<void> {
+    await this.send("POST", "/transactions", { amount_cents: amountCents, category_id: categoryId, date, payee });
+  }
+
+  async schedule(categoryId: string, body: Record<string, unknown>): Promise<void> {
+    await this.send("POST", `/categories/${categoryId}/schedules`, body);
   }
 }

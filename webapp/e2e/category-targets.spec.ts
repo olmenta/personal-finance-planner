@@ -176,6 +176,7 @@ test("Home splits October and the exact breakdown adds up", async ({ page }) => 
   await api.expense(ids["Supermercado"], 12345, "2026-10-10");
 
   await page.goto("/");
+  await page.getByRole("button", { name: "View how it's split" }).click();
   const month = page.getByTestId("month-widget");
   // Rent, subscriptions and the school fee are paid; plus the supermarket.
   await expect(month).toContainText(eur(95200 + 4021 + 63200 + 12345));
@@ -185,7 +186,6 @@ test("Home splits October and the exact breakdown adds up", async ({ page }) => 
   await expect(page.getByTestId("left-to-spend")).toContainText(eur(40000 - 12345));
 
   // Money in accounts = set aside + left to spend + saved + unassigned.
-  await month.getByRole("button", { name: "View exact breakdown" }).click();
   const breakdown = page.getByTestId("breakdown");
   const accountsCents = 470000 - 95200 - 4021 - 63200 - 12345;
   await expect(breakdown).toContainText(`Money in your accounts ${eur(accountsCents)}`);
@@ -236,11 +236,12 @@ test("a pending payment that lost its money shows how short it is", async ({ pag
   await api.move(E2E_MONTH, ids["Manameli"], ids["Supermercado"], 50200);
 
   await page.goto("/");
+  await expect(page.getByTestId("coach-line").getByTestId("reasons"))
+    .toContainText(`${eur(50200)} of this month's payments isn't covered yet`);
+  await page.getByRole("button", { name: "View how it's split" }).click();
   const month = page.getByTestId("month-widget");
   await expect(month).toContainText(`${eur(50200)} short`);
   await expect(page.getByTestId("left-to-spend")).toContainText("Needs organizing");
-  await expect(page.getByTestId("reasons")).toContainText(`${eur(50200)} of this month's payments isn't covered yet`);
-  await month.getByRole("button", { name: "View exact breakdown" }).click();
   await expect(page.getByTestId("breakdown")).toContainText(`left to spend ${eur(27655 + 50200)}`);
   await expect(page.getByTestId("breakdown")).toContainText(eur(470000 - 95200 - 4021 - 63200 - 12345));
 });
