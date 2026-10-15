@@ -214,3 +214,57 @@ def test_no_token_no_exporter(monkeypatch, tmp_path):
 
 def test_text_part_import_kept():  # TextPart used by the layer for history turns
     assert TextPart(content="x").content == "x"
+
+
+# ---- tools (coach-conversation) ------------------------------------------------------
+
+
+def test_tool_run_records_one_usage_row(db, user):
+    from dataclasses import dataclass
+
+    from pydantic_ai import RunContext, Tool
+
+    from app.llm import run_with_tools
+
+    @dataclass
+    class Deps:
+        greeting: str
+
+    def greet(ctx: RunContext[Deps], name: str) -> str:
+        """Greet someone."""
+        return f"{ctx.deps.greeting} {name}"
+
+    def model(messages, info: AgentInfo) -> ModelResponse:
+        returns = [p for m in messages for p in m.parts if p.part_kind == "tool-return"]
+        if not returns:
+            return ModelResponse(parts=[ToolCallPart("greet", {"name": "Ana"})])
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {"message": returns[0].content})])
+
+    with override_route("coach", FunctionModel(model)):
+        out = run_with_tools("coach", Turn, [{"role": "user", "content": "hi"}],
+                             tools=[Tool(greet, takes_ctx=True)], deps=Deps("hola"),
+                             usage=UsageContext(db, user.id))
+    assert out.message == "hola Ana"
+    [record] = db.scalars(select(LlmUsage).where(LlmUsage.user_id == user.id)).all()
+    assert record.route == "coach" and record.outcome == "ok"
+
+
+def test_coach_route_defaults():
+    assert ROUTES["coach"].model == "anthropic:claude-sonnet-5"
+    assert ROUTES["coach"].max_tokens == 4000
+
+
+def test_fake_models_resolve_outside_production(monkeypatch):
+    from app.llm import agents
+
+    monkeypatch.setenv("LLM_ROUTE_COACH_MODEL", "fake:e2e")
+    assert isinstance(agents._model("coach", route_config("coach")), FunctionModel)
+
+
+def test_fake_models_refused_in_production(monkeypatch):
+    from app.llm import fakes
+
+    monkeypatch.setattr(fakes, "get_settings", lambda: SimpleNamespace(
+        sentry_environment="production", logfire_environment="production"))
+    with pytest.raises(fakes.FakeModelRefused):
+        fakes.fake_model("e2e")

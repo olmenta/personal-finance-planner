@@ -996,3 +996,81 @@ class HomeView(BaseModel):
     priority: CoachProposalOut | None
     groups: list[HomeGroup]
     snapshot_version: str
+
+
+# ---- Coach conversation (spec: coach-conversation) ---------------------------
+
+
+class CoachActionOut(BaseModel):
+    id: str
+    kind: Literal["transaction", "assignment", "moves"]
+    status: Literal["proposed", "applied", "stale", "cancelled", "undone"]
+    title: str
+    command: dict  # the typed command (ids), for Edit
+    preview: dict
+    revision: str
+    result: dict | None
+    created_at: datetime
+    applied_at: datetime | None
+    undone_at: datetime | None
+    can_undo: bool
+
+
+class CoachMessageOut(BaseModel):
+    id: str
+    role: Literal["user", "assistant"]
+    text: str
+    # Typed payloads from the engine (month_summary, breakdown, future_payment,
+    # action_preview, action_result, coach_proposal, transaction); action
+    # widgets carry the action's live state under data.action.
+    widgets: list[dict]
+    client_message_id: str | None
+    reply_to: str | None
+    created_at: datetime
+
+
+class CoachConversationView(BaseModel):
+    messages: list[CoachMessageOut]  # oldest first
+    has_more: bool  # older pages exist: pass the first id as `before`
+
+
+class CoachSendIn(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+    client_message_id: str = Field(min_length=8, max_length=64)
+
+
+class CoachSendOut(BaseModel):
+    user_message: CoachMessageOut
+    reply: CoachMessageOut
+
+
+class CoachMoveIn(BaseModel):
+    from_category_id: str | None  # null = To Be Assigned
+    to_category_id: str
+    amount_cents: int = Field(gt=0)
+
+
+class CoachActionIn(BaseModel):
+    """A command reviewed from a widget (Review adjustment) or edited in a
+    preview (Edit): stored as a new proposed action, never applied."""
+
+    kind: Literal["transaction", "assignment", "moves"]
+    moves: list[CoachMoveIn] | None = None
+    category_id: str | None = None
+    amount_cents: int | None = Field(default=None, gt=0)
+    direction: Literal["expense", "income"] = "expense"
+    payee: str | None = Field(default=None, max_length=120)
+    date: date_type | None = None
+    account_id: str | None = None
+    note: str | None = Field(default=None, max_length=500)
+    replaces: str | None = None  # a proposed action this one replaces (Edit)
+
+
+class CoachCommitIn(BaseModel):
+    revision: str
+    idempotency_key: str = Field(min_length=8, max_length=64)
+
+
+class CoachCommitOut(BaseModel):
+    action: CoachActionOut
+    message: CoachMessageOut | None  # the action_result message in the conversation

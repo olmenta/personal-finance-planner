@@ -21,6 +21,8 @@ class RouteConfig:
     output_mode: Literal["tool", "native"] = "tool"
     cache_instructions: bool = True
     effort: Literal["low", "medium", "high", "xhigh", "max"] | None = None
+    # Per model request; None keeps the provider client's default.
+    timeout_s: float | None = None
 
 
 ROUTES: dict[str, RouteConfig] = {
@@ -30,6 +32,8 @@ ROUTES: dict[str, RouteConfig] = {
     "category_suggestions": RouteConfig(
         model="anthropic:claude-haiku-4-5", max_tokens=16000, cache_instructions=False
     ),
+    # Home conversation: tool-using agent, the user is waiting (coach-conversation).
+    "coach": RouteConfig(model="anthropic:claude-sonnet-5", max_tokens=4000, timeout_s=30),
     # Offline LLM-as-judge for the eval suites.
     "judge": RouteConfig(model="anthropic:claude-opus-5", max_tokens=8000),
 }

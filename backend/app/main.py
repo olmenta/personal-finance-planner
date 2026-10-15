@@ -13,6 +13,7 @@ from .routers import (
     home,
     categories,
     coach,
+    coach_chat,
     imports,
     income,
     onboarding,
@@ -47,6 +48,7 @@ app.include_router(income.router)
 app.include_router(debts.router)
 app.include_router(coach.router)
 app.include_router(home.router)
+app.include_router(coach_chat.router)
 
 
 @app.get("/health")

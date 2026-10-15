@@ -231,6 +231,64 @@ class CoachProposalState(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
+class CoachConversation(Base):
+    """The user's Home conversation with the coach (coach-conversation D1)."""
+
+    __tablename__ = "coach_conversations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class CoachMessage(Base):
+    """One message of the conversation. Widgets are server-built payloads
+    from the engine; the model never writes their amounts (design D3)."""
+
+    __tablename__ = "coach_messages"
+    __table_args__ = (
+        Index(
+            "uq_coach_messages_client_id", "user_id", "client_message_id",
+            unique=True, postgresql_where=text("client_message_id IS NOT NULL"),
+        ),
+        Index("ix_coach_messages_conversation_created", "conversation_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("coach_conversations.id"))
+    role: Mapped[str] = mapped_column(String(12))  # user | assistant
+    text: Mapped[str] = mapped_column(String(8000), default="")
+    widgets: Mapped[list] = mapped_column(JSONB, default=list)
+    client_message_id: Mapped[str | None] = mapped_column(String(64))
+    reply_to: Mapped[str | None] = mapped_column(String(36))  # assistant -> user message
+    snapshot_version: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class CoachAction(Base):
+    """A change the coach proposed: preview, revision, lifecycle and result
+    (design D1, D5–D8). Money itself stays in assignments and transactions."""
+
+    __tablename__ = "coach_actions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    message_id: Mapped[str | None] = mapped_column(String(36))
+    kind: Mapped[str] = mapped_column(String(16))  # transaction | assignment | moves
+    command: Mapped[dict] = mapped_column(JSONB)
+    preview: Mapped[dict] = mapped_column(JSONB)
+    revision: Mapped[str] = mapped_column(String(32))
+    # proposed | applied | stale | cancelled | undone
+    status: Mapped[str] = mapped_column(String(12), default="proposed")
+    idempotency_key: Mapped[str | None] = mapped_column(String(64))
+    result: Mapped[dict | None] = mapped_column(JSONB)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
 class Payee(Base):
     """Who was paid (expense) / who paid (income) — one entity, label-only split.
 

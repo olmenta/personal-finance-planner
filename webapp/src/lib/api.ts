@@ -1129,3 +1129,197 @@ const ICON_TONES: Record<string, ChipTone> = {
 export function toneForCategory(icon: string): ChipTone {
   return ICON_TONES[icon] ?? "violet";
 }
+
+// ---- Coach conversation (coach-conversation) -------------------------------------
+
+export interface FuturePaymentData {
+  category_id: string;
+  category_name: string;
+  icon: string;
+  name: string;
+  due_month: string;
+  target_cents: number;
+  saved_cents: number;
+  percent: number;
+  plan_monthly_cents: number;
+  needed_monthly_cents: number;
+  assigned_cents: number;
+  contributions_left: number;
+  on_track: boolean;
+  /** What this month's assignment lacks to reach the needed amount. */
+  gap_cents: number;
+}
+
+export interface CoachPreviewCategory {
+  category_id: string;
+  name: string;
+  assigned_before_cents: number;
+  assigned_after_cents: number;
+  available_before_cents: number;
+  available_after_cents: number;
+}
+
+export interface CoachActionPreview {
+  kind: CoachAction["kind"];
+  month: string;
+  title: string;
+  categories: CoachPreviewCategory[];
+  to_be_assigned_before_cents: number;
+  to_be_assigned_after_cents: number;
+  accounts_unchanged: boolean;
+  error: { code: string } | null;
+  transaction?: {
+    amount_cents: number;
+    direction: "expense" | "income";
+    category_name: string | null;
+    payee: string | null;
+    date: string;
+    account_name: string | null;
+    note: string | null;
+  };
+}
+
+export interface CoachAction {
+  id: string;
+  kind: "transaction" | "assignment" | "moves";
+  status: "proposed" | "applied" | "stale" | "cancelled" | "undone";
+  title: string;
+  /** The typed command (ids): Edit sends a changed copy back. */
+  command: {
+    month: string;
+    moves?: { from_category_id: string | null; from_name: string | null; to_category_id: string; to_name: string; amount_cents: number }[];
+    category_id?: string | null;
+    amount_cents?: number;
+    direction?: "expense" | "income";
+    payee?: string | null;
+    date?: string;
+    account_id?: string | null;
+    note?: string | null;
+  };
+  preview: CoachActionPreview;
+  revision: string;
+  result: Record<string, unknown> | null;
+  created_at: string;
+  applied_at: string | null;
+  undone_at: string | null;
+  can_undo: boolean;
+}
+
+interface WidgetBase<T extends string, D> {
+  type: T;
+  schema_version: number;
+  snapshot_version: string | null;
+  computed_at: string;
+  data: D;
+}
+
+export type CoachWidget =
+  | WidgetBase<"month_summary", Pick<HomeView, "month" | "status" | "reasons" | "summary" | "future">>
+  | WidgetBase<"breakdown", { summary: HomeSummary }>
+  | WidgetBase<"future_payment", FuturePaymentData>
+  | WidgetBase<"action_preview", { action_id: string; action: CoachAction }>
+  | WidgetBase<"action_result", { action_id: string; title: string; action: CoachAction }>
+  | WidgetBase<"coach_proposal", CoachProposal>
+  | WidgetBase<"transaction", {
+      id: string;
+      date: string;
+      amount_cents: number;
+      payee: string | null;
+      category_name: string | null;
+      account_name: string | null;
+      description: string | null;
+    }>;
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  widgets: CoachWidget[];
+  client_message_id: string | null;
+  reply_to: string | null;
+  created_at: string;
+}
+
+export interface ConversationView {
+  /** Oldest first. */
+  messages: ChatMessage[];
+  has_more: boolean;
+}
+
+export const fetchConversation = (before?: string) =>
+  request<ConversationView>(`/coach/conversation${before ? `?before=${encodeURIComponent(before)}` : ""}`);
+
+/** The coach couldn't answer (503 coach_unavailable); the message is kept. */
+export class CoachUnavailableError extends Error {
+  constructor(readonly userMessage: ChatMessage | null) {
+    super("coach_unavailable");
+  }
+}
+
+export async function sendCoachMessage(
+  text: string,
+  clientMessageId: string,
+): Promise<{ user_message: ChatMessage; reply: ChatMessage }> {
+  const res = await fetch("/api/coach/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, client_message_id: clientMessageId }),
+  });
+  const body = await res.json().catch(() => null);
+  if (res.status === 503 && body?.detail?.code === "coach_unavailable") {
+    throw new CoachUnavailableError(body.detail.user_message ?? null);
+  }
+  if (!res.ok) throw new ApiError(body?.detail?.code ?? body?.code ?? "unknown_error", res.status);
+  return body;
+}
+
+export interface CoachActionIn {
+  kind: CoachAction["kind"];
+  moves?: { from_category_id: string | null; to_category_id: string; amount_cents: number }[];
+  category_id?: string | null;
+  amount_cents?: number;
+  direction?: "expense" | "income";
+  payee?: string | null;
+  date?: string;
+  account_id?: string | null;
+  note?: string | null;
+  /** A proposed action this one replaces (Edit). */
+  replaces?: string;
+}
+
+export const createCoachAction = (body: CoachActionIn) =>
+  request<CoachAction>("/coach/actions", { method: "POST", body: JSON.stringify(body) });
+
+/** The numbers changed since the preview (409 action_stale): carries a
+    fresh preview to review instead. */
+export class ActionStaleError extends Error {
+  constructor(readonly action: CoachAction) {
+    super("action_stale");
+  }
+}
+
+export async function commitCoachAction(
+  id: string,
+  revision: string,
+  idempotencyKey: string,
+): Promise<{ action: CoachAction; message: ChatMessage | null }> {
+  const res = await fetch(`/api/coach/actions/${encodeURIComponent(id)}/commit`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ revision, idempotency_key: idempotencyKey }),
+  });
+  const body = await res.json().catch(() => null);
+  if (res.status === 409 && body?.detail?.code === "action_stale") {
+    throw new ActionStaleError(body.detail.action as CoachAction);
+  }
+  if (!res.ok) throw new ApiError(body?.detail?.code ?? body?.code ?? "unknown_error", res.status);
+  return body;
+}
+
+export const cancelCoachAction = (id: string) =>
+  request<CoachAction>(`/coach/actions/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+
+export const undoCoachAction = (id: string) =>
+  request<CoachAction>(`/coach/actions/${encodeURIComponent(id)}/undo`, { method: "POST" });
+
+export const fetchCoachActions = () => request<CoachAction[]>("/coach/actions?status=applied,undone");

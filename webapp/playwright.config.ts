@@ -56,9 +56,11 @@ export default defineConfig({
         DATABASE_URL: backendEnv("E2E_DATABASE_URL"),
         MIGRATIONS_DATABASE_URL: backendEnv("E2E_MIGRATIONS_DATABASE_URL"),
         FIXED_TODAY: E2E_TODAY,
-        // No telemetry and no live LLM calls from test runs.
+        // No telemetry and no live LLM calls from test runs: the coach runs on
+        // a deterministic fake that maps a few phrasings to its real tools.
         SENTRY_DSN: "",
         ANTHROPIC_API_KEY: "",
+        LLM_ROUTE_COACH_MODEL: "fake:e2e",
       },
     },
     {

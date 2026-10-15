@@ -2,7 +2,7 @@
 the backend goes through here, addressed by a logical route — services
 never name a model and never call a provider SDK directly."""
 
-from .agents import override_route, run_structured
+from .agents import override_route, run_structured, run_with_tools
 from .usage import UsageContext
 
-__all__ = ["UsageContext", "override_route", "run_structured"]
+__all__ = ["UsageContext", "override_route", "run_structured", "run_with_tools"]

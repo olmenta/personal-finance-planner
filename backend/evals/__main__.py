@@ -1,4 +1,4 @@
-"""Run an eval suite: `uv run python -m evals <onboarding|category_suggestions> [--model MODEL]`.
+"""Run an eval suite: `uv run python -m evals <onboarding|category_suggestions|coach> [--model MODEL]`.
 
 --model overrides the suite's route model for this run (baseline comparisons,
 e.g. --model anthropic:claude-sonnet-4-6). Results print as a table and, with
@@ -7,13 +7,17 @@ LOGFIRE_TOKEN set, appear in Logfire as an experiment.
 
 import argparse
 
-from . import category_suggestions, onboarding
+from . import category_suggestions, coach, onboarding
 from .common import require_key, setup_observability, use_model
 
 SUITES = {
     "onboarding": ("onboarding", onboarding),
     "category_suggestions": ("category_suggestions", category_suggestions),
+    "coach": ("coach", coach),
 }
+# The coach suite builds each case's month through the app on one database:
+# one case at a time.
+CONCURRENCY = {"coach": 1}
 
 
 def main() -> None:
@@ -27,7 +31,7 @@ def main() -> None:
     require_key()
     setup_observability()
     report = module.dataset().evaluate_sync(
-        module.task, name=f"{args.suite}:{args.model or 'default'}", max_concurrency=4
+        module.task, name=f"{args.suite}:{args.model or 'default'}", max_concurrency=CONCURRENCY.get(args.suite, 4)
     )
     report.print(include_input=False, include_output=True)
 

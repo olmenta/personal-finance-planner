@@ -1,0 +1,336 @@
+"use client";
+
+import React from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
+import {
+  ActionStaleError,
+  ApiError,
+  cancelCoachAction,
+  commitCoachAction,
+  createCoachAction,
+  undoCoachAction,
+  type CoachAction,
+  type CoachActionIn,
+} from "@/lib/api";
+import { euroCents, money, parseEuroToCents } from "@/lib/format";
+import { invalidateMoneyQueries } from "@/lib/planQueries";
+import { useConversationActions } from "./ConversationContext";
+
+/* Action preview and result (spec: coach-conversation, action lifecycle).
+   Every number is the server's preview; nothing changes until Confirm, and
+   Undo is offered only while the server says it's still valid. */
+
+const ERRORS: Record<string, string> = {
+  insufficient_to_be_assigned: "There isn't enough unassigned money for this anymore.",
+  insufficient_available: "That category doesn't have enough money left for this.",
+  assignment_from_payments: "This category is computed from its payments, so it can't be set by hand.",
+  category_required: "An expense needs a category.",
+  already_applied: "This change was already made.",
+  action_closed: "This change is no longer open.",
+  undo_not_possible: "Something it changed was edited since, so it can't be undone. Ask me for a new review.",
+};
+
+export const actionError = (e: unknown) =>
+  (e instanceof ApiError && ERRORS[e.code]) || "That didn't work. Try again.";
+
+const newKey = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+const sameAction = (a: CoachAction, b: CoachAction) =>
+  a.id === b.id && a.status === b.status && a.can_undo === b.can_undo;
+
+/** Local action state that follows the server's copy when a refetch changes
+    it, and keeps local updates (a commit's result) in between. */
+function useActionState(shown: CoachAction) {
+  const [action, setAction] = React.useState(shown);
+  const [prev, setPrev] = React.useState(shown);
+  if (!sameAction(prev, shown)) {
+    setPrev(shown);
+    setAction(shown);
+  }
+  return [action, setAction] as const;
+}
+
+const row: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  font: "500 14px var(--font-sans)",
+  color: "var(--text-body)",
+  fontVariantNumeric: "tabular-nums",
+};
+
+function Change({ label, before, after }: Readonly<{ label: string; before: number; after: number }>) {
+  return (
+    <div style={row}>
+      <span>{label}</span>
+      <span style={{ whiteSpace: "nowrap" }}>
+        {euroCents(before)} <Icon name="arrow-right" size={13} style={{ verticalAlign: -2 }} />{" "}
+        <b style={{ color: "var(--text-strong)" }}>{euroCents(after)}</b>
+      </span>
+    </div>
+  );
+}
+
+function PreviewBody({ action }: Readonly<{ action: CoachAction }>) {
+  const p = action.preview;
+  const t = p.transaction;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {t && (
+        <div style={{ ...row, flexWrap: "wrap" }}>
+          <span>
+            {t.direction === "income" ? "Income" : "Expense"}
+            {t.payee ? ` · ${t.payee}` : ""}
+            {t.category_name ? ` · ${t.category_name}` : ""}
+            {` · ${new Date(t.date).toLocaleDateString("es-ES")}`}
+            {t.account_name ? ` · ${t.account_name}` : ""}
+          </span>
+          <b style={{ color: t.direction === "income" ? "var(--income)" : "var(--text-strong)" }}>
+            {t.direction === "income" ? "+" : "−"}
+            {euroCents(t.amount_cents)}
+          </b>
+        </div>
+      )}
+      {p.categories.map((c) => (
+        <Change key={c.category_id} label={`${c.name}: available`} before={c.available_before_cents} after={c.available_after_cents} />
+      ))}
+      {p.to_be_assigned_before_cents !== p.to_be_assigned_after_cents && (
+        <Change label="To be assigned" before={p.to_be_assigned_before_cents} after={p.to_be_assigned_after_cents} />
+      )}
+      {p.accounts_unchanged && (
+        <div style={{ ...row, color: "var(--text-muted)" }}>
+          <span>Money in accounts</span>
+          <span>unchanged</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const card: React.CSSProperties = {
+  border: "1px solid var(--border-hairline)",
+  borderRadius: "var(--r-lg)",
+  padding: "14px 16px",
+  display: "flex",
+  flexDirection: "column",
+  gap: 10,
+  background: "var(--surface)",
+};
+
+const STATUS_TEXT: Record<CoachAction["status"], string> = {
+  proposed: "Review before confirming",
+  applied: "Done",
+  stale: "Needs updating",
+  cancelled: "Cancelled",
+  undone: "Undone",
+};
+
+/** Amount fields for Edit: one per move, or the one amount. */
+function editableAmounts(action: CoachAction): number[] {
+  return action.command.moves ? action.command.moves.map((m) => m.amount_cents) : [action.command.amount_cents ?? 0];
+}
+
+function edited(action: CoachAction, amounts: number[]): CoachActionIn {
+  const c = action.command;
+  if (action.kind === "moves") {
+    return {
+      kind: "moves",
+      replaces: action.id,
+      moves: (c.moves ?? []).map((m, i) => ({
+        from_category_id: m.from_category_id,
+        to_category_id: m.to_category_id,
+        amount_cents: amounts[i],
+      })),
+    };
+  }
+  if (action.kind === "assignment") {
+    return { kind: "assignment", replaces: action.id, category_id: c.category_id, amount_cents: amounts[0] };
+  }
+  return {
+    kind: "transaction",
+    replaces: action.id,
+    amount_cents: amounts[0],
+    direction: c.direction,
+    category_id: c.category_id,
+    payee: c.payee,
+    date: c.date,
+    account_id: c.account_id,
+    note: c.note,
+  };
+}
+
+export function ActionPreview({ action: shown }: Readonly<{ action: CoachAction }>) {
+  const queryClient = useQueryClient();
+  const { markStale, isStaleReplacement } = useConversationActions();
+  const [action, setAction] = useActionState(shown);
+  const [error, setError] = React.useState<string | null>(null);
+  const [editing, setEditing] = React.useState<string[] | null>(null);
+  const keyRef = React.useRef<string | null>(null);
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["coach-conversation"] });
+    queryClient.invalidateQueries({ queryKey: ["coach-actions"] });
+  };
+
+  const confirm = useMutation({
+    mutationFn: () => {
+      keyRef.current ??= newKey(); // one key per confirm intent: a retry can't apply twice
+      return commitCoachAction(action.id, action.revision, keyRef.current);
+    },
+    onSuccess: (result) => {
+      setError(null);
+      setAction(result.action);
+      invalidateMoneyQueries(queryClient);
+    },
+    onError: (e) => {
+      if (e instanceof ActionStaleError) {
+        keyRef.current = null;
+        markStale(e.action.id);
+        setAction(e.action);
+        refresh();
+        return;
+      }
+      setError(actionError(e));
+    },
+  });
+  const cancel = useMutation({
+    mutationFn: () => cancelCoachAction(action.id),
+    onSuccess: (a) => {
+      setAction(a);
+      refresh();
+    },
+    onError: (e) => setError(actionError(e)),
+  });
+  const save = useMutation({
+    mutationFn: (amounts: number[]) => createCoachAction(edited(action, amounts)),
+    onSuccess: (a) => {
+      setEditing(null);
+      setError(null);
+      setAction(a);
+      refresh();
+    },
+    onError: (e) => setError(actionError(e)),
+  });
+
+  if (action.status === "applied" || action.status === "undone") {
+    return <ActionResult action={action} />;
+  }
+  const open = action.status === "proposed";
+  const stale = isStaleReplacement(action.id);
+  return (
+    <div data-testid="action-preview" data-status={action.status} style={card}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
+        <span style={{ font: "700 15px var(--font-sans)", color: "var(--text-strong)" }}>{action.title}</span>
+        <span style={{ font: "600 12.5px var(--font-sans)", color: open ? "var(--text-muted)" : "var(--text-subtle)" }}>
+          {STATUS_TEXT[action.status]}
+        </span>
+      </div>
+      {stale && open && (
+        <div role="status" data-testid="needs-updating" style={{ font: "600 13px var(--font-sans)", color: "#8A5300", background: "var(--warning-soft)", borderRadius: "var(--r-md)", padding: "8px 10px" }}>
+          Needs updating: the numbers changed since the first preview. These are the current ones.
+        </div>
+      )}
+      <PreviewBody action={action} />
+      {editing && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {editing.map((value, i) => (
+            <label key={i} style={{ ...row, alignItems: "center" }}>
+              <span>{action.command.moves?.[i]?.to_name ?? "Amount"}</span>
+              <input
+                aria-label={`Amount ${i + 1}`}
+                inputMode="decimal"
+                value={value}
+                onChange={(e) => setEditing(editing.map((v, j) => (j === i ? e.target.value : v)))}
+                style={{ width: 120, textAlign: "right", border: "1px solid var(--border-hairline)", borderRadius: "var(--r-sm)", padding: "6px 8px", font: "600 14px var(--font-sans)", fontVariantNumeric: "tabular-nums" }}
+              />
+            </label>
+          ))}
+        </div>
+      )}
+      {error && (
+        <div role="alert" style={{ font: "600 13px var(--font-sans)", color: "var(--expense)" }}>{error}</div>
+      )}
+      {open && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {editing ? (
+            <>
+              <Button
+                size="sm"
+                disabled={save.isPending}
+                onClick={() => {
+                  const cents = editing.map((v) => parseEuroToCents(v));
+                  if (cents.some((c) => c === null || c <= 0)) {
+                    setError("Enter amounts greater than zero.");
+                    return;
+                  }
+                  save.mutate(cents as number[]);
+                }}
+              >
+                Update the preview
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>
+                Keep it as it was
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button size="sm" iconLeft="check" disabled={confirm.isPending} onClick={() => confirm.mutate()}>
+                Confirm
+              </Button>
+              <Button size="sm" variant="secondary" iconLeft="pencil" onClick={() => setEditing(editableAmounts(action).map((c) => money(c / 100)))}>
+                Edit
+              </Button>
+              <Button size="sm" variant="ghost" disabled={cancel.isPending} onClick={() => cancel.mutate()}>
+                Cancel
+              </Button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ActionResult({ action: shown }: Readonly<{ action: CoachAction }>) {
+  const queryClient = useQueryClient();
+  const [action, setAction] = useActionState(shown);
+  const [error, setError] = React.useState<string | null>(null);
+  const undo = useMutation({
+    mutationFn: () => undoCoachAction(action.id),
+    onSuccess: (a) => {
+      setError(null);
+      setAction(a);
+      invalidateMoneyQueries(queryClient);
+    },
+    onError: (e) => setError(actionError(e)),
+  });
+  const undone = action.status === "undone";
+  return (
+    <div data-testid="action-result" data-status={action.status} style={{ ...card, background: "var(--surface-sunk)", border: "none" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between", flexWrap: "wrap" }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8, font: "600 14.5px var(--font-sans)", color: "var(--text-strong)" }}>
+          <Icon name={undone ? "undo" : "check-circle"} size={18} color={undone ? "var(--text-muted)" : "var(--accent)"} />
+          {undone ? `Undone: ${action.title}` : `Done: ${action.title}`}
+        </span>
+        {!undone && action.can_undo && (
+          <Button size="sm" variant="secondary" iconLeft="undo" disabled={undo.isPending} onClick={() => undo.mutate()}>
+            Undo
+          </Button>
+        )}
+      </div>
+      {!undone && !action.can_undo && (
+        <span style={{ font: "500 12.5px var(--font-sans)", color: "var(--text-muted)" }}>
+          Can&apos;t be undone anymore: something it changed was edited since.
+        </span>
+      )}
+      {error && (
+        <div role="alert" style={{ font: "600 13px var(--font-sans)", color: "var(--expense)" }}>{error}</div>
+      )}
+    </div>
+  );
+}

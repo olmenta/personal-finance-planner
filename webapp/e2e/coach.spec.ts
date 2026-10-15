@@ -40,17 +40,17 @@ test.beforeEach(async ({ page }) => {
 const proposal = (page: Page, title: string) =>
   page.getByTestId("coach-proposal").filter({ hasText: title });
 
-test("Home shows one priority, grouped suggestions and no text box", async ({ page }) => {
+test("Home shows one priority and the grouped suggestions on request", async ({ page }) => {
   await page.goto("/coach"); // the coach lives on Home now
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByTestId("priority-action")).toContainText("Restaurantes keeps going over");
+  await page.getByRole("button", { name: /more suggestions?/ }).click();
   const adjustments = page.getByTestId("group-adjustments");
   await expect(adjustments).toContainText("Budget adjustments (3)");
   await adjustments.getByRole("button", { name: /Budget adjustments/ }).click();
   await expect(adjustments.getByTestId("coach-proposal")).toHaveCount(3);
   // The priority isn't repeated inside its group.
   await expect(adjustments).not.toContainText("Restaurantes keeps going over");
-  await expect(page.getByPlaceholder("Ask the coach…")).toHaveCount(0);
 });
 
 test("Restaurantes keeps going over and is raised in one tap", async ({ page }) => {
@@ -70,6 +70,7 @@ test("Restaurantes keeps going over and is raised in one tap", async ({ page }) 
 test("Not now hides a proposal", async ({ page }) => {
   await page.goto("/");
   const openAdjustments = async () => {
+    await page.getByRole("button", { name: /more suggestions?/ }).click();
     const group = page.getByTestId("group-adjustments");
     await group.getByRole("button", { name: /Budget adjustments/ }).click();
     return group;

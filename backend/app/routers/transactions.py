@@ -1,13 +1,11 @@
 """Manual transaction entry and listing."""
 
-import uuid
 from datetime import date as date_type
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..clock import today_madrid
 from ..db import get_db
 from ..deps import current_user
 from ..ingestion import NormalizedTransaction
@@ -24,6 +22,7 @@ from ..schemas import (
 from ..llm import UsageContext
 from ..services import category_suggestions, review
 from ..services.accounts import resolve_account
+from ..services.entries import EntryError, create_entry
 from ..services.hashing import dedupe_hash
 from ..services.payees import delete_orphan_payees, resolve_payee
 from ..services.transfers import annotate_counterparts
@@ -37,42 +36,14 @@ def create_transaction(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> Transaction:
-    category = None
-    if payload.category_id is None:
-        if payload.kind == "expense":
-            raise HTTPException(status_code=422, detail={"code": "category_required"})
-    else:
-        category = db.scalar(
-            select(Category).where(
-                Category.id == payload.category_id, Category.user_id == user.id
-            )
+    try:
+        return create_entry(
+            db, user, amount_cents=payload.amount_cents, kind=payload.kind,
+            category_id=payload.category_id, account_id=payload.account_id,
+            payee=payload.payee, note=payload.note, on=payload.date,
         )
-        if category is None:
-            raise HTTPException(status_code=404, detail={"code": "category_not_found"})
-
-    account = resolve_account(db, user.id, payload.account_id)
-
-    txn_date = payload.date or today_madrid()
-    signed = payload.amount_cents if payload.kind == "income" else -payload.amount_cents
-    payee = resolve_payee(db, user.id, payload.payee)
-
-    txn = Transaction(
-        user_id=user.id,
-        account_id=account.id,
-        category_id=category.id if category else None,
-        payee_id=payee.id if payee else None,
-        date=txn_date,
-        amount_cents=signed,
-        description=payload.note,
-        source="manual",
-        status="confirmed",
-        # Manual entries get a per-row salt: two identical coffees the same day
-        # are legitimate. Strict hashing applies to imported sources (§6.3).
-        dedupe_hash=dedupe_hash(account.id, txn_date, signed, payload.note, salt=str(uuid.uuid4())),
-    )
-    db.add(txn)
-    db.flush()
-    return txn
+    except EntryError as error:
+        raise HTTPException(status_code=error.status, detail={"code": error.code}) from error
 
 
 REVIEW_ROW_CAP = 500
