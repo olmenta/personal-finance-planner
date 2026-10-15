@@ -155,9 +155,18 @@ def test_invalid_debt_is_422(client):
     assert response.json()["detail"]["code"] == "invalid_debt"
 
 
-def test_personal_debt_goes_down_as_it_is_paid(client):
+def test_personal_debt_goes_down_as_it_is_paid(client, db):
+    from datetime import datetime, timezone
+
+    from sqlalchemy import update
+
+    from app.models import Debt
+
     view = add_debt(client, kind="personal", name="Jose y Ruby", owed_cents=290000,
                     lender="Jose y Ruby")
+    # Payments count from the debt's creation (wall clock); keep it before the
+    # pinned "today" so the test doesn't depend on the day it runs.
+    db.execute(update(Debt).values(created_at=datetime(2026, 10, 1, tzinfo=timezone.utc)))
     category_id = by_name(view, "Jose y Ruby")["category_id"]
     client.post("/transactions", json={"amount_cents": 40000, "category_id": category_id,
                                        "date": "2026-10-14"})

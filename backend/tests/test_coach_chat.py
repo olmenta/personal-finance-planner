@@ -381,3 +381,28 @@ def test_tool_outputs_quote_euros_not_cents(client, category_ids):
     payment = seen[0]["payments"][0]
     assert payment["needed_monthly"] == "80,00 €" and payment["contributions_left"] == 5
     assert "cents" not in json.dumps(payment)
+
+
+def test_several_tools_in_one_turn_share_the_session_safely(client, category_ids):
+    """The model may ask for several tools at once; they run one after another
+    on the request's session (in parallel threads the session breaks)."""
+    overspent(client, category_ids)
+
+    def model(messages, info: AgentInfo) -> ModelResponse:
+        _, returns = _current_run(messages)
+        if not returns:
+            return ModelResponse(parts=[
+                ToolCallPart("get_category", {"name": "Restaurantes"}),
+                ToolCallPart("get_category", {"name": "Gasolina"}),
+                ToolCallPart("get_month", {}),
+            ])
+        if len(returns) == 3:
+            return ModelResponse(parts=[ToolCallPart("propose_moves", {"moves": [
+                {"to": "Restaurantes", "amount": 50}, {"to": "Gasolina", "amount": 25}]})])
+        return ModelResponse(parts=[ToolCallPart(info.output_tools[0].name, {
+            "text": "Listo.", "widgets": [{"type": "action_preview", "ref": f"action:{returns[-1].content['ref'].split(':')[1]}"}]})])
+
+    with override_route("coach", FunctionModel(model)):
+        reply = ok(send(client, "cubre Restaurantes y Gasolina"))["reply"]
+    assert action_widget(reply)["preview"]["to_be_assigned_after_cents"] == (
+        action_widget(reply)["preview"]["to_be_assigned_before_cents"] - 7500)

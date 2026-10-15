@@ -563,4 +563,7 @@ PROPOSE_TOOLS = [propose_transaction, propose_assignment, propose_moves]
 
 
 def tools() -> list[Tool]:
-    return [Tool(fn, takes_ctx=True) for fn in [*READ_TOOLS, *PROPOSE_TOOLS]]
+    # Sequential: every tool shares the request's database session, which
+    # can't be used from parallel threads when the model asks for several
+    # tools in one turn.
+    return [Tool(fn, takes_ctx=True, sequential=True) for fn in [*READ_TOOLS, *PROPOSE_TOOLS]]

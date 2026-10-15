@@ -100,6 +100,8 @@ class Ask:
 def task(ask: Ask) -> dict[str, Any]:
     """Build the month, send one message, report what the coach did."""
     os.environ["FIXED_TODAY"] = TODAY
+    # Expected refusals inside a case must not reach the real Sentry project.
+    os.environ["SENTRY_DSN"] = ""
     get_settings.cache_clear()
     from app.db import get_db
     from app.main import app
