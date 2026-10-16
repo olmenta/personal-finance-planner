@@ -155,25 +155,6 @@ Screens reading server state SHALL render a non-blocking loading presentation (s
 - **WHEN** the budget month query fails with `backend_unavailable`
 - **THEN** the screen shows an error state with a retry action instead of mock data
 
-### Requirement: Dashboard served by the API
-
-The dashboard (Overview) SHALL read its data via TanStack Query instead of mock data: the primary "Este mes" panel from `GET /api/overview/{month}` (see month-overview), the next three months from `GET /api/plan/upcoming?from={month}`, the weekly spend chart from `GET /api/summary/{month}` week buckets (labeled "Spent" and "Income"), and recent transactions from `GET /api/transactions?month=` joined client-side with categories. Loading SHALL render skeletons without layout shift on resolve; failures SHALL surface a retryable error state. Creating a transaction from the dashboard SHALL refresh the overview, upcoming, summary, budget, and transactions queries.
-
-#### Scenario: New expense reflected on Overview
-
-- **WHEN** the user adds a 12,49 € expense from the dashboard's "Add transaction" dialog
-- **THEN** after invalidation "Already paid this month", "Left to spend", the weekly chart, and the recent-transactions list all reflect it
-
-#### Scenario: Backend unreachable
-
-- **WHEN** the overview query fails with `backend_unavailable`
-- **THEN** the dashboard shows a retryable error state instead of mock values
-
-#### Scenario: Quiet month
-
-- **WHEN** the current month has no transactions
-- **THEN** the dashboard renders zero amounts and an empty recent-transactions section inviting the first entry — no error, no mock data
-
 ### Requirement: Statement import flow
 
 The transactions screen SHALL offer an "Import bank transactions" flow: pick the source from a list ("BBVA - es", "Sabadell - es", "Custom CSV" — the custom entry offers the downloadable template and explains its columns) and the matching file, upload via `POST /api/imports`, then review the staged rows — each with an editable category picker (see category-picker) prefilled with the AI suggestion and a visible skipped-duplicates count — and either confirm (with any category overrides) or discard. While a pending (staged) batch exists, the transactions screen SHALL show a persistent banner naming the file and row count with a "Resume review" action that reopens the review step, the import dialog SHALL open directly into that review instead of offering a new upload, and a 409 `import_pending` from upload SHALL navigate to the pending review rather than render an error. The skipped-duplicates copy SHALL state that skipped rows are already-imported transactions, and an all-skipped upload SHALL render an explanatory empty state, not a failure. Upload, confirm, and discard SHALL invalidate the pending-import query; confirming SHALL additionally invalidate the transactions, budget, and summary queries for every month present in the batch. Upload and parse failures SHALL surface a retryable, actionable error (which bank/file to check), never a dead end.

@@ -3,9 +3,7 @@
 ## Purpose
 
 Rule-based coach proposals from data the app already computes: the proposal kinds and their thresholds, the proposals API (list, dismiss for a week, accept a raise or lower bound to the reviewed revision), urgency order, server-side state without amounts, valid funding sources, the coach feed in the rail and on /coach, and the dashboard coach capsule.
-
 ## Requirements
-
 ### Requirement: Proposal kinds and their rules
 
 The backend SHALL detect these proposal kinds for the current month (Europe/Madrid). Each proposal SHALL have a stable `fingerprint` (kind + subject + month), a `kind`, an `urgency` rank, a plain-language `title` and `body` with exact amounts, and one primary `action`.
@@ -93,18 +91,18 @@ Proposal state SHALL store only the fingerprint, the state and the time. It SHAL
 
 ### Requirement: Coach feed
 
-The Coach rail (≥1440px) and the `/coach` page SHALL show the coach feed instead of the scripted conversation. The text input SHALL be removed. The feed SHALL show the first 3 proposals as cards, each with:
+Home SHALL show the coach feed as grouped recommendations (see home): there is no Coach rail and no `/coach` page, and no text input until the conversation change. Each group expands to its proposal cards, each with:
 
 - the title and body;
 - the action button ("Raise it", "Lower it", "Add it", "It's already here", "See my plan", "See the month", "Give it a job");
 - "Not now".
 
-When there are more, "See more (N)" SHALL reveal the rest. Choosing a `raise` that has `sources` SHALL show them so the user picks where the money comes from. An empty feed SHALL say there are no suggestions right now; it SHALL NOT claim the plan is on track, because a dismissed warning, missing income or an unfunded set-aside can all leave the feed empty. The sparkle icon SHALL mark the feed as the coach.
+Home shows up to three groups; "See more" SHALL reveal the rest. Choosing a `raise` that has `sources` SHALL show them so the user picks where the money comes from. An empty feed SHALL say there are no suggestions right now; it SHALL NOT claim the plan is on track, because a dismissed warning, missing income or an unfunded set-aside can all leave the feed empty. The sparkle icon SHALL mark the feed as the coach.
 
-#### Scenario: Three visible, more on demand
+#### Scenario: Grouped on Home
 
-- **WHEN** there are 5 proposals
-- **THEN** the feed shows 3 cards and "See more (2)", and tapping it shows all 5
+- **WHEN** there are proposals of four different causes
+- **THEN** Home shows the most urgent as the priority action, three groups with their counts, and "See more" for the last group
 
 #### Scenario: Raise with not enough to assign
 
@@ -118,16 +116,16 @@ When there are more, "See more (N)" SHALL reveal the rest. Choosing a `raise` th
 
 ### Requirement: Dashboard coach capsule
 
-The dashboard SHALL show the most urgent proposal as one coach capsule above "Este mes", with its action and "Not now". It SHALL replace the separate late-income and late-debt capsules and the static coach capsule. When there are no proposals, no capsule is shown.
+Home SHALL show the most urgent proposal as its priority action, above the recommendation groups, with its action and "Not now". It SHALL appear only once (not repeated in a group). When there are no proposals, no priority action is shown.
 
 #### Scenario: Late income first
 
 - **WHEN** on 31 October "Nómina" is late and "Restaurantes" has an overspending proposal
-- **THEN** the dashboard capsule shows the late "Nómina" with "Add it" and "It's already here"
+- **THEN** the priority action shows the late "Nómina" with "Add it" and "It's already here"
 
-#### Scenario: Not now on the dashboard
+#### Scenario: Not now on Home
 
-- **WHEN** the user taps "Not now" on the capsule
+- **WHEN** the user taps "Not now" on the priority action
 - **THEN** the next proposal takes its place, and the dismissed one stays hidden for a week
 
 ### Requirement: Accepting exactly the reviewed change
@@ -157,3 +155,4 @@ A `raise` funded from another category SHALL follow the budget's move rules: the
 
 - **WHEN** a client accepts a raise with a savings category as the source
 - **THEN** the API returns 409 `not_enough_in_source`, and nothing changes
+

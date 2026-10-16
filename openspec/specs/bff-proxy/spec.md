@@ -3,12 +3,10 @@
 ## Purpose
 
 Next.js Route Handlers acting as a backend-for-frontend: the browser talks only to `/api/*` on the webapp, which forwards to the FastAPI backend, keeping the backend URL server-side and passing through statuses and machine-readable errors unchanged.
-
 ## Requirements
-
 ### Requirement: Route Handlers proxy the backend API
 
-The webapp SHALL expose Next.js Route Handlers under `/api/*` that forward requests to the FastAPI backend for every endpoint the UI consumes: `GET /api/categories`, `POST /api/categories`, `PATCH /api/categories/{id}`, `POST /api/categories/groups`, `PATCH /api/categories/groups/{id}`, `DELETE /api/categories/groups/{id}`, `GET /api/payees`, `GET /api/accounts`, `POST /api/accounts`, `PATCH /api/accounts/{id}`, `POST /api/transfers`, `GET /api/transfers/{pairId}`, `PATCH /api/transfers/{pairId}`, `DELETE /api/transfers/{pairId}`, `POST /api/transfers/{pairId}/unlink`, `GET /api/transactions` (with query string), `POST /api/transactions`, `PATCH /api/transactions/{id}`, `DELETE /api/transactions/{id}`, `POST /api/transactions/suggest-categories`, `POST /api/transactions/apply-categories`, `GET /api/budget/{month}`, `PUT /api/budget/{month}/assignments/{categoryId}`, `POST /api/budget/{month}/confirm-suggestions`, `POST /api/budget/{month}/moves`, `GET /api/categories/{id}/schedules`, `POST /api/categories/{id}/schedules`, `PATCH /api/schedules/{id}`, `DELETE /api/schedules/{id}`, `GET /api/overview/{month}`, `GET /api/plan/upcoming` (with query string), `GET /api/plan/summary` (with query string), `GET /api/income-schedules`, `POST /api/income-schedules`, `PATCH /api/income-schedules/{id}`, `DELETE /api/income-schedules/{id}`, `GET /api/income/{month}`, `GET /api/debts`, `POST /api/debts`, `PATCH /api/debts/{id}`, `DELETE /api/debts/{id}`, `PUT /api/debts/extra`, `GET /api/coach/proposals`, `POST /api/coach/proposals/{fingerprint}/dismiss`, `POST /api/coach/proposals/{fingerprint}/accept`, `POST /api/accounts/{id}/convert-to-loan`, `GET /api/summary/{month}`, `POST /api/imports` (multipart upload forwarded with its body and content type, including the optional `account_id` field), `GET /api/imports/pending`, `GET /api/imports/{id}`, `POST /api/imports/{id}/confirm`, `DELETE /api/imports/{id}`, `POST /api/onboarding/start`, `GET /api/onboarding/session`, `GET /api/onboarding/status`, `POST /api/onboarding/messages`, `POST /api/onboarding/{id}/finalize`, and `POST /api/onboarding/template`. The browser SHALL NOT call the FastAPI backend directly.
+The webapp SHALL expose Next.js Route Handlers under `/api/*` that forward requests to the FastAPI backend for every endpoint the UI consumes: `GET /api/categories`, `POST /api/categories`, `PATCH /api/categories/{id}`, `POST /api/categories/groups`, `PATCH /api/categories/groups/{id}`, `DELETE /api/categories/groups/{id}`, `GET /api/payees`, `GET /api/accounts`, `POST /api/accounts`, `PATCH /api/accounts/{id}`, `POST /api/transfers`, `GET /api/transfers/{pairId}`, `PATCH /api/transfers/{pairId}`, `DELETE /api/transfers/{pairId}`, `POST /api/transfers/{pairId}/unlink`, `GET /api/transactions` (with query string), `POST /api/transactions`, `PATCH /api/transactions/{id}`, `DELETE /api/transactions/{id}`, `POST /api/transactions/suggest-categories`, `POST /api/transactions/apply-categories`, `GET /api/budget/{month}`, `PUT /api/budget/{month}/assignments/{categoryId}`, `POST /api/budget/{month}/confirm-suggestions`, `POST /api/budget/{month}/moves`, `GET /api/categories/{id}/schedules`, `POST /api/categories/{id}/schedules`, `PATCH /api/schedules/{id}`, `DELETE /api/schedules/{id}`, `GET /api/overview/{month}`, `GET /api/plan/upcoming` (with query string), `GET /api/plan/summary` (with query string), `GET /api/income-schedules`, `POST /api/income-schedules`, `PATCH /api/income-schedules/{id}`, `DELETE /api/income-schedules/{id}`, `GET /api/income/{month}`, `GET /api/debts`, `POST /api/debts`, `PATCH /api/debts/{id}`, `DELETE /api/debts/{id}`, `PUT /api/debts/extra`, `GET /api/home`, `GET /api/coach/conversation`, `POST /api/coach/messages`, `GET /api/coach/actions`, `POST /api/coach/actions`, `POST /api/coach/actions/{id}/commit`, `POST /api/coach/actions/{id}/cancel`, `POST /api/coach/actions/{id}/undo`, `GET /api/coach/proposals`, `POST /api/coach/proposals/{fingerprint}/dismiss`, `POST /api/coach/proposals/{fingerprint}/accept`, `POST /api/accounts/{id}/convert-to-loan`, `GET /api/summary/{month}`, `POST /api/imports` (multipart upload forwarded with its body and content type, including the optional `account_id` field), `GET /api/imports/pending`, `GET /api/imports/{id}`, `POST /api/imports/{id}/confirm`, `DELETE /api/imports/{id}`, `POST /api/onboarding/start`, `GET /api/onboarding/session`, `GET /api/onboarding/status`, `POST /api/onboarding/messages`, `POST /api/onboarding/{id}/finalize`, and `POST /api/onboarding/template`. The browser SHALL NOT call the FastAPI backend directly.
 
 #### Scenario: Budget view proxied
 
@@ -110,6 +108,21 @@ The webapp SHALL expose Next.js Route Handlers under `/api/*` that forward reque
 - **WHEN** the browser requests `GET /api/coach/proposals`
 - **THEN** the Route Handler fetches `GET {BACKEND_URL}/coach/proposals` and returns the backend's JSON body unchanged
 
+#### Scenario: Home proxied
+
+- **WHEN** the browser requests `GET /api/home`
+- **THEN** the Route Handler fetches `GET {BACKEND_URL}/home` and returns the backend's JSON body unchanged
+
+#### Scenario: Sending a message proxied
+
+- **WHEN** the browser posts to `/api/coach/messages`
+- **THEN** the backend receives the same body at `POST {BACKEND_URL}/coach/messages` and the response, including a 503 `coach_unavailable`, passes through unchanged
+
+#### Scenario: A stale commit proxied
+
+- **WHEN** the browser posts to `/api/coach/actions/{id}/commit` and the numbers changed since the preview
+- **THEN** the backend's 409 `action_stale` with the fresh preview passes through unchanged
+
 ### Requirement: Backend base URL from server environment
 
 The proxy SHALL resolve the backend base URL from the `BACKEND_URL` server-side environment variable (default `http://localhost:8000` for local dev). The variable SHALL NOT be exposed to the client bundle (no `NEXT_PUBLIC_` prefix).
@@ -141,3 +154,4 @@ Proxy responses SHALL NOT be statically cached by Next.js: handlers SHALL opt ou
 
 - **WHEN** an assignment is updated and the budget view is refetched
 - **THEN** the response reflects the new assignment, not a cached body
+
