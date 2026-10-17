@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import React from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/Button";
@@ -15,6 +16,7 @@ import {
   type CoachActionIn,
 } from "@/lib/api";
 import { euroCents, money, parseEuroToCents } from "@/lib/format";
+import { monthLabel } from "@/lib/schedules";
 import { invalidateMoneyQueries } from "@/lib/planQueries";
 import { useConversationActions } from "./ConversationContext";
 
@@ -76,9 +78,48 @@ function Change({ label, before, after }: Readonly<{ label: string; before: numb
   );
 }
 
+function PaymentBody({ action }: Readonly<{ action: CoachAction }>) {
+  const p = action.preview;
+  const pay = p.payment!;
+  const a = p.amounts!;
+  const c = p.categories[0];
+  return (
+    <div data-testid="payment-preview" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ font: "600 14px/1.45 var(--font-sans)", color: "var(--text-strong)" }}>
+        {pay.sentence_before && (
+          <span style={{ color: "var(--text-muted)", textDecoration: pay.sentence_after ? "none" : "line-through" }}>
+            {pay.sentence_before}
+            {pay.sentence_after && " → "}
+          </span>
+        )}
+        {pay.sentence_after}
+        {pay.estimated && <span style={{ ...row, display: "inline", color: "var(--text-muted)", fontWeight: 500 }}> · Estimated</span>}
+      </div>
+      <Change label="Monthly amount" before={a.normal_before_cents} after={a.normal_after_cents} />
+      {(a.catch_up_before_cents !== a.normal_before_cents || a.catch_up_after_cents !== a.normal_after_cents) && (
+        <Change label="To be on time" before={a.catch_up_before_cents} after={a.catch_up_after_cents} />
+      )}
+      {c && <Change label={`${c.name} this month`} before={c.assigned_before_cents} after={c.assigned_after_cents} />}
+      {p.to_be_assigned_before_cents !== p.to_be_assigned_after_cents && (
+        <Change label="To be assigned" before={p.to_be_assigned_before_cents} after={p.to_be_assigned_after_cents} />
+      )}
+      {pay.next_due_month && (
+        <div style={{ ...row, color: "var(--text-muted)" }}>
+          <span>Next payment</span>
+          <span>{monthLabel(pay.next_due_month)}</span>
+        </div>
+      )}
+      <Link href="/budgets" style={{ font: "600 13px var(--font-sans)", color: "var(--brand)", alignSelf: "flex-start" }}>
+        See its payments in Budget
+      </Link>
+    </div>
+  );
+}
+
 function PreviewBody({ action }: Readonly<{ action: CoachAction }>) {
   const p = action.preview;
   const t = p.transaction;
+  if (p.payment) return <PaymentBody action={action} />;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {t && (
@@ -303,9 +344,11 @@ export function ActionPreview({ action: shown }: Readonly<{ action: CoachAction 
               <Button size="sm" iconLeft="check" disabled={confirm.isPending} onClick={() => confirm.mutate()}>
                 Confirm
               </Button>
-              <Button size="sm" variant="secondary" iconLeft="pencil" onClick={() => setEditing(editableAmounts(action).map((c) => money(c / 100)))}>
-                Edit
-              </Button>
+              {!action.kind.startsWith("payment") && (
+                <Button size="sm" variant="secondary" iconLeft="pencil" onClick={() => setEditing(editableAmounts(action).map((c) => money(c / 100)))}>
+                  Edit
+                </Button>
+              )}
               <Button size="sm" variant="ghost" disabled={cancel.isPending} onClick={() => cancel.mutate()}>
                 Cancel
               </Button>

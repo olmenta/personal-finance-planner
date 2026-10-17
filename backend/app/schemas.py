@@ -1003,7 +1003,8 @@ class HomeView(BaseModel):
 
 class CoachActionOut(BaseModel):
     id: str
-    kind: Literal["transaction", "assignment", "assignments", "moves", "category"]
+    kind: Literal["transaction", "assignment", "assignments", "moves", "category",
+                  "payment", "payment_update", "payment_delete"]
     # resolved: a category choice answered with an existing category
     status: Literal["proposed", "applied", "stale", "cancelled", "undone", "resolved"]
     title: str

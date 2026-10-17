@@ -242,3 +242,41 @@ def test_cash_account_by_type(olmenta, client):
     client.post("/accounts", json={"name": "Banco", "type": "bank", "opening_balance_cents": 0})
     result = call(olmenta, "add_transaction", amount=12, category="Restaurantes", account="efectivo")
     assert "Efectivo" in result
+
+
+# ---- payments (coach-payments-setup) ------------------------------------------------
+
+
+def test_add_a_monthly_payment(olmenta, client):
+    result = call(olmenta, "add_payment", category="Alquiler", name="Alquiler", amount=850, pattern="monthly", day=1)
+    assert result.startswith("Added payment Alquiler: 850,00 € every month, day 1.")
+    assert "Alquiler now gets 850,00 €" in result
+
+
+def test_list_update_and_delete_payments(olmenta, client):
+    call(olmenta, "add_payment", category="Suministros", name="Colegio", amount="632", pattern="some_months",
+         months=[9, 10, 11, 12, 1, 2, 3, 4, 5, 6], day=5)
+    assert "632,00 € from September to June, day 5" in call(olmenta, "list_payments")
+    changed = call(olmenta, "update_payment", payment="colegio", amount=650)
+    assert "632,00 € from September to June, day 5 → 650,00 € from September to June, day 5" in changed
+    assert call(olmenta, "delete_payment", payment="Colegio").startswith("Removed Colegio")
+    assert call(olmenta, "list_payments") == "No payments yet."
+
+
+def test_a_debt_payment_is_refused(olmenta, client):
+    client.post("/debts", json={"kind": "loan", "name": "Ikea", "installment_cents": 4500,
+                                "installments_left": 10, "next_month": "2026-10"})
+    assert "managed in What you owe" in call(olmenta, "list_payments")
+    result = call(olmenta, "update_payment", payment="Ikea", amount=50)
+    assert result.startswith("Error:") and "What you owe" in result
+
+
+def test_unknown_category_points_to_find_categories(olmenta):
+    result = call(olmenta, "add_payment", category="Gimnasio", name="Gimnasio", amount=35, pattern="monthly")
+    assert result.startswith("Error:") and "find_categories" in result
+
+
+def test_horizon_refusal(olmenta):
+    result = call(olmenta, "add_payment", category="Ocio", name="Viaje", amount=2000, pattern="once",
+                  once_month="2045-01")
+    assert result.startswith("Error:") and "planning horizon" in result

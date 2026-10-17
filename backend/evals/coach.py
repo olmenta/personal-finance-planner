@@ -103,9 +103,32 @@ def bar_history(client: TestClient) -> None:
     _spend(client, ids["Restaurantes"], 1450, "2026-10-03", payee="Bar Pepe")
 
 
+def fixed_bills(client: TestClient) -> None:
+    """Categories for each kind of payment, none with payments yet."""
+    groups = {g["name"]: g["id"] for g in client.get("/categories").json()}
+    _bank(client, 200000)
+    for name, group in [("Seguro coche", "Transporte"), ("Colegio", "Vivienda"), ("Agua", "Vivienda"),
+                        ("Comunión", "Estilo de vida"), ("Vacaciones", "Estilo de vida")]:
+        client.post("/categories", json={"name": name, "group_id": groups[group]})
+    client.get(f"/budget/{MONTH}")
+
+
+def rent_set(client: TestClient) -> None:
+    ids = _ids(client)
+    _bank(client, 200000)
+    client.post(f"/categories/{ids['Alquiler']}/schedules",
+                json={"name": "Alquiler", "amount_cents": 85000, "pattern": "monthly", "day": 1})
+
+
+def loan(client: TestClient) -> None:
+    _bank(client, 200000)
+    client.post("/debts", json={"kind": "loan", "name": "Ikea", "installment_cents": 4500,
+                                "installments_left": 10, "next_month": MONTH})
+
+
 SETUPS: dict[str, Callable[[TestClient], None]] = {
     f.__name__: f for f in (car_insurance, mercadona, overspent, shortfall, planted_note, organized,
-                            pets, fresh_budget, bar_history)
+                            pets, fresh_budget, bar_history, fixed_bills, rent_set, loan)
 }
 
 
@@ -277,6 +300,31 @@ class InAccount(Evaluator):
         return {f"account:{self.account}": any(c.get("account_name") == self.account for c in commands)}
 
 
+@dataclass
+class PaymentProposed(Evaluator):
+    """One payment proposal (directly, or as a new category's follow-up) whose
+    fields include these."""
+
+    fields: dict[str, Any]
+
+    def evaluate(self, ctx: EvaluatorContext) -> dict[str, bool]:
+        bodies = [a["command"]["body"] for a in ctx.output["actions"] if a["kind"] == "payment"]
+        bodies += [a["command"]["for"]["body"] for a in ctx.output["actions"]
+                   if a["kind"] == "category" and (a["command"].get("for") or {}).get("kind") == "payment"]
+        match = any(all(b.get(k) == v for k, v in self.fields.items()) for b in bodies)
+        return {f"payment:{self.fields.get('pattern', 'change')}": len(bodies) == 1 and match}
+
+
+@dataclass
+class PaymentChanged(Evaluator):
+    changes: dict[str, Any]
+
+    def evaluate(self, ctx: EvaluatorContext) -> dict[str, bool]:
+        changes = [a["command"]["changes"] for a in ctx.output["actions"] if a["kind"] == "payment_update"]
+        return {"payment_changed": len(changes) == 1
+                and all(changes[0].get(k) == v for k, v in self.changes.items())}
+
+
 def _judge(rubric: str) -> LLMJudge:
     return LLMJudge(rubric=rubric, model=_model("judge", route_config("judge")), include_input=True)
 
@@ -352,6 +400,54 @@ def dataset() -> Dataset:
                 name="near_duplicate_category",
                 inputs=Ask("organized", "crea una categoría Super"),
                 evaluators=[ChoiceOffers("Supermercado"), NothingCreated(), SPANISH],
+            ),
+            Case(
+                name="payment_monthly",
+                inputs=Ask("fixed_bills", "el alquiler son 850 € al mes, el día 1"),
+                evaluators=[CalledOneOf(["propose_payment"]), Attached("action_preview"),
+                            PaymentProposed({"pattern": "monthly", "amount_cents": 85000, "day": 1}), SPANISH],
+            ),
+            Case(
+                name="payment_annual",
+                inputs=Ask("fixed_bills", "el seguro del coche son 600 en febrero"),
+                evaluators=[PaymentProposed({"pattern": "annual", "month": 2, "amount_cents": 60000}), SPANISH],
+            ),
+            Case(
+                name="payment_some_months",
+                inputs=Ask("fixed_bills", "el colegio son 632 € de septiembre a junio, el día 5"),
+                evaluators=[PaymentProposed({"pattern": "some_months", "months": [9, 10, 11, 12, 1, 2, 3, 4, 5, 6],
+                                             "day": 5, "amount_cents": 63200})],
+            ),
+            Case(
+                name="payment_every_n_estimated",
+                inputs=Ask("fixed_bills", "el agua son unos 120 cada 3 meses desde noviembre"),
+                evaluators=[PaymentProposed({"pattern": "every_n", "every_n": 3, "start_month": "2026-11",
+                                             "estimated": True, "amount_cents": 12000})],
+            ),
+            Case(
+                name="payment_once",
+                inputs=Ask("fixed_bills", "la comunión es en mayo de 2028 y costará unos 2.000 €"),
+                evaluators=[PaymentProposed({"pattern": "once", "once_month": "2028-05", "estimated": True,
+                                             "amount_cents": 200000})],
+            ),
+            Case(
+                name="payment_no_date",
+                inputs=Ask("fixed_bills", "para vacaciones quiero apartar 1.200 € al año, sin fecha fija"),
+                evaluators=[PaymentProposed({"pattern": "no_date", "amount_cents": 120000})],
+            ),
+            Case(
+                name="payment_change",
+                inputs=Ask("rent_set", "el alquiler sube a 900"),
+                evaluators=[CalledOneOf(["propose_payment_change"]), PaymentChanged({"amount_cents": 90000}),
+                            SPANISH],
+            ),
+            Case(
+                name="debt_payment_refused",
+                inputs=Ask("loan", "la cuota de Ikea sube a 50 €"),
+                evaluators=[NoProposals(),
+                            _judge("The output's `text` tells the user, in Spanish, that the Ikea installment is "
+                                   "changed in Accounts → What you owe (\"Lo que debes\"), and doesn't claim it "
+                                   "changed anything.")],
             ),
             Case(
                 name="english_user",

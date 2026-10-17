@@ -23,9 +23,10 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from .. import clock
-from ..models import Account, Category, CoachAction, Payee, Transaction, User
+from ..models import Account, Category, CoachAction, Payee, PaymentSchedule, Transaction, User
 from . import budget_moves, coach_actions
 from . import category_matching as matching
+from . import payment_ops
 from . import schedules as sched
 from .coach import eur
 from .names import UnknownName, fold, resolve, resolve_account
@@ -108,6 +109,16 @@ def _refusal_message(error: coach_actions.ActionError) -> str:
             return "A move needs two different categories."
         case "category_required":
             return "An expense needs a category. Ask the user which one."
+        case "invalid_schedule":
+            return ("Those payment fields don't fit the pattern (e.g. some_months needs months, annual needs "
+                    "month, every_n needs every_n and start_month, once needs once_month). Fix them and try again.")
+        case "outside_planning_horizon":
+            return "That date is beyond the 10-year planning horizon. Ask for a nearer date."
+        case "managed_by_debt":
+            return ("That payment belongs to a debt: it's changed in Accounts → What you owe, not here. "
+                    "Point the user there.")
+        case "card_plan_exists":
+            return "A card's payment category holds only its plan; change it in What you owe."
         case _:
             return "The change can't be made as asked."
 
@@ -642,13 +653,15 @@ def propose_category(
     similar: list[str] | None = None,
     for_transaction: TransactionFor | None = None,
     for_assignment: float | str | None = None,
+    for_payment: "PaymentFor | None" = None,
 ) -> dict:
     """Offer to create a category, letting the user choose first. Never
     creates anything: the user sees the similar categories ("Use X") and
     "Create '<name>'" with a group picker. `group`: the existing group you'd
     suggest. `similar`: existing categories similar in meaning (e.g.
     "Mascotas" for "Veterinario"). `for_transaction` / `for_assignment`
-    (euros): what the category is for; it's proposed right after the choice."""
+    (euros) / `for_payment`: what the category is for; it's proposed right
+    after the choice."""
     deps = ctx.deps
     clean = " ".join(name.split())
     if not clean:
@@ -684,6 +697,11 @@ def propose_category(
         follow.update({"category_id": None, "category_name": None})
     elif for_assignment is not None:
         follow = {"kind": "assignment", "month": deps.month, "amount_cents": parse_cents(for_assignment)}
+    elif for_payment is not None:
+        p = for_payment
+        follow = {"kind": "payment", "month": deps.month, "body": _payment_body(
+            p.name, p.amount, p.pattern, p.months, p.month, p.every_n, p.start_month, p.once_month, p.count,
+            p.day, p.estimated)}
     command = {"kind": "category", "month": deps.month, "name": clean, "suggested_group_id": suggested,
                "similar": hints, "for": follow}
     action = coach_actions.propose(deps.db, deps.user, command)
@@ -700,9 +718,155 @@ def propose_category(
     }
 
 
+# ---- payments (coach-payments-setup design D2) ------------------------------------------
+
+Pattern = Literal["monthly", "some_months", "annual", "every_n", "once", "no_date"]
+
+PATTERN_HELP = """Sentence → pattern:
+- "every month" / "al mes" → monthly (optional `count` payments from `start_month`);
+- "in February" / "en febrero" (once a year) → annual, month=2;
+- "from September to June" → some_months, months=[9,10,11,12,1,2,3,4,5,6];
+- "every 3 months from November" → every_n=3, start_month="2026-11";
+- "in May 2028" (a single future payment) → once, once_month="2028-05";
+- "a year, no date" (an annual goal) → no_date.
+`day` only when the user gave one. "unos", "about", "aprox." → estimated=true."""
+
+
+class PaymentFor(BaseModel):
+    """A payment the new category is for."""
+
+    name: str
+    amount: float | str = Field(description="Euros")
+    pattern: Pattern
+    months: list[int] | None = None
+    month: int | None = None
+    every_n: int | None = None
+    start_month: str | None = None
+    once_month: str | None = None
+    count: int | None = None
+    day: int | None = None
+    estimated: bool = False
+
+
+def _payment_body(name, amount, pattern, months, month, every_n, start_month, once_month, count, day,
+                  estimated) -> dict:
+    body = {"name": " ".join(str(name).split()) or "Payment", "amount_cents": parse_cents(amount),
+            "pattern": pattern, "months": months, "month": month, "every_n": every_n,
+            "start_month": start_month, "once_month": once_month, "count": count, "day": day,
+            "estimated": bool(estimated)}
+    return {k: v for k, v in body.items() if v is not None}
+
+
+def _payments(deps: CoachDeps) -> list[tuple[PaymentSchedule, Category]]:
+    rows = deps.db.execute(
+        select(PaymentSchedule, Category).join(Category, Category.id == PaymentSchedule.category_id)
+        .where(PaymentSchedule.user_id == deps.user.id, Category.archived.is_(False))
+    ).all()
+    return [(s, c) for s, c in rows]
+
+
+def _payment(deps: CoachDeps, text: str) -> tuple[PaymentSchedule, Category]:
+    """A payment by its name, or by its category when that has exactly one."""
+    rows = _payments(deps)
+    by_category: dict[str, list] = {}
+    for s, c in rows:
+        by_category.setdefault(c.id, []).append(s)
+    options = [(s.name, s.id) for s, _ in rows]
+    options += [(c.name, by_category[c.id][0].id) for _, c in rows if len(by_category[c.id]) == 1]
+    wanted = resolve(text, list(dict.fromkeys(options)), "payment")
+    schedule, category = next((s, c) for s, c in rows if s.id == wanted)
+    from .debts import debt_for_category
+
+    if debt_for_category(deps.db, category.id) is not None:
+        raise coach_actions.ActionError(409, "managed_by_debt")
+    return schedule, category
+
+
+@_tool
+def propose_payment(
+    ctx: RunContext[CoachDeps],
+    category: str,
+    name: str,
+    amount: float | str,
+    pattern: Pattern,
+    months: list[int] | None = None,
+    month: int | None = None,
+    every_n: int | None = None,
+    start_month: str | None = None,
+    once_month: str | None = None,
+    count: int | None = None,
+    day: int | None = None,
+    estimated: bool = False,
+) -> dict:
+    """Propose a payment (a cost with a date: rent, insurance, school, a
+    subscription) in an existing category; it computes the category's monthly
+    amount. Months as YYYY-MM, months of the year as 1–12. If no category fits,
+    use find_categories and propose_category with for_payment instead.
+    Nothing is saved until the user confirms."""
+    deps = ctx.deps
+    try:
+        c = _category(deps, category)
+    except UnknownName as error:
+        raise ToolInputError(f"{error} If none fits, call find_categories and then propose_category with "
+                             "for_payment.") from error
+    body = _payment_body(name, amount, pattern, months, month, every_n, start_month, once_month, count, day,
+                         estimated)
+    return _store(deps, {"kind": "payment", "month": deps.month, "category_id": c.id, "category_name": c.name,
+                         "body": body})
+
+
+@_tool
+def propose_payment_change(
+    ctx: RunContext[CoachDeps],
+    payment: str,
+    amount: float | str | None = None,
+    name: str | None = None,
+    pattern: Pattern | None = None,
+    months: list[int] | None = None,
+    month: int | None = None,
+    every_n: int | None = None,
+    start_month: str | None = None,
+    once_month: str | None = None,
+    count: int | None = None,
+    day: int | None = None,
+    estimated: bool | None = None,
+) -> dict:
+    """Propose changing an existing payment ("el alquiler sube a 900"):
+    `payment` is its name, or its category when that has one payment. Pass
+    only what changes. Payments of debts are changed in What you owe."""
+    deps = ctx.deps
+    schedule, category = _payment(deps, payment)
+    changes = {"name": name, "amount_cents": parse_cents(amount) if amount is not None else None,
+               "pattern": pattern, "months": months, "month": month, "every_n": every_n,
+               "start_month": start_month, "once_month": once_month, "count": count, "day": day,
+               "estimated": estimated}
+    changes = {k: v for k, v in changes.items() if v is not None}
+    if not changes:
+        raise ToolInputError("say what changes (amount, day, months…)")
+    return _store(deps, {"kind": "payment_update", "month": deps.month, "schedule_id": schedule.id,
+                         "category_id": category.id, "category_name": category.name,
+                         "before": payment_ops.fields_of(schedule), "changes": changes})
+
+
+@_tool
+def propose_payment_removal(ctx: RunContext[CoachDeps], payment: str) -> dict:
+    """Propose removing a payment the user no longer has ("ya no pago el
+    gimnasio"): `payment` is its name, or its category when that has one."""
+    deps = ctx.deps
+    schedule, category = _payment(deps, payment)
+    return _store(deps, {"kind": "payment_delete", "month": deps.month, "schedule_id": schedule.id,
+                         "category_id": category.id, "category_name": category.name,
+                         "before": payment_ops.fields_of(schedule)})
+
+
+propose_payment.__doc__ = f"{propose_payment.__doc__}\n\n{PATTERN_HELP}"
+propose_payment_change.__doc__ = f"{propose_payment_change.__doc__}\n\n{PATTERN_HELP}"
+
+
 READ_TOOLS = [get_month, get_breakdown, get_category, get_future_payments, get_income, get_debts,
               search_transactions, find_categories]
-PROPOSE_TOOLS = [propose_transaction, propose_assignment, propose_budget, propose_moves, propose_category]
+PROPOSE_TOOLS = [propose_transaction, propose_assignment, propose_budget, propose_moves, propose_category,
+                 propose_payment, propose_payment_change, propose_payment_removal]
 
 
 def tools() -> list[Tool]:

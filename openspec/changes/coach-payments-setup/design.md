@@ -87,7 +87,7 @@ A "Setting up payments" section:
 
 ## Risks / Trade-offs
 
-- **[The model picks the wrong pattern, e.g. "September to June" as annual]** → The preview states the payment in words before anything is saved; the evals have one case per pattern; Edit lets the user correct the amount, and anything else is a new message.
+- **[The model picks the wrong pattern, e.g. "September to June" as annual]** → The preview states the payment in words before anything is saved; the evals have one case per pattern; a correction is a new message ("no, el día 5"), which proposes again (payment previews have no Edit).
 - **[Two describers, Python and TypeScript, drift]** → A shared fixture test on the backend; the webapp keeps using its own for the editor.
 - **[Undo after later months were refreshed]** → Undo runs the same op, which refreshes them back.
 

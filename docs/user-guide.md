@@ -87,7 +87,7 @@ Each category row shows what you assigned, what you spent and what's available. 
 
 ### Categories with payments
 
-Some costs have dates: rent every month, school fees from September to June, insurance once a year. For those, open the category and choose **Set up payments**. Describe each payment once:
+Some costs have dates: rent every month, school fees from September to June, insurance once a year. For those, open the category and choose **Set up payments**, or just tell your coach on Home (see [Talking to your coach](#talking-to-your-coach)). Describe each payment once:
 
 - how often it's paid (every month, some months, once a year, every N months, once on a date);
 - the amount;
@@ -173,9 +173,19 @@ Write the way you'd talk. Your coach reads your real numbers before answering an
 
 Creating a category can be undone while nothing uses it yet.
 
-**Building your budget.** "Ayúdame a armar mi presupuesto" or straight "pon 300 en el súper, 80 en gasolina y 50 en ocio": several amounts arrive as one preview, and confirming sets them all at once (or none). Categories with payments (rent, insurance) fill themselves from their payments, so the coach leaves them out.
+**Setting up your payments.** Tell your coach your fixed bills the way you'd say them:
 
-**Changing your budget.** "Cubre Restaurantes y Gasolina con lo que tengo sin asignar" or "pon 300 en el súper". Your coach can record transactions, create categories with your choice, set day-to-day amounts, and move money between categories (several moves at once when you ask to cover more than one thing). It can't change payments, income or debts: it tells you where to do it.
+- "el alquiler son 850 € al mes, el día 1";
+- "el seguro del coche son 600 en febrero";
+- "el colegio, 632 de septiembre a junio, el día 5";
+- "el agua, unos 120 cada 3 meses desde noviembre" (marked as estimated);
+- "la comunión en mayo de 2028, unos 2.000".
+
+The preview shows the payment in words, the category's monthly amount before and after (and "to be on time" if you're behind), this month's amount, your money to be assigned, and when the next payment is due. Nothing is saved until you confirm. "El alquiler sube a 900" changes it and "ya no pago el gimnasio" removes it, each with a preview and Undo. If there's no category for it yet, you choose one first (see above). The payments of your debts are changed in **What you owe**, not in the chat.
+
+**Building your budget.** "Ayúdame a armar mi presupuesto": your coach goes through your fixed bills one at a time (housing, utilities, insurance, school, subscriptions) and sets them up as payments. Then it helps with the day-to-day amounts: "pon 300 en el súper, 80 en gasolina y 50 en ocio" arrives as one preview, and confirming sets them all at once (or none). Categories with payments fill themselves from their payments, so the coach leaves them out of the amounts.
+
+**Changing your budget.** "Cubre Restaurantes y Gasolina con lo que tengo sin asignar" or "pon 300 en el súper". Your coach can record transactions, create categories with your choice, set day-to-day amounts, and move money between categories (several moves at once when you ask to cover more than one thing). It can also set up, change and remove payments. It can't change your expected income or your debts: it tells you where to do it.
 
 **Nothing changes until you confirm.** Every change arrives as a preview:
 

@@ -50,6 +50,11 @@ def _message(status: int, detail: Any) -> str:
         "assignment_from_payments": "This category is assigned from its scheduled payments; change the payments in the app or move money instead.",
         "transaction_not_found": "That transaction doesn't exist or isn't confirmed.",
         "is_transfer": "That row is half of a transfer; edit it as a transfer in the app.",
+        "invalid_schedule": "Those payment fields don't fit the pattern (some_months needs months, annual needs month, every_n needs every_n and start_month, once needs once_month).",
+        "outside_planning_horizon": "That date is beyond the 10-year planning horizon.",
+        "managed_by_debt": "That payment belongs to a debt: change it in the app, in Accounts → What you owe.",
+        "card_plan_exists": "A card's payment category holds only its plan; change it in What you owe.",
+        "schedule_not_found": "That payment doesn't exist — check list_payments.",
     }
     if code == "insufficient_available" and available is not None:
         return f"The source category only has {eur(available)} available."
@@ -119,6 +124,18 @@ class OlmentaClient:
 
     def create_group(self, body: dict) -> dict:
         return self._request("POST", "/categories/groups", json=body)
+
+    def schedules(self, category_id: str) -> list[dict]:
+        return self._request("GET", f"/categories/{category_id}/schedules")
+
+    def create_schedule(self, category_id: str, body: dict) -> dict:
+        return self._request("POST", f"/categories/{category_id}/schedules", json=body)
+
+    def update_schedule(self, schedule_id: str, body: dict) -> dict:
+        return self._request("PATCH", f"/schedules/{schedule_id}", json=body)
+
+    def delete_schedule(self, schedule_id: str) -> None:
+        return self._request("DELETE", f"/schedules/{schedule_id}")
 
     def create_transfer(self, body: dict) -> dict:
         return self._request("POST", "/transfers", json=body)
