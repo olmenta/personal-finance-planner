@@ -280,3 +280,33 @@ def test_horizon_refusal(olmenta):
     result = call(olmenta, "add_payment", category="Ocio", name="Viaje", amount=2000, pattern="once",
                   once_month="2045-01")
     assert result.startswith("Error:") and "planning horizon" in result
+
+
+# ---- expected income (coach-income-setup) -----------------------------------------
+
+
+def test_add_a_salary(olmenta):
+    result = call(olmenta, "add_income", name="Nómina", amount=2100, pattern="monthly", day=28, payer="Acme")
+    assert result.startswith("Added expected income Nómina: 2.100,00 € every month, day 28, from Acme.")
+    assert "Expected over the next 12 months: 25.200,00 €" in result
+
+
+def test_update_list_and_delete_income(olmenta):
+    call(olmenta, "add_income", name="Nómina", amount=2100, pattern="monthly", payer="Acme")
+    assert "→ 2.200,00 € every month, from Acme" in call(olmenta, "update_income", income="acme", amount=2200)
+    assert "Nómina: 2.200,00 € every month, from Acme" in call(olmenta, "list_income")
+    assert call(olmenta, "delete_income", income="Nómina").startswith("Removed Nómina")
+    assert call(olmenta, "list_income").startswith("No expected income yet")
+
+
+def test_no_date_income_is_refused(olmenta):
+    import pydantic
+
+    with pytest.raises(pydantic.ValidationError):
+        call(olmenta, "add_income", name="Bonus", amount=1000, pattern="no_date")
+
+
+def test_unknown_income_lists_candidates(olmenta):
+    call(olmenta, "add_income", name="Nómina", amount=2100, pattern="monthly")
+    result = call(olmenta, "update_income", income="pensión", amount=10)
+    assert result.startswith("Error:") and "Nómina" in result

@@ -50,6 +50,8 @@ BUDGET_ITEM = re.compile(r"(\d+(?:[.,]\d{1,2})?)\s*(?:€|euros?)?\s+en\s+(?:el\
 ARTICLE = re.compile(r"^(el|la|los|las)\s+", re.IGNORECASE)
 PAYMENT = re.compile(r"^el\s+(.+?)\s+son\s+(\d+(?:[.,]\d{1,2})?)\s*(?:€|euros?)?\s+al\s+mes(?:,?\s+el\s+d[ií]a\s+(\d+))?", re.IGNORECASE)
 RAISE = re.compile(r"^el\s+(.+?)\s+sube\s+a\s+(\d+(?:[.,]\d{1,2})?)", re.IGNORECASE)
+INCOME = re.compile(r"^cobro\s+(\d+(?:[.,]\d{1,2})?)(?:\s*(?:€|euros?))?(?:\s+al\s+mes)?(?:,?\s+el\s+d[ií]a\s+(\d+))?", re.IGNORECASE)
+SALARY_RAISE = re.compile(r"^mi\s+sueldo\s+sube\s+a\s+(\d+(?:[.,]\d{1,2})?)", re.IGNORECASE)
 # Meaning-based matches a real model would add (e2e only).
 MEANING = {"veterinario": ["Mascotas"]}
 
@@ -93,6 +95,28 @@ def _e2e(messages: list, info: AgentInfo) -> ModelResponse:
             })
         if tool == "propose_category" and last.get("existing"):
             return call("propose_transaction", {"amount": amount, "payee": payee, "category": last["existing"], **account})
+        return refused(last)
+
+    if match := INCOME.search(prompt.strip()):
+        if not returns:
+            args = {"name": "Nómina", "amount": match.group(1), "pattern": "monthly"}
+            if match.group(2):
+                args["day"] = int(match.group(2))
+            return call("propose_income", args)
+        if "ref" in last:
+            return reply("Así quedaría tu ingreso esperado. Confírmalo si es correcto.", [("action_preview", last["ref"])])
+        return refused(last)
+
+    if match := SALARY_RAISE.search(prompt.strip()):
+        if not returns:
+            return call("get_income", {})
+        if returns[-1].tool_name == "get_income":
+            payments = last.get("payments") or []
+            if not payments:
+                return reply("Todavía no tienes ingresos esperados.")
+            return call("propose_income_change", {"income": payments[0]["name"], "amount": match.group(1)})
+        if "ref" in last:
+            return reply("Te dejo el cambio listo para confirmar.", [("action_preview", last["ref"])])
         return refused(last)
 
     if match := PAYMENT.search(prompt.strip()):

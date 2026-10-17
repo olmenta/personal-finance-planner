@@ -610,6 +610,105 @@ def delete_payment(client: OlmentaClient, args: DeletePaymentArgs) -> str:
     return f"Removed {payment['name']} ({_describe(payment)}). {_monthly_amount(client, category['id'])}"
 
 
+IncomePattern = Literal["monthly", "some_months", "annual", "every_n", "once"]
+INCOME_GUIDE = (
+    " Patterns: monthly (optional count from start_month); some_months (months 1–12: 14 pagas are a monthly "
+    "income plus some_months [6,12] for the extras); annual (month 1–12); every_n (every_n 2–12 from "
+    "start_month YYYY-MM); once (once_month YYYY-MM). payer when the user names who pays; estimated for income "
+    "that varies. Expected income never changes To Be Assigned; money that arrived is a transaction."
+)
+
+
+def _income_text(i: dict) -> str:
+    text = _describe(i)
+    return f"{text}, from {i['payer']}" if i.get("payer") else text
+
+
+def _yearly_total(client: OlmentaClient) -> str:
+    return eur(sum(i["yearly_cents"] for i in client.income_schedules()))
+
+
+def _income(client: OlmentaClient, name: str) -> dict:
+    incomes = client.income_schedules()
+    payers: dict[str, list] = {}
+    for i in incomes:
+        if i.get("payer"):
+            payers.setdefault(i["payer"], []).append(i)
+    options = [(i["name"], i["id"]) for i in incomes] + [(p, ii[0]["id"]) for p, ii in payers.items() if len(ii) == 1]
+    wanted = resolve(name, list(dict.fromkeys(options)), "income")
+    return next(i for i in incomes if i["id"] == wanted)
+
+
+def list_income(client: OlmentaClient, args: NoArgs) -> str:
+    incomes = client.income_schedules()
+    if not incomes:
+        return "No expected income yet: the plan can't tell whether the year is covered."
+    lines = [f"- {i['name']}: {_income_text(i)} ({eur(i['yearly_cents'])} over 12 months)" for i in incomes]
+    return "\n".join(lines) + f"\nExpected over the next 12 months: {_yearly_total(client)}."
+
+
+class IncomeArgs(BaseModel):
+    pattern: IncomePattern | None = None
+    months: list[int] | None = Field(default=None, description="1–12, for some_months.")
+    month: int | None = Field(default=None, description="1–12, for annual.")
+    every_n: int | None = None
+    start_month: str | None = Field(default=None, description="YYYY-MM.")
+    once_month: str | None = Field(default=None, description="YYYY-MM.")
+    count: int | None = None
+    day: int | None = Field(default=None, description="1–31, only if the user gave one.")
+    estimated: bool | None = None
+    payer: str | None = Field(default=None, description="Who pays (e.g. the employer).")
+
+
+class AddIncomeArgs(IncomeArgs):
+    name: str = Field(description="Short name, e.g. Nómina.")
+    amount: Euros = Field(description="Euros per payment.")
+    pattern: IncomePattern
+
+
+def _income_fields(args: IncomeArgs) -> dict:
+    fields = {k: getattr(args, k) for k in ("pattern", "months", "month", "every_n", "start_month", "once_month",
+                                            "count", "day", "estimated", "payer")}
+    return {k: v for k, v in fields.items() if v is not None}
+
+
+def add_income(client: OlmentaClient, args: AddIncomeArgs) -> str:
+    body = {"name": args.name.strip(), "amount_cents": positive_cents(args.amount), **_income_fields(args)}
+    i = client.create_income(body)
+    return (f"Added expected income {i['name']}: {_income_text(i)}. Expected over the next 12 months: "
+            f"{_yearly_total(client)}. To Be Assigned doesn't change until the money arrives.")
+
+
+class UpdateIncomeArgs(IncomeArgs):
+    income: str = Field(description="The income's name, or its payer when unique.")
+    name: str | None = None
+    amount: Euros | None = Field(default=None, description="New euros per payment.")
+
+
+def update_income(client: OlmentaClient, args: UpdateIncomeArgs) -> str:
+    income = _income(client, args.income)
+    body = _income_fields(args)
+    if args.name:
+        body["name"] = args.name.strip()
+    if args.amount is not None:
+        body["amount_cents"] = positive_cents(args.amount)
+    if not body:
+        raise ToolError("Say what changes (amount, day, months…).")
+    i = client.update_income(income["id"], body)
+    return (f"Changed {i['name']}: {_income_text(income)} → {_income_text(i)}. Expected over the next 12 months: "
+            f"{_yearly_total(client)}.")
+
+
+class DeleteIncomeArgs(BaseModel):
+    income: str = Field(description="The income's name, or its payer when unique.")
+
+
+def delete_income(client: OlmentaClient, args: DeleteIncomeArgs) -> str:
+    income = _income(client, args.income)
+    client.delete_income(income["id"])
+    return f"Removed {income['name']} ({_income_text(income)}). Expected over the next 12 months: {_yearly_total(client)}."
+
+
 class CreateTransferArgs(BaseModel):
     amount: Euros = Field(description="Euros moved, positive.")
     from_account: str = Field(description="Account the money leaves (by name).")
@@ -797,6 +896,29 @@ TOOLS: list[ToolSpec] = [
         "delete_payment",
         "Remove a payment the user no longer has. Payments of debts are managed in What you owe.",
         DeletePaymentArgs, delete_payment, read_only=False,
+    ),
+    ToolSpec(
+        "list_income",
+        "The user's expected income (salary, pensions, side income) in words, with the 12-month total. "
+        "Expected income plans the year; it never changes To Be Assigned.",
+        NoArgs, list_income, read_only=True,
+    ),
+    ToolSpec(
+        "add_income",
+        "Add expected income so the plan can tell whether the year is covered. Confirm the details with "
+        "the user first. Not for money that already arrived (use add_transaction with kind income)."
+        + INCOME_GUIDE,
+        AddIncomeArgs, add_income, read_only=False,
+    ),
+    ToolSpec(
+        "update_income",
+        "Change an expected income (only the fields that change)." + INCOME_GUIDE,
+        UpdateIncomeArgs, update_income, read_only=False,
+    ),
+    ToolSpec(
+        "delete_income",
+        "Remove an expected income the user no longer has.",
+        DeleteIncomeArgs, delete_income, read_only=False,
     ),
     ToolSpec(
         "create_transfer",

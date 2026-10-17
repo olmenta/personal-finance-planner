@@ -24,6 +24,7 @@ from ..models import (
     CategoryGroup,
     CoachAction,
     CoachMessage,
+    IncomeSchedule,
     PaymentSchedule,
     Transaction,
     User,
@@ -31,7 +32,7 @@ from ..models import (
 from . import budget_moves, budget_view
 from . import categories as categories_service
 from . import category_matching as matching
-from . import payment_ops
+from . import income_ops, payment_ops
 from .payment_text import describe
 from .categories import CategoryError
 from .coach import eur
@@ -80,6 +81,8 @@ def _apply(db: Session, user: User, command: dict) -> dict:
         return _create_category(db, user, command)
     if kind in PAYMENT_KINDS:
         return _apply_payment(db, user, command)
+    if kind in INCOME_KINDS:
+        return _apply_income(db, user, command)
     touched = _touched(command)
     before = _assigned(db, user, month, touched)
     if kind == "assignment":
@@ -107,7 +110,7 @@ def _touched(command: dict) -> list[str]:
         return [command["category_id"]]
     if command["kind"] == "assignments":
         return [item["category_id"] for item in command["items"]]
-    if command["kind"] == "category":
+    if command["kind"] in ("category", *INCOME_KINDS):
         return []
     if command["kind"] == "moves":
         ids: list[str] = []
@@ -146,7 +149,7 @@ def _refusal(error: Exception) -> dict:
     """The refusal as the forms report it: code, status and extra fields."""
     if isinstance(error, budget_moves.MoveError):
         return {"code": error.code, "status": error.status, **error.extra}
-    if isinstance(error, (EntryError, CategoryError, payment_ops.PaymentError)):
+    if isinstance(error, (EntryError, CategoryError, payment_ops.PaymentError, income_ops.IncomeError)):
         return {"code": error.code, "status": error.status}
     detail = getattr(error, "detail", None)
     status = getattr(error, "status_code", 422)
@@ -155,7 +158,10 @@ def _refusal(error: Exception) -> dict:
     return {"code": "invalid_action", "status": 422}
 
 
-REFUSALS = (budget_moves.MoveError, EntryError, HTTPException, CategoryError, payment_ops.PaymentError)
+REFUSALS = (
+    budget_moves.MoveError, EntryError, HTTPException, CategoryError, payment_ops.PaymentError,
+    income_ops.IncomeError,
+)
 
 
 # ---- payments (coach-payments-setup design D2–D4) -----------------------------------
@@ -231,6 +237,122 @@ def _payment_preview(before_view, after_view, command: dict, next_due: str | Non
             "catch_up_after_cents": (after.catch_up_cents or 0) if after else 0,
         },
     }
+
+
+# ---- expected income (coach-income-setup design D2–D4) ---------------------------------
+
+INCOME_KINDS = ("income", "income_update", "income_delete", "income_link")
+
+
+def _apply_income(db: Session, user: User, command: dict) -> dict:
+    kind = command["kind"]
+    if kind == "income":
+        schedule = income_ops.create_income(db, user, command["body"])
+        return {"schedule_id": schedule.id, "after": income_ops.fields_of(schedule)}
+    if kind == "income_link":
+        txn = income_ops.inflow_or_404(db, user, command["transaction_id"])
+        schedule = income_ops.schedule_or_404(db, user, command["schedule_id"])
+        before = {"txn_payee": txn.payee_id, "schedule_payee": schedule.payee_id}
+        income_ops.link_income(db, user, command["transaction_id"], command["schedule_id"])
+        return {"transaction_id": txn.id, "schedule_id": schedule.id, "before": before,
+                "after": {"txn_payee": txn.payee_id, "schedule_payee": schedule.payee_id}}
+    before = income_ops.fields_of(income_ops.schedule_or_404(db, user, command["schedule_id"]))
+    if kind == "income_update":
+        schedule = income_ops.update_income(db, user, command["schedule_id"], command["changes"])
+        return {"schedule_id": schedule.id, "before": before, "after": income_ops.fields_of(schedule)}
+    income_ops.delete_income(db, user, command["schedule_id"])
+    return {"schedule_id": command["schedule_id"], "before": before}
+
+
+def income_sentence(fields: dict) -> str:
+    """"2.100,00 € every month, day 28, from Acme"."""
+    text = describe(fields)
+    return f"{text}, from {fields['payer']}" if fields.get("payer") else text
+
+
+def _current_income(db: Session, user: User, command: dict) -> dict | None:
+    if command["kind"] not in ("income_update", "income_delete"):
+        return None
+    schedule = db.scalar(select(IncomeSchedule).where(
+        IncomeSchedule.id == command["schedule_id"], IncomeSchedule.user_id == user.id))
+    return income_ops.fields_of(schedule) if schedule else command.get("before")
+
+
+def _income_after(command: dict, current: dict | None) -> dict | None:
+    if command["kind"] == "income":
+        return income_ops.merged_fields({}, command["body"])
+    if command["kind"] == "income_update":
+        return income_ops.merged_fields(current or command["before"], command["changes"])
+    return None
+
+
+def _plan_values(db: Session, user: User, month: str, link: dict | None) -> dict:
+    """Expected income this month and over 12 months, the year's coverage,
+    and (for a link) the occurrence's state."""
+    from .income import month_income, user_schedules, yearly_cents
+    from .projection import summary
+
+    view = month_income(db, user, month)
+    plan = summary(db, user, month)
+    values = {
+        "month_expected_cents": view.expected_cents,
+        "year_expected_cents": sum(yearly_cents(s) for s in user_schedules(db, user)),
+        "income_known": plan.income_known,
+        "gap_cents": plan.gap_cents,
+    }
+    if link:
+        occ = next((o for o in view.occurrences if o.schedule_id == link["schedule_id"]), None)
+        values["occurrence"] = {"name": occ.name, "status": occ.status, "received_cents": occ.received_cents} if occ else None
+        values["unplanned"] = any(u.transaction_id == link["transaction_id"] for u in view.unplanned)
+    return values
+
+
+def _income_preview(db: Session, user: User, command: dict) -> dict:
+    month = command["month"]
+    current = _current_income(db, user, command)
+    link = command if command["kind"] == "income_link" else None
+    before = _plan_values(db, user, month, link)
+    after, error = None, None
+    savepoint = db.begin_nested()
+    try:
+        _apply_income(db, user, command)
+        after = _plan_values(db, user, month, link)
+    except REFUSALS as refusal:
+        error = _refusal(refusal)
+    finally:
+        savepoint.rollback()
+    after = after or before
+    after_fields = _income_after(command, current)
+    result = {
+        "kind": command["kind"],
+        "month": month,
+        "title": title(command, current),
+        "income": {
+            "sentence_before": income_sentence(current) if current else None,
+            "sentence_after": income_sentence(after_fields) if after_fields else None,
+            "estimated": bool((after_fields or {}).get("estimated")),
+        },
+        "plan": {
+            "month_expected_before_cents": before["month_expected_cents"],
+            "month_expected_after_cents": after["month_expected_cents"],
+            "year_expected_before_cents": before["year_expected_cents"],
+            "year_expected_after_cents": after["year_expected_cents"],
+            "income_known_before": before["income_known"],
+            "income_known_after": after["income_known"],
+            "gap_before_cents": before["gap_cents"],
+            "gap_after_cents": after["gap_cents"],
+        },
+        "categories": [],
+        "accounts_unchanged": True,
+        # Expected income plans; only money that arrives is assigned.
+        "to_be_assigned_unchanged": True,
+        "error": error,
+    }
+    if link:
+        result["link"] = {"amount_cents": command["amount_cents"],
+                          "occurrence_before": before.get("occurrence"), "occurrence_after": after.get("occurrence"),
+                          "unplanned_before": before.get("unplanned"), "unplanned_after": after.get("unplanned")}
+    return result
 
 
 # ---- creating a category (coach-budget-setup design D2) -----------------------------
@@ -365,6 +487,8 @@ def preview(db: Session, user: User, command: dict) -> dict:
     part of the preview (`error`), so the coach can explain it."""
     if command["kind"] == "category":
         return _category_preview(db, user, command)
+    if command["kind"] in INCOME_KINDS:
+        return _income_preview(db, user, command)
     month = command["month"]
     ids = _touched(command)
     before_view = budget_view.build_view(db, user, month)
@@ -443,6 +567,16 @@ def title(command: dict, current: dict | None = None) -> str:
     if command["kind"] == "payment_delete":
         now = current or command["before"]
         return f"Remove payment: {now['name']} ({describe(now)})"
+    if command["kind"] == "income":
+        return f"Add income: {command['body']['name']}, {income_sentence(_income_after(command, None))}"
+    if command["kind"] == "income_update":
+        now = current or command["before"]
+        return f"Change income: {now['name']}, {income_sentence(_income_after(command, now))}"
+    if command["kind"] == "income_delete":
+        now = current or command["before"]
+        return f"Remove income: {now['name']} ({income_sentence(now)})"
+    if command["kind"] == "income_link":
+        return f"Link {eur(command['amount_cents'])} to {command['schedule_name']}"
     moves = command["moves"]
     if len(moves) == 1:
         m = moves[0]
@@ -593,6 +727,19 @@ def can_undo(db: Session, user: User, action: CoachAction) -> bool:
         schedule = db.scalar(select(PaymentSchedule).where(
             PaymentSchedule.id == action.result["schedule_id"], PaymentSchedule.user_id == user.id))
         return schedule is not None and payment_ops.fields_of(schedule) == action.result["after"]
+    if action.kind in ("income", "income_update"):
+        schedule = db.scalar(select(IncomeSchedule).where(
+            IncomeSchedule.id == action.result["schedule_id"], IncomeSchedule.user_id == user.id))
+        return schedule is not None and income_ops.fields_of(schedule) == action.result["after"]
+    if action.kind == "income_delete":
+        schedules = db.scalars(select(IncomeSchedule).where(IncomeSchedule.user_id == user.id))
+        return all(income_ops.fields_of(s) != action.result["before"] for s in schedules)
+    if action.kind == "income_link":
+        txn = db.get(Transaction, action.result["transaction_id"])
+        schedule = db.get(IncomeSchedule, action.result["schedule_id"])
+        after = action.result["after"]
+        return (txn is not None and schedule is not None and txn.payee_id == after["txn_payee"]
+                and schedule.payee_id == after["schedule_payee"])
     if action.kind == "payment_delete":
         category = db.scalar(select(Category).where(
             Category.id == action.command["category_id"], Category.user_id == user.id))
@@ -619,6 +766,24 @@ def undo(db: Session, user: User, action_id: str) -> CoachAction:
         db.flush()
         if payee_id:
             delete_orphan_payees(db, user.id, {payee_id})
+    elif action.kind in INCOME_KINDS:
+        try:
+            if action.kind == "income":
+                income_ops.delete_income(db, user, action.result["schedule_id"])
+            elif action.kind == "income_update":
+                income_ops.update_income(db, user, action.result["schedule_id"], action.result["before"])
+            elif action.kind == "income_delete":
+                body = {k: v for k, v in action.result["before"].items() if v is not None}
+                recreated = income_ops.create_income(db, user, body)
+                action.result = {**action.result, "recreated_id": recreated.id}
+            else:
+                txn = db.get(Transaction, action.result["transaction_id"])
+                schedule = db.get(IncomeSchedule, action.result["schedule_id"])
+                txn.payee_id = action.result["before"]["txn_payee"]
+                schedule.payee_id = action.result["before"]["schedule_payee"]
+                db.flush()
+        except income_ops.IncomeError as error:
+            raise ActionError(409, "undo_not_possible") from error
     elif action.kind in PAYMENT_KINDS:
         try:
             if action.kind == "payment":
