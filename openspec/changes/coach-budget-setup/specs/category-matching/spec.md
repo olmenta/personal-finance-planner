@@ -37,7 +37,7 @@ For a new category name, the service SHALL suggest a group: the group of the bes
 
 #### Scenario: Suggested from a similar category
 
-- **WHEN** the name is "Super ahorro" and "Supermercado" is in "Comida"
+- **WHEN** the name is "Súper" and "Supermercado" is in "Comida"
 - **THEN** the suggested group is "Comida"
 
 #### Scenario: Nothing similar

@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from .client import OlmentaClient, ToolError
 from .money import AmountError, check_month, eur, parse_euros, positive_cents
-from .resolve import NameError_, resolve
+from .resolve import NameError_, resolve, resolve_account
 
 Euros = float | str
 
@@ -68,8 +68,8 @@ def _budget_category_id(client: OlmentaClient, name: str) -> str:
 
 
 def _account_id(client: OlmentaClient, name: str) -> str:
-    options = [(a["name"], a["id"]) for a in client.accounts() if not a["archived"]]
-    return resolve(name, options, "account")
+    options = [(a["name"], a["id"], a["type"]) for a in client.accounts() if not a["archived"]]
+    return resolve_account(name, options)
 
 
 def _names(client: OlmentaClient) -> tuple[dict[str, str], dict[str, str]]:
@@ -255,7 +255,10 @@ class AddTransactionArgs(BaseModel):
     payee: str | None = Field(default=None, description="Who was paid / who paid (e.g. Mercadona).")
     note: str | None = Field(default=None, description="Optional note.")
     date: Date | None = Field(default=None, description="ISO date. Omit for today.")
-    account: str | None = Field(default=None, description="Account name. Omit for the main account.")
+    account: str | None = Field(
+        default=None,
+        description="Account by name, or by type when only one fits (\"efectivo\", \"tarjeta\"). Omit for the main account.",
+    )
 
 
 def add_transaction(client: OlmentaClient, args: AddTransactionArgs) -> str:
@@ -326,16 +329,120 @@ def move_money(client: OlmentaClient, args: MoveMoneyArgs) -> str:
     )
 
 
+class FindCategoriesArgs(BaseModel):
+    name: str = Field(description="The category name you'd use, in the user's language.")
+
+
+def _similar_lines(matches: list[dict]) -> str:
+    return "; ".join(
+        f"{m['name']}" + (f" ({m['group_name']})" if m.get("group_name") else "") + f" [{m['reason']}]"
+        for m in matches
+    )
+
+
+def find_categories(client: OlmentaClient, args: FindCategoriesArgs) -> str:
+    found = client.similar(args.name)
+    groups = [g["name"] for g in client.categories() if not g.get("system")]
+    suggested = (found.get("suggested_group") or {}).get("name")
+    head = f"Similar to «{args.name}»: {_similar_lines(found['matches'])}." if found["matches"] else (
+        f"No category is similar to «{args.name}»."
+    )
+    return f"{head} Suggested group for a new one: {suggested}. Groups: {', '.join(groups)}."
+
+
 class CreateCategoryArgs(BaseModel):
     name: str = Field(description="New category name, in the user's language.")
-    group: str = Field(description="Existing category group name (see list_categories).")
+    group: str | None = Field(
+        default=None, description="Existing category group the user chose (see list_categories). Omit to get the options."
+    )
+    confirmed_new: bool = Field(
+        default=False,
+        description="True only after the user saw the similar categories and chose to create this one anyway.",
+    )
 
 
 def create_category(client: OlmentaClient, args: CreateCategoryArgs) -> str:
+    name = " ".join(args.name.split())
+    found = client.similar(name)
+    same = [m for m in found["matches"] if m["reason"] == "same_name"]
+    if same:
+        return f"Nothing created: «{same[0]['name']}» already exists in {same[0]['group_name']}. Use it."
     groups = [(g["name"], g["id"]) for g in client.categories() if not g.get("system")]
+    if args.group is None:
+        suggested = (found.get("suggested_group") or {}).get("name")
+        others = [n for n, _ in groups if n != suggested]
+        return (
+            f"Nothing created. Ask the user which group «{name}» goes in: suggested {suggested}; "
+            f"others: {', '.join(others)}. Then call create_category with that group."
+        )
+    if found["matches"] and not args.confirmed_new:
+        return (
+            f"Nothing created. Similar categories exist: {_similar_lines(found['matches'])}. Ask the user whether "
+            f"to use one of them or create «{name}». Only if they choose to create it, call create_category "
+            "again with confirmed_new=true."
+        )
     group_id = resolve(args.group, groups, "category group")
-    c = client.create_category({"name": args.name.strip(), "group_id": group_id})
-    return f"Created category {c['name']} in {args.group}."
+    c = client.create_category({"name": name, "group_id": group_id})
+    group_name = next(n for n, i in groups if i == group_id)
+    return f"Created category {c['name']} in {group_name}."
+
+
+class CreateGroupArgs(BaseModel):
+    name: str = Field(description="New category group name, in the user's language.")
+    confirmed_new: bool = Field(
+        default=False, description="True only after the user saw the similar groups and chose to create this one."
+    )
+
+
+def create_group(client: OlmentaClient, args: CreateGroupArgs) -> str:
+    name = " ".join(args.name.split())
+    found = client.similar(name, "group")
+    same = [m for m in found["matches"] if m["reason"] == "same_name"]
+    if same:
+        return f"Nothing created: the group «{same[0]['name']}» already exists. Use it."
+    if found["matches"] and not args.confirmed_new:
+        return (
+            f"Nothing created. Similar groups exist: {_similar_lines(found['matches'])}. Ask the user whether to use "
+            f"one of them or create «{name}». Only if they choose to create it, call create_group again with "
+            "confirmed_new=true."
+        )
+    g = client.create_group({"name": name})
+    return f"Created group {g['name']}."
+
+
+class BudgetItem(BaseModel):
+    category: str = Field(description="Category name.")
+    amount: Euros = Field(description="Assigned amount for the month in euros (replaces it).")
+
+
+class SetBudgetArgs(BaseModel):
+    items: list[BudgetItem] = Field(min_length=1, description="One item per category.")
+    month: str | None = Field(default=None, description="Month as YYYY-MM. Omit for the current month.")
+
+
+def set_budget(client: OlmentaClient, args: SetBudgetArgs) -> str:
+    month = check_month(args.month)
+    kinds = {c["id"]: c["kind"] for g in client.budget(month)["groups"] for c in g["categories"]}
+    plan = []
+    for item in args.items:  # every name and amount first: a bad one writes nothing
+        cents = parse_euros(item.amount)
+        if cents < 0:
+            raise AmountError("an assignment can't be negative")
+        category_id = _budget_category_id(client, item.category)
+        if kinds.get(category_id) == "scheduled":
+            raise ToolError(f"{item.category} is assigned from its scheduled payments; leave it out "
+                            "(change its payments in the app). Nothing was set.")
+        plan.append((item.category, category_id, cents))
+    done: list[str] = []
+    last = None
+    for name, category_id, cents in plan:
+        try:
+            last = client.assign(month, category_id, cents)
+        except ToolError as error:
+            already = f" Already set: {'; '.join(done)}." if done else " Nothing was set."
+            return f"Error on {name}: {error}{already}"
+        done.append(f"{name} {eur(cents)}")
+    return f"Set for {month}: {'; '.join(done)}. To Be Assigned is now {eur(last['to_be_assigned_cents'])}."
 
 
 class CreateTransferArgs(BaseModel):
@@ -477,9 +584,31 @@ TOOLS: list[ToolSpec] = [
         MoveMoneyArgs, move_money, read_only=False,
     ),
     ToolSpec(
+        "find_categories",
+        "Always call this before creating a category: the existing categories similar to a name "
+        "(same name, contained, a shared word, close spelling) with their groups, plus the suggested "
+        "group and the list of groups. Offer a similar one to the user when it fits.",
+        FindCategoriesArgs, find_categories, read_only=True,
+    ),
+    ToolSpec(
         "create_category",
-        "Create a category in an existing group. Only when the user agrees to a new category.",
+        "Never create a category without the user's choice: call find_categories first and ask whether "
+        "to use a similar one. Creates a category in the group the user picked; without a group it "
+        "returns the options; with similar categories it refuses until called with confirmed_new=true.",
         CreateCategoryArgs, create_category, read_only=False,
+    ),
+    ToolSpec(
+        "create_group",
+        "Never create a group without the user's choice: it refuses when similar groups exist until "
+        "called with confirmed_new=true. Creates a category group at the end of the list.",
+        CreateGroupArgs, create_group, read_only=False,
+    ),
+    ToolSpec(
+        "set_budget",
+        "Set several categories' assigned amounts for a month in one call (each replaces the amount) — "
+        "e.g. building a budget. Checks every name first; categories with payments are computed and "
+        "refused. Results list what was set and the new To Be Assigned.",
+        SetBudgetArgs, set_budget, read_only=False,
     ),
     ToolSpec(
         "create_transfer",

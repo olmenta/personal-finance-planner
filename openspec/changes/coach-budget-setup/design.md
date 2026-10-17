@@ -49,7 +49,7 @@ The rules are the spec's: fold, `same_name`, `contains`, `shared_word` (Spanish 
 
 `propose_category(name, group?, similar?, for?)` stores a `CoachAction(kind="category")`:
 
-- **command:** `{name, suggested_group_id, similar: [ids], for: <a transaction or assignment command without category>}`.
+- **command:** `{name, suggested_group_id, similar: [the model's meaning hints], for: <a transaction or assignment command without category>}`. The tool takes `for_transaction` or `for_assignment`. The string matches aren't stored: every preview recomputes them.
 - **preview:** `{name, similar: [{id, name, group, reason}], groups: [{id, name}], suggested_group_id}`.
 - **revision:** a hash of the preview, so a category created elsewhere in the meantime makes it stale.
 
@@ -67,7 +67,7 @@ The follow-up is a normal proposed action (transaction or assignment) returned i
 
 - **Alternative:** auto-confirm the expense together with the category. Rejected: two different decisions, and the 5-second promise holds with two taps.
 
-**Undo for `category`:** allowed while nothing uses the category (no transactions, no assignment above zero, no schedule). Undo archives the category, and the group too if it was created by this action and is empty. Nothing is deleted, per the categories spec.
+**Undo for `category`:** allowed while nothing uses the category (no transactions, no non-zero assignment, no schedule). Undo **removes** the category (and its zero assignment rows), and the group too if this action created it and it's left empty. A pending follow-up is cancelled. Archiving would be the API's retire path, but an unused, just-created category has no history to keep, and an archived member would block deleting the empty group.
 
 ### D3. `assignments` action kind
 
@@ -132,7 +132,7 @@ The prompt is still unshipped, so it stays `coach_v1` if this lands before relea
 - **[False positives: "Seguro coche" vs "Seguro hogar" are different things]** → They're only offered; "Create" is one tap away, and the reason is shown.
 - **[False negatives by meaning: "Veterinario" vs "Mascotas"]** → The model's `similar` hint, plus the eval case. The server never relies on it alone to allow creation; it only adds options.
 - **[MCP `set_budget` partial write on an API failure]** → Validate names first; the result lists exactly what was set; dev-only tool.
-- **[Category undo leaves archived clutter]** → Archive is the only retire path by spec; the undo window is short in practice (before anything uses it).
+- **[Undo removes a category]** → Only while nothing references it; the categories API keeps archive as its only retire path.
 - **[A long similar list overwhelms a beginner]** → Capped at 5, strongest first.
 
 ## Migration Plan

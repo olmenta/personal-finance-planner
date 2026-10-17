@@ -1164,10 +1164,17 @@ export interface CoachActionPreview {
   month: string;
   title: string;
   categories: CoachPreviewCategory[];
+  /** Absent on category choices (they move no money). */
   to_be_assigned_before_cents: number;
   to_be_assigned_after_cents: number;
   accounts_unchanged: boolean;
   error: { code: string } | null;
+  /** Category choices only. */
+  name?: string;
+  similar?: { id: string; name: string; group_id: string; group_name: string; reason: string }[];
+  groups?: { id: string; name: string }[];
+  suggested_group_id?: string | null;
+  follow_up_title?: string | null;
   transaction?: {
     amount_cents: number;
     direction: "expense" | "income";
@@ -1181,13 +1188,15 @@ export interface CoachActionPreview {
 
 export interface CoachAction {
   id: string;
-  kind: "transaction" | "assignment" | "moves";
-  status: "proposed" | "applied" | "stale" | "cancelled" | "undone";
+  kind: "transaction" | "assignment" | "assignments" | "moves" | "category";
+  /** resolved: a category choice answered with an existing category. */
+  status: "proposed" | "applied" | "stale" | "cancelled" | "undone" | "resolved";
   title: string;
   /** The typed command (ids): Edit sends a changed copy back. */
   command: {
     month: string;
     moves?: { from_category_id: string | null; from_name: string | null; to_category_id: string; to_name: string; amount_cents: number }[];
+    items?: { category_id: string; category_name: string; amount_cents: number }[];
     category_id?: string | null;
     amount_cents?: number;
     direction?: "expense" | "income";
@@ -1219,6 +1228,7 @@ export type CoachWidget =
   | WidgetBase<"future_payment", FuturePaymentData>
   | WidgetBase<"action_preview", { action_id: string; action: CoachAction }>
   | WidgetBase<"action_result", { action_id: string; title: string; action: CoachAction }>
+  | WidgetBase<"category_choice", { action_id: string; action: CoachAction }>
   | WidgetBase<"coach_proposal", CoachProposal>
   | WidgetBase<"transaction", {
       id: string;
@@ -1274,8 +1284,9 @@ export async function sendCoachMessage(
 }
 
 export interface CoachActionIn {
-  kind: CoachAction["kind"];
+  kind: Exclude<CoachAction["kind"], "category">;
   moves?: { from_category_id: string | null; to_category_id: string; amount_cents: number }[];
+  items?: { category_id: string; amount_cents: number }[];
   category_id?: string | null;
   amount_cents?: number;
   direction?: "expense" | "income";
@@ -1298,15 +1309,19 @@ export class ActionStaleError extends Error {
   }
 }
 
+/** A category choice's answer when creating: the picked group or a new one. */
+export type GroupChoice = { group_id: string } | { new_group_name: string };
+
 export async function commitCoachAction(
   id: string,
   revision: string,
   idempotencyKey: string,
-): Promise<{ action: CoachAction; message: ChatMessage | null }> {
+  choice?: GroupChoice,
+): Promise<{ action: CoachAction; message: ChatMessage | null; follow_up?: CoachAction | null }> {
   const res = await fetch(`/api/coach/actions/${encodeURIComponent(id)}/commit`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ revision, idempotency_key: idempotencyKey }),
+    body: JSON.stringify({ revision, idempotency_key: idempotencyKey, ...choice }),
   });
   const body = await res.json().catch(() => null);
   if (res.status === 409 && body?.detail?.code === "action_stale") {
@@ -1315,6 +1330,14 @@ export async function commitCoachAction(
   if (!res.ok) throw new ApiError(body?.detail?.code ?? body?.code ?? "unknown_error", res.status);
   return body;
 }
+
+/** "Use X" on a category choice: nothing is created; the pending step is
+    proposed with X. */
+export const resolveCategoryChoice = (id: string, categoryId: string) =>
+  request<{ action: CoachAction; follow_up: CoachAction | null }>(
+    `/coach/actions/${encodeURIComponent(id)}/resolve`,
+    { method: "POST", body: JSON.stringify({ category_id: categoryId }) },
+  );
 
 export const cancelCoachAction = (id: string) =>
   request<CoachAction>(`/coach/actions/${encodeURIComponent(id)}/cancel`, { method: "POST" });

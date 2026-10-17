@@ -20,6 +20,8 @@ from ..schemas import (
     CoachCommitIn,
     CoachCommitOut,
     CoachConversationView,
+    CoachResolveIn,
+    CoachResolveOut,
     CoachSendIn,
     CoachSendOut,
 )
@@ -28,7 +30,7 @@ from ..services import coach_chat as chat
 
 router = APIRouter(prefix="/coach", tags=["coach"])
 
-STATUSES = {"proposed", "applied", "stale", "cancelled", "undone"}
+STATUSES = {"proposed", "applied", "stale", "cancelled", "undone", "resolved"}
 
 
 def _refused(error: actions.ActionError, db: Session, user: User) -> JSONResponse:
@@ -112,12 +114,39 @@ def commit_action(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ):
+    choice = {"group_id": body.group_id, "new_group_name": body.new_group_name}
     try:
-        action = actions.commit(db, user, action_id, body.revision, body.idempotency_key)
+        action = actions.commit(db, user, action_id, body.revision, body.idempotency_key, choice)
     except actions.ActionError as error:
         return _refused(error, db, user)
+    if action.kind == "category":
+        # The choice card shows the result in place, followed by the step it
+        # was for; no separate result message.
+        return {"action": actions.action_out(db, user, action), "message": None,
+                "follow_up": _follow_up_out(db, user, action)}
     message = chat.record_result(db, user, action)
     return {"action": actions.action_out(db, user, action), "message": chat.messages_out(db, user, [message])[0]}
+
+
+def _follow_up_out(db: Session, user: User, action: CoachAction) -> dict | None:
+    follow_id = (action.result or {}).get("follow_up_id")
+    return actions.action_out(db, user, actions.get_action(db, user, follow_id)) if follow_id else None
+
+
+@router.post("/actions/{action_id}/resolve", response_model=CoachResolveOut)
+def resolve_action(
+    action_id: str,
+    body: CoachResolveIn = Body(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+):
+    """"Use X" on a category choice: nothing is created; the pending step is
+    proposed with X."""
+    try:
+        action, _ = actions.resolve_choice(db, user, action_id, body.category_id)
+    except actions.ActionError as error:
+        return _refused(error, db, user)
+    return {"action": actions.action_out(db, user, action), "follow_up": _follow_up_out(db, user, action)}
 
 
 @router.post("/actions/{action_id}/cancel", response_model=CoachActionOut)

@@ -135,10 +135,12 @@ ChatGPT can't start a program on your computer. OpenAI's **Secure MCP Tunnel** b
 | "¿Cuánto me queda para restaurantes?" | `get_budget` |
 | "Gasté 40 € en Mercadona" / "Cobré la nómina, 2.350 €" | `add_transaction` |
 | "Pon 400 € en Supermercado" | `assign` |
+| "Pon 300 en el súper, 80 en gasolina y 50 en ocio" | `set_budget` |
+| "Pagué 12 en efectivo en el bar" | `add_transaction` (the cash account, found by type) |
 | "Me pasé en Ocio, cúbrelo con lo que sobra de Restaurantes" | `move_money` |
 | "Pagué 300 € de la Visa desde BBVA" | `create_transfer` |
 | "¿Qué tengo sin categorizar? Ayúdame a ordenarlo" | `review_uncategorized` → `apply_review` |
-| "Crea una categoría Mascotas en Hogar" | `create_category` |
+| "Crea una categoría Mascotas" | `find_categories` → you choose → `create_category` |
 
 ## The tools
 
@@ -150,10 +152,13 @@ ChatGPT can't start a program on your computer. OpenAI's **Secure MCP Tunnel** b
 | `list_categories` | Groups and categories (the model checks names here instead of inventing them) |
 | `list_accounts` | Balances, credit card debt and what's set aside to pay it |
 | `review_uncategorized` | Every uncategorized transaction with AI suggestions and matching transfers (runs the backend's AI, so it may take a few seconds) |
-| `add_transaction` | Add an expense or income |
+| `find_categories` | The categories similar to a name, with their groups, the suggested group and the list of groups |
+| `add_transaction` | Add an expense or income, in an account named by its name or its type ("efectivo", "tarjeta") |
 | `assign` | Set a category's assigned amount for a month |
+| `set_budget` | Set several categories' amounts at once; every name is checked first, and categories with payments are refused |
 | `move_money` | Move money between categories, or from To Be Assigned |
-| `create_category` | Create a category in an existing group |
+| `create_category` | Create a category in the group you chose. It never creates without your choice: without a group it lists them (with the suggested one); when similar categories exist it lists them and waits for `confirmed_new=true` |
+| `create_group` | Create a category group; when similar groups exist it lists them and waits for `confirmed_new=true` |
 | `create_transfer` | Move money between your accounts (including paying a card) |
 | `apply_review` | Resolve uncategorized rows: category, payee, note, transfer, or link to the matching transfer |
 
@@ -162,6 +167,10 @@ Conventions the model follows:
 - amounts in euros (`40` or `"12,50"`);
 - categories, groups and accounts by **name**: an unknown or ambiguous name returns the candidates instead of guessing;
 - results in the es-ES format.
+
+### No duplicate categories
+
+Before any new category or group, the server looks for similar ones (same name without accents, one name inside the other, a shared word, a typo or plural). If there are any, nothing is created: the model has to show you the similar ones and ask whether to use one of them. Only if you choose to create it does it call again with `confirmed_new=true`. A category with exactly the same name is never created twice.
 
 ## Troubleshooting
 

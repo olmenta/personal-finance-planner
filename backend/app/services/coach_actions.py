@@ -14,11 +14,23 @@ import json
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import BudgetAssignment, BudgetMonth, Category, CoachAction, CoachMessage, Transaction, User
+from ..models import (
+    BudgetAssignment,
+    BudgetMonth,
+    Category,
+    CategoryGroup,
+    CoachAction,
+    CoachMessage,
+    Transaction,
+    User,
+)
 from . import budget_moves, budget_view
+from . import categories as categories_service
+from . import category_matching as matching
+from .categories import CategoryError
 from .coach import eur
 from .entries import EntryError, create_entry
 from .payees import delete_orphan_payees
@@ -61,10 +73,15 @@ def _apply(db: Session, user: User, command: dict) -> dict:
             on=datetime.strptime(command["date"], "%Y-%m-%d").date(),
         )
         return {"transaction_id": txn.id, "transaction": _txn_fields(txn)}
+    if kind == "category":
+        return _create_category(db, user, command)
     touched = _touched(command)
     before = _assigned(db, user, month, touched)
     if kind == "assignment":
         budget_moves.set_assignment(db, user, month, command["category_id"], command["amount_cents"])
+    elif kind == "assignments":
+        for item in command["items"]:
+            budget_moves.set_assignment(db, user, month, item["category_id"], item["amount_cents"])
     elif kind == "moves":
         for move in command["moves"]:
             budget_moves.apply_move(
@@ -83,6 +100,10 @@ def _apply(db: Session, user: User, command: dict) -> dict:
 def _touched(command: dict) -> list[str]:
     if command["kind"] == "assignment":
         return [command["category_id"]]
+    if command["kind"] == "assignments":
+        return [item["category_id"] for item in command["items"]]
+    if command["kind"] == "category":
+        return []
     if command["kind"] == "moves":
         ids: list[str] = []
         for move in command["moves"]:
@@ -120,7 +141,7 @@ def _refusal(error: Exception) -> dict:
     """The refusal as the forms report it: code, status and extra fields."""
     if isinstance(error, budget_moves.MoveError):
         return {"code": error.code, "status": error.status, **error.extra}
-    if isinstance(error, EntryError):
+    if isinstance(error, (EntryError, CategoryError)):
         return {"code": error.code, "status": error.status}
     detail = getattr(error, "detail", None)
     status = getattr(error, "status_code", 422)
@@ -129,7 +150,121 @@ def _refusal(error: Exception) -> dict:
     return {"code": "invalid_action", "status": 422}
 
 
-REFUSALS = (budget_moves.MoveError, EntryError, HTTPException)
+REFUSALS = (budget_moves.MoveError, EntryError, HTTPException, CategoryError)
+
+
+# ---- creating a category (coach-budget-setup design D2) -----------------------------
+
+
+def _create_category(db: Session, user: User, command: dict) -> dict:
+    """Create the category in the chosen group (or a new group, reusing one
+    with the same name). The choice comes in `command["choice"]`."""
+    choice = command.get("choice") or {}
+    created_group = False
+    if choice.get("new_group_name"):
+        same = [m for m in matching.similar_groups(db, user, choice["new_group_name"]) if m.reason == "same_name"]
+        if same:
+            group_id = same[0].id
+        else:
+            group_id = categories_service.create_group(db, user.id, choice["new_group_name"]).id
+            created_group = True
+    else:
+        group_id = choice.get("group_id") or command.get("suggested_group_id")
+        if group_id not in {g.id for g in matching.user_groups(db, user)}:
+            raise CategoryError(404, "group_not_found")
+    category = categories_service.create_category(db, user.id, group_id, command["name"])
+    return {"category_id": category.id, "group_id": group_id, "created_group": created_group}
+
+
+def _category_in_use(db: Session, category_id: str) -> bool:
+    from ..models import PaymentSchedule
+
+    used = db.scalar(select(func.count()).select_from(Transaction).where(Transaction.category_id == category_id))
+    assigned = db.scalar(select(func.count()).select_from(BudgetAssignment).where(
+        BudgetAssignment.category_id == category_id, BudgetAssignment.assigned_cents != 0))
+    scheduled = db.scalar(select(func.count()).select_from(PaymentSchedule).where(
+        PaymentSchedule.category_id == category_id))
+    return bool(used or assigned or scheduled)
+
+
+def _category_preview(db: Session, user: User, command: dict) -> dict:
+    groups = matching.user_groups(db, user)
+    by_id = {c.id: c for c in matching.spendable_categories(db, user)}
+    # The string matches are recomputed on every preview, so a similar
+    # category created meanwhile makes the choice stale; the model's
+    # meaning-based hints are kept from the proposal.
+    options = [{"id": m.id, "reason": m.reason} for m in matching.similar_categories(db, user, command["name"])]
+    options += [h for h in command["similar"] if all(o["id"] != h["id"] for o in options)]
+    similar = [
+        {"id": o["id"], "name": by_id[o["id"]].name, "group_id": by_id[o["id"]].group_id,
+         "group_name": by_id[o["id"]].group.name, "reason": o["reason"]}
+        for o in options if o["id"] in by_id
+    ][:matching.MAX_MATCHES]
+    suggested = command.get("suggested_group_id")
+    if suggested not in {g.id for g in groups}:
+        fallback = matching.suggest_group(db, user, command["name"])
+        suggested = fallback.id if fallback else None
+    follow = command.get("for")
+    # No money values: a choice only goes stale when the categories or
+    # groups it offers change.
+    return {
+        "kind": "category",
+        "month": command["month"],
+        "title": title(command),
+        "name": command["name"],
+        "similar": similar,
+        "groups": [{"id": g.id, "name": g.name} for g in groups],
+        "suggested_group_id": suggested,
+        "follow_up_title": title({**follow, "category_name": command["name"]}) if follow else None,
+        "categories": [],
+        "accounts_unchanged": True,
+        "error": None,
+    }
+
+
+def follow_up(db: Session, user: User, action: CoachAction, category_id: str) -> CoachAction | None:
+    """Propose the step the category was for, with the chosen category. A
+    refusal is recorded on the category action instead of failing it."""
+    follow = action.command.get("for")
+    if not follow:
+        return None
+    name = db.scalar(select(Category.name).where(Category.id == category_id, Category.user_id == user.id))
+    command = {**follow, "category_id": category_id, "category_name": name}
+    try:
+        new = propose(db, user, command)
+    except ActionError as error:
+        action.result = {**(action.result or {}), "follow_up_error": error.code}
+        return None
+    new.message_id = action.message_id
+    action.result = {**(action.result or {}), "follow_up_id": new.id}
+    if action.message_id:
+        message = db.get(CoachMessage, action.message_id)
+        if message is not None:
+            from .coach_widgets import envelope
+
+            message.widgets = [*(message.widgets or []), envelope("action_preview", {"action_id": new.id}, None)]
+    db.flush()
+    return new
+
+
+def resolve_choice(db: Session, user: User, action_id: str, category_id: str) -> tuple[CoachAction, CoachAction | None]:
+    """"Use X" on a category choice: no category is created; the pending step
+    is proposed with X."""
+    action = get_action(db, user, action_id, lock=True)
+    if action.kind != "category":
+        raise ActionError(422, "not_a_category_choice")
+    if action.status == "resolved" and (action.result or {}).get("category_id") == category_id:
+        follow_id = (action.result or {}).get("follow_up_id")
+        return action, get_action(db, user, follow_id) if follow_id else None
+    if action.status != "proposed":
+        raise ActionError(409, "action_closed")
+    if category_id not in {c.id for c in matching.spendable_categories(db, user)}:
+        raise ActionError(404, "category_not_found")
+    action.status = "resolved"
+    action.result = {"category_id": category_id, "resolved": True}
+    action.applied_at = _now()
+    db.flush()
+    return action, follow_up(db, user, action, category_id)
 
 
 # ---- preview ---------------------------------------------------------------------
@@ -148,6 +283,8 @@ def _category_rows(view, ids: list[str]) -> dict[str, dict]:
 def preview(db: Session, user: User, command: dict) -> dict:
     """Before/after values of `command`, computed by a dry run. A refusal is
     part of the preview (`error`), so the coach can explain it."""
+    if command["kind"] == "category":
+        return _category_preview(db, user, command)
     month = command["month"]
     ids = _touched(command)
     before_view = budget_view.build_view(db, user, month)
@@ -204,6 +341,14 @@ def title(command: dict) -> str:
         return f"{verb} {eur(command['amount_cents'])}{where}{into}"
     if command["kind"] == "assignment":
         return f"Set {command['category_name']} to {eur(command['amount_cents'])}"
+    if command["kind"] == "assignments":
+        items = command["items"]
+        if len(items) == 1:
+            return f"Set {items[0]['category_name']} to {eur(items[0]['amount_cents'])}"
+        listed = ", ".join(f"{i['category_name']} {eur(i['amount_cents'])}" for i in items)
+        return f"Set {len(items)} categories: {listed}"
+    if command["kind"] == "category":
+        return f"Create category {command['name']}"
     moves = command["moves"]
     if len(moves) == 1:
         m = moves[0]
@@ -261,7 +406,7 @@ def _replace_in_message(db: Session, old: CoachAction, new: CoachAction) -> None
     widgets = []
     for widget in message.widgets or []:
         data = widget.get("data") or {}
-        if widget.get("type") == "action_preview" and data.get("action_id") == old.id:
+        if widget.get("type") in ("action_preview", "category_choice") and data.get("action_id") == old.id:
             widget = {**widget, "data": {**data, "action_id": new.id}}
         widgets.append(widget)
     message.widgets = widgets
@@ -278,13 +423,17 @@ def replace(db: Session, user: User, old: CoachAction, command: dict) -> CoachAc
     return new
 
 
-def commit(db: Session, user: User, action_id: str, revision: str, idempotency_key: str) -> CoachAction:
+def commit(
+    db: Session, user: User, action_id: str, revision: str, idempotency_key: str, choice: dict | None = None
+) -> CoachAction:
+    """Apply a proposed action once. A category action also takes the user's
+    group choice (`group_id` or `new_group_name`)."""
     action = get_action(db, user, action_id, lock=True)
     if action.status == "applied":
         if action.idempotency_key == idempotency_key:
             return action  # a retry of the same confirm: the recorded result
         raise ActionError(409, "already_applied")
-    if action.status in ("cancelled", "undone"):
+    if action.status in ("cancelled", "undone", "resolved"):
         raise ActionError(409, "action_closed")
     _lock_month(db, user, action.command["month"])
     fresh = preview(db, user, action.command)
@@ -301,9 +450,10 @@ def commit(db: Session, user: User, action_id: str, revision: str, idempotency_k
         db.flush()
         _replace_in_message(db, action, new)
         raise ActionError(409, "action_stale", {"action_id": new.id})
+    command = {**action.command, "choice": choice} if action.kind == "category" else action.command
     savepoint = db.begin_nested()
     try:
-        result = _apply(db, user, action.command)
+        result = _apply(db, user, command)
     except REFUSALS as refusal:
         savepoint.rollback()
         detail = _refusal(refusal)
@@ -314,6 +464,8 @@ def commit(db: Session, user: User, action_id: str, revision: str, idempotency_k
     action.result = result
     action.applied_at = _now()
     db.flush()
+    if action.kind == "category":
+        follow_up(db, user, action, result["category_id"])
     return action
 
 
@@ -339,6 +491,10 @@ def can_undo(db: Session, user: User, action: CoachAction) -> bool:
             )
         )
         return txn is not None and _txn_fields(txn) == action.result["transaction"]
+    if action.kind == "category":
+        category = db.scalar(select(Category).where(
+            Category.id == action.result["category_id"], Category.user_id == user.id))
+        return category is not None and not category.archived and not _category_in_use(db, category.id)
     items = action.result["assignments"]
     current = _assigned(db, user, action.command["month"], [i["category_id"] for i in items])
     return all(current[i["category_id"]] == i["after_cents"] for i in items)
@@ -358,6 +514,24 @@ def undo(db: Session, user: User, action_id: str) -> CoachAction:
         db.flush()
         if payee_id:
             delete_orphan_payees(db, user.id, {payee_id})
+    elif action.kind == "category":
+        # Nothing references an unused category (checked above): remove it,
+        # and the group this action created when it's left empty.
+        category = db.get(Category, action.result["category_id"])
+        for row in db.scalars(select(BudgetAssignment).where(BudgetAssignment.category_id == category.id)):
+            db.delete(row)
+        db.delete(category)
+        db.flush()
+        if action.result.get("created_group"):
+            group = db.get(CategoryGroup, action.result["group_id"])
+            left = db.scalar(select(func.count()).select_from(Category).where(Category.group_id == group.id))
+            if group is not None and not left:
+                db.delete(group)
+                db.flush()
+        if (action.result or {}).get("follow_up_id"):
+            pending = db.get(CoachAction, action.result["follow_up_id"])
+            if pending is not None and pending.status == "proposed":
+                pending.status = "cancelled"
     else:
         # The exact inverse: each assignment back to its value before the
         # action (checked above to still hold the value the action left).
@@ -417,6 +591,13 @@ def command_from_input(db: Session, user: User, payload) -> dict:
              "to_category_id": m.to_category_id, "to_name": name(m.to_category_id),
              "amount_cents": m.amount_cents}
             for m in payload.moves
+        ]}
+    if payload.kind == "assignments":
+        if not payload.items:
+            raise ActionError(422, "items_required")
+        return {"kind": "assignments", "month": month, "items": [
+            {"category_id": i.category_id, "category_name": name(i.category_id), "amount_cents": i.amount_cents}
+            for i in payload.items
         ]}
     if payload.amount_cents is None:
         raise ActionError(422, "amount_required")

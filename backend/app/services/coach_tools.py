@@ -25,9 +25,10 @@ from sqlalchemy.orm import Session
 from .. import clock
 from ..models import Account, Category, CoachAction, Payee, Transaction, User
 from . import budget_moves, coach_actions
+from . import category_matching as matching
 from . import schedules as sched
 from .coach import eur
-from .names import UnknownName, fold, resolve
+from .names import UnknownName, fold, resolve, resolve_account
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +98,12 @@ def _refusal_message(error: coach_actions.ActionError) -> str:
         case "insufficient_available":
             return f"That category only has {eur(available or 0)} available. Propose another source."
         case "assignment_from_payments":
-            return ("That category has scheduled payments: its amount is computed from them. "
-                    "Propose a move instead, or point the user to its payments in Budget.")
+            which = error.extra.get("category") or "That category"
+            return (f"{which} has scheduled payments: its amount is computed from them. Leave it out, "
+                    "propose a move instead, or point the user to its payments in Budget.")
+        case "not_day_to_day":
+            which = error.extra.get("category") or "That category"
+            return f"{which} isn't a day-to-day category: its amount can't be set here. Leave it out."
         case "same_category":
             return "A move needs two different categories."
         case "category_required":
@@ -469,9 +474,27 @@ def propose_transaction(
 ) -> dict:
     """Propose recording a transaction the user describes ("gasté 40 en
     Mercadona"). Amount in euros. Without `category`, the one last used with
-    the payee. Date YYYY-MM-DD, default today. Without `account`, the main
-    account. Nothing is recorded until the user confirms."""
+    the payee. Date YYYY-MM-DD, default today. `account` is the account the
+    user mentions, by name or type ("efectivo", "tarjeta"); without it, the
+    main account. Nothing is recorded until the user confirms."""
     deps = ctx.deps
+    category_id = _category(deps, category).id if category else None
+    command = _transaction_command(deps, amount, kind, payee, category_id, date, account, note)
+    if kind == "expense" and command["category_id"] is None:
+        known = ", ".join(sorted({c.name for c in _categories(deps)})[:12])
+        raise ToolInputError(
+            f"Which category is this expense? Categories include: {known}. If none fits, call "
+            "find_categories and then propose_category with for_transaction, so the user chooses."
+        )
+    return _store(deps, command)
+
+
+def _transaction_command(
+    deps: CoachDeps, amount, kind: str, payee: str | None, category_id: str | None,
+    date: str | None, account: str | None, note: str | None,
+) -> dict:
+    """A transaction command from the tool's words. Without a category, the
+    one last used with the payee (or none)."""
     cents = parse_cents(amount)
     on = clock.today_madrid()
     if date:
@@ -485,29 +508,23 @@ def propose_transaction(
             Payee.user_id == deps.user.id, func.lower(Payee.name) == payee_name.lower()))
         payee_name = known or payee_name
     names = {c.id: c.name for c in _categories(deps)}
-    if category:
-        category_id = _category(deps, category).id
-    else:
-        category_id = _last_category_for_payee(deps, payee_name) if payee_name else None
+    if category_id is None and payee_name:
+        category_id = _last_category_for_payee(deps, payee_name)
         if category_id not in names:
             category_id = None
-    if kind == "expense" and category_id is None:
-        known = ", ".join(sorted(names.values())[:12])
-        raise ToolInputError(f"Which category is this expense? Ask the user. Categories include: {known}.")
     account_id = account_name = None
-    accounts = deps.db.execute(select(Account.name, Account.id).where(
+    accounts = deps.db.execute(select(Account.name, Account.id, Account.type).where(
         Account.user_id == deps.user.id, Account.archived.is_(False))).all()
     if account:
-        account_id = resolve(account, accounts, "account")
-        account_name = next(n for n, i in accounts if i == account_id)
-    command = {
+        account_id = resolve_account(account, accounts)
+        account_name = next(n for n, i, _ in accounts if i == account_id)
+    return {
         "kind": "transaction", "month": on.strftime("%Y-%m"), "direction": kind,
         "amount_cents": cents, "category_id": category_id,
         "category_name": names.get(category_id) if category_id else None,
         "payee": payee_name, "date": on.isoformat(), "account_id": account_id,
         "account_name": account_name, "note": note,
     }
-    return _store(deps, command)
 
 
 @_tool
@@ -557,9 +574,135 @@ def propose_moves(ctx: RunContext[CoachDeps], moves: list[MoveIn]) -> dict:
     return _store(deps, {"kind": "moves", "month": deps.month, "moves": lines})
 
 
+class BudgetItemIn(BaseModel):
+    category: str = Field(description="Day-to-day category name")
+    amount: float | str = Field(description="Euros to assign this month")
+
+
+@_tool
+def propose_budget(ctx: RunContext[CoachDeps], items: list[BudgetItemIn]) -> dict:
+    """Propose this month's amounts for several day-to-day categories at once
+    ("pon 300 en el súper, 80 en gasolina y 50 en ocio"), confirmed together:
+    all apply or none. Stay within what's unassigned (read get_month first).
+    Categories with payments fill themselves: leave them out."""
+    deps = ctx.deps
+    if not items:
+        raise ToolInputError("give at least one category and amount")
+    lines, seen = [], set()
+    for item in items:
+        c = _category(deps, item.category)
+        if c.kind != "flexible":
+            raise coach_actions.ActionError(
+                409, "assignment_from_payments" if c.kind == "scheduled" else "not_day_to_day",
+                {"category": c.name})
+        if c.id in seen:
+            raise ToolInputError(f"{c.name} is listed twice")
+        seen.add(c.id)
+        lines.append({"category_id": c.id, "category_name": c.name, "amount_cents": parse_cents(item.amount)})
+    return _store(deps, {"kind": "assignments", "month": deps.month, "items": lines})
+
+
+@_tool
+def find_categories(ctx: RunContext[CoachDeps], name: str) -> dict:
+    """The existing categories similar to `name` by spelling (same name,
+    contained, a shared word, close spelling), the group a new category with
+    that name would suggest, and every category by group. Call it before
+    proposing a new category. Look through `categories_by_group` for ones
+    similar in meaning (a vet → "Mascotas") and pass them to propose_category
+    as `similar`; offer an existing one when it clearly fits."""
+    deps = ctx.deps
+    matches = matching.similar_categories(deps.db, deps.user, name)
+    group = matching.suggest_group(deps.db, deps.user, name, matches)
+    by_group: dict[str, list[str]] = {}
+    for c in matching.spendable_categories(deps.db, deps.user):
+        by_group.setdefault(c.group.name, []).append(c.name)
+    return {
+        "similar": [{"name": m.name, "group": m.group_name, "reason": m.reason} for m in matches],
+        "suggested_group": group.name if group else None,
+        "categories_by_group": by_group,
+    }
+
+
+class TransactionFor(BaseModel):
+    """The expense or income the new category is for."""
+
+    amount: float | str = Field(description="Euros")
+    kind: Literal["expense", "income"] = "expense"
+    payee: str | None = None
+    date: str | None = Field(default=None, description="YYYY-MM-DD, default today")
+    account: str | None = Field(default=None, description="By name or type (\"efectivo\")")
+    note: str | None = None
+
+
+@_tool
+def propose_category(
+    ctx: RunContext[CoachDeps],
+    name: str,
+    group: str | None = None,
+    similar: list[str] | None = None,
+    for_transaction: TransactionFor | None = None,
+    for_assignment: float | str | None = None,
+) -> dict:
+    """Offer to create a category, letting the user choose first. Never
+    creates anything: the user sees the similar categories ("Use X") and
+    "Create '<name>'" with a group picker. `group`: the existing group you'd
+    suggest. `similar`: existing categories similar in meaning (e.g.
+    "Mascotas" for "Veterinario"). `for_transaction` / `for_assignment`
+    (euros): what the category is for; it's proposed right after the choice."""
+    deps = ctx.deps
+    clean = " ".join(name.split())
+    if not clean:
+        raise ToolInputError("give the new category's name")
+    matches = matching.similar_categories(deps.db, deps.user, clean)
+    exact = next((m for m in matches if m.reason == "same_name"), None)
+    if exact:
+        return {"existing": exact.name, "group": exact.group_name,
+                "note": "This category already exists: use it instead of creating one."}
+    # Only the model's meaning-based hints are stored; the string matches
+    # are recomputed by every preview.
+    shown = {m.id for m in matches}
+    spendable = {fold(c.name): c for c in matching.spendable_categories(deps.db, deps.user)}
+    hints = []
+    for hint in similar or []:
+        c = spendable.get(fold(hint))
+        if c is not None and c.id not in shown and all(h["id"] != c.id for h in hints):
+            hints.append({"id": c.id, "reason": "meaning"})
+    suggested = None
+    if group:
+        groups = [(g.name, g.id) for g in matching.user_groups(deps.db, deps.user)]
+        try:
+            suggested = resolve(group, groups, "group")
+        except UnknownName:
+            suggested = None
+    if suggested is None:
+        fallback = matching.suggest_group(deps.db, deps.user, clean, matches)
+        suggested = fallback.id if fallback else None
+    follow = None
+    if for_transaction is not None:
+        t = for_transaction
+        follow = _transaction_command(deps, t.amount, t.kind, t.payee, None, t.date, t.account, t.note)
+        follow.update({"category_id": None, "category_name": None})
+    elif for_assignment is not None:
+        follow = {"kind": "assignment", "month": deps.month, "amount_cents": parse_cents(for_assignment)}
+    command = {"kind": "category", "month": deps.month, "name": clean, "suggested_group_id": suggested,
+               "similar": hints, "for": follow}
+    action = coach_actions.propose(deps.db, deps.user, command)
+    deps.actions.append(action)
+    ref = f"choice:{action.id}"
+    deps.refs.add(ref)
+    p = action.preview
+    return {
+        "ref": ref,
+        "note": "Nothing is created yet: the user picks a similar category or creates this one in a group.",
+        "similar": [{"name": o["name"], "group": o["group_name"]} for o in p["similar"]],
+        "suggested_group": next((g["name"] for g in p["groups"] if g["id"] == p["suggested_group_id"]), None),
+        "then": p["follow_up_title"],
+    }
+
+
 READ_TOOLS = [get_month, get_breakdown, get_category, get_future_payments, get_income, get_debts,
-              search_transactions]
-PROPOSE_TOOLS = [propose_transaction, propose_assignment, propose_moves]
+              search_transactions, find_categories]
+PROPOSE_TOOLS = [propose_transaction, propose_assignment, propose_budget, propose_moves, propose_category]
 
 
 def tools() -> list[Tool]:

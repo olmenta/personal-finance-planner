@@ -173,3 +173,72 @@ def test_api_down_gives_start_instructions():
     assert "uv run uvicorn app.main:app" in call(down, "get_budget")
     with pytest.raises(ToolError):
         down.budget("2026-10")
+
+
+# ---- similar categories first, budgets, accounts by type (coach-budget-setup) ----
+
+
+def test_near_duplicate_category_is_caught(olmenta, client):
+    result = call(olmenta, "create_category", name="Super", group="Comida")
+    assert result.startswith("Nothing created") and "Supermercado (Comida)" in result
+    assert "confirmed_new=true" in result
+    names = [c["name"] for g in client.get("/categories").json() for c in g["categories"]]
+    assert "Super" not in names
+
+
+def test_created_after_the_user_confirms(olmenta, client):
+    result = call(olmenta, "create_category", name="Super", group="Comida", confirmed_new=True)
+    assert result == "Created category Super in Comida."
+
+
+def test_group_missing_lists_the_groups(olmenta):
+    result = call(olmenta, "create_category", name="Veterinario")
+    assert result.startswith("Nothing created") and "suggested" in result and "Comida" in result
+
+
+def test_exact_name_uses_the_existing_category(olmenta):
+    result = call(olmenta, "create_category", name="supermercado", group="Comida", confirmed_new=True)
+    assert result == "Nothing created: «Supermercado» already exists in Comida. Use it."
+
+
+def test_find_categories(olmenta):
+    result = call(olmenta, "find_categories", name="transporte")
+    assert "Transporte público (Transporte) [contains]" in result and "Suggested group" in result
+
+
+def test_create_group_with_similarity(olmenta, client):
+    assert call(olmenta, "create_group", name="comida").startswith("Nothing created: the group «Comida»")
+    assert call(olmenta, "create_group", name="Comidas fuera").startswith("Nothing created. Similar groups")
+    assert call(olmenta, "create_group", name="Mascotas") == "Created group Mascotas."
+
+
+def test_set_budget(olmenta, client):
+    client.post("/accounts", json={"name": "Banco", "type": "bank", "opening_balance_cents": 60000})
+    result = call(olmenta, "set_budget", items=[
+        {"category": "Supermercado", "amount": 300}, {"category": "Gasolina", "amount": "80"}])
+    assert result.startswith("Set for") and "Supermercado 300,00 €; Gasolina 80,00 €" in result
+
+
+def test_set_budget_bad_name_writes_nothing(olmenta, client):
+    from mcp_server.money import current_month
+
+    result = call(olmenta, "set_budget", items=[
+        {"category": "Supermercado", "amount": 300}, {"category": "Unicornios", "amount": 10}])
+    assert result.startswith("Error:")
+    budget = client.get(f"/budget/{current_month()}").json()
+    assigned = {c["name"]: c["assigned_cents"] for g in budget["groups"] for c in g["categories"]}
+    assert assigned["Supermercado"] == 0
+
+
+def test_set_budget_refuses_categories_with_payments(olmenta, client):
+    rent = next(c["id"] for g in client.get("/categories").json() for c in g["categories"] if c["name"] == "Alquiler")
+    client.post(f"/categories/{rent}/schedules", json={"name": "Alquiler", "amount_cents": 85000, "pattern": "monthly"})
+    result = call(olmenta, "set_budget", items=[{"category": "Supermercado", "amount": 300},
+                                               {"category": "Alquiler", "amount": 900}])
+    assert result.startswith("Error:") and "Alquiler" in result and "Nothing was set" in result
+
+
+def test_cash_account_by_type(olmenta, client):
+    client.post("/accounts", json={"name": "Banco", "type": "bank", "opening_balance_cents": 0})
+    result = call(olmenta, "add_transaction", amount=12, category="Restaurantes", account="efectivo")
+    assert "Efectivo" in result

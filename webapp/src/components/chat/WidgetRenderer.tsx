@@ -5,6 +5,7 @@ import { Breakdown, MonthWidget } from "@/components/home/HomeWidgets";
 import type { CoachWidget } from "@/lib/api";
 import { euroCents } from "@/lib/format";
 import { ActionPreview, ActionResult } from "./Actions";
+import { CategoryChoice } from "./CategoryChoice";
 import { FuturePaymentCard } from "./FuturePaymentCard";
 
 /* The widget catalog (spec: coach-conversation). The server already dropped
@@ -21,6 +22,8 @@ export function WidgetRenderer({ widget }: Readonly<{ widget: CoachWidget }>) {
       return <ActionPreview action={widget.data.action} />;
     case "action_result":
       return <ActionResult action={widget.data.action} />;
+    case "category_choice":
+      return <CategoryChoice action={widget.data.action} />;
     case "coach_proposal":
       return <ProposalCard p={widget.data} />;
     case "transaction": {

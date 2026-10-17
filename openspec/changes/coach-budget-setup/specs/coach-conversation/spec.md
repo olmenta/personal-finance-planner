@@ -13,7 +13,7 @@ The coach SHALL run on the LLM layer's `coach` route, as an agent with a version
 - `get_income`: the month's expected versus received;
 - `get_debts`;
 - `search_transactions`;
-- `find_categories`: the categories similar to a name (category-matching), with their groups.
+- `find_categories`: the categories similar to a name (category-matching), with their groups, the suggested group, and every category by group, so the model can add the ones similar in meaning.
 
 **Proposing tools:**
 
@@ -82,21 +82,21 @@ An unknown widget type SHALL be dropped server-side.
 
 ### Requirement: Creating a category from the conversation
 
-The coach SHALL NOT create a category or a group without the user's explicit choice. `propose_category(name, group?, similar?, for?)` SHALL:
+The coach SHALL NOT create a category or a group without the user's explicit choice, and SHALL NOT pick a merely similar category on the user's behalf: unless the user named an existing category (or the payee already has one), it offers the choice. `propose_category(name, group?, similar?, for_transaction?, for_assignment?)` SHALL:
 
-1. **Run the similarity check** (category-matching) on the name. The model MAY add existing categories it judges similar by meaning (`similar`); names that don't exist are dropped.
+1. **Run the similarity check** (category-matching) on the name, again on every preview, so a similar category created meanwhile makes the choice stale. The model MAY add existing categories it judges similar by meaning (`similar`); names that don't exist are dropped.
 2. **Refuse an exact match:** when a category with the same folded name exists, it returns that category instead and nothing new is proposed.
 3. **Otherwise store a `category` action** shown as a `category_choice` widget:
    - one "Use X" option per similar category (at most 5);
    - "Create 'name'" with a dropdown of the user's existing groups (system groups excluded), preselected on the model's suggested group when it exists, else on the matching service's suggestion;
    - "New group…", which takes a group name and runs the same similarity check on groups.
 
-The user's choice continues the pending step (`for`: a transaction or an assignment):
+The user's choice continues the pending step (`for_transaction` or `for_assignment`):
 
 - **"Use X":** `POST /coach/actions/{id}/resolve {category_id}` cancels the category action and proposes the pending step with X, shown as an `action_preview`.
 - **Create:** `POST /coach/actions/{id}/commit {revision, idempotency_key, group_id | new_group_name}` creates the category (and the group, if new) through the categories service, records the result, and proposes the pending step with the new category.
 
-Creating the category is undoable while nothing uses it yet (no transactions, no assignment above zero): undo archives it.
+Creating the category is undoable while nothing uses it yet (no transactions, no non-zero assignment, no payments). Undo removes the unused category, and the group the action created when it's left empty; a still-pending follow-up is cancelled. A choice answered with "Use X" has status `resolved` and nothing to undo.
 
 #### Scenario: A similar category exists
 

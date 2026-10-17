@@ -23,7 +23,6 @@ from ..llm import UsageContext
 from ..services import category_suggestions, review
 from ..services.accounts import resolve_account
 from ..services.entries import EntryError, create_entry
-from ..services.hashing import dedupe_hash
 from ..services.payees import delete_orphan_payees, resolve_payee
 from ..services.transfers import annotate_counterparts
 

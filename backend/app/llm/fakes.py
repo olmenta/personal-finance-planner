@@ -44,6 +44,12 @@ def _current_run(messages: list) -> tuple[str, list[ToolReturnPart]]:
 
 
 EXPENSE = re.compile(r"gast[eé]\s+(\d+(?:[.,]\d{1,2})?)\s*(?:€|euros?)?\s+en\s+(.+)", re.IGNORECASE)
+CASH = re.compile(r"pagu[eé]\s+(\d+(?:[.,]\d{1,2})?)\s*(?:€|euros?)?\s+en\s+efectivo\s+en\s+(.+)", re.IGNORECASE)
+BUDGET = re.compile(r"^pon\s+(.+)$", re.IGNORECASE)
+BUDGET_ITEM = re.compile(r"(\d+(?:[.,]\d{1,2})?)\s*(?:€|euros?)?\s+en\s+(?:el\s+|la\s+)?(.+)", re.IGNORECASE)
+ARTICLE = re.compile(r"^(el|la|los|las)\s+", re.IGNORECASE)
+# Meaning-based matches a real model would add (e2e only).
+MEANING = {"veterinario": ["Mascotas"]}
 
 
 def _e2e(messages: list, info: AgentInfo) -> ModelResponse:
@@ -64,11 +70,37 @@ def _e2e(messages: list, info: AgentInfo) -> ModelResponse:
     if "simula un fallo" in folded:
         raise RuntimeError("simulated provider failure")
 
-    if match := EXPENSE.search(prompt):
+    if match := (CASH.search(prompt) or EXPENSE.search(prompt)):
+        amount, payee = match.group(1), match.group(2).strip(" .")
+        name = ARTICLE.sub("", payee)
+        title = name[:1].upper() + name[1:]
+        account = {"account": "efectivo"} if CASH.search(prompt) else {}
         if not returns:
-            return call("propose_transaction", {"amount": match.group(1), "payee": match.group(2).strip(" .")})
+            return call("propose_transaction", {"amount": amount, "payee": payee, **account})
+        tool = returns[-1].tool_name
         if "ref" in last:
+            if last["ref"].startswith("choice:"):
+                return reply("Elige una categoría parecida o crea la nueva.", [("category_choice", last["ref"])])
             return reply("Te lo dejo listo: revísalo y confírmalo.", [("action_preview", last["ref"])])
+        if tool == "propose_transaction" and "Which category" in str(last.get("error", "")):
+            return call("find_categories", {"name": name})
+        if tool == "find_categories":
+            return call("propose_category", {
+                "name": title, "group": last.get("suggested_group"), "similar": MEANING.get(_fold(name), []),
+                "for_transaction": {"amount": amount, "payee": title, **account},
+            })
+        if tool == "propose_category" and last.get("existing"):
+            return call("propose_transaction", {"amount": amount, "payee": payee, "category": last["existing"], **account})
+        return refused(last)
+
+    if match := BUDGET.search(prompt.strip()):
+        if not returns:
+            parts = re.split(r",\s*|\s+y\s+", match.group(1))
+            items = [{"amount": m.group(1), "category": m.group(2).strip(" .")}
+                     for m in (BUDGET_ITEM.search(p) for p in parts) if m]
+            return call("propose_budget", {"items": items})
+        if "ref" in last:
+            return reply("Así quedaría tu presupuesto. Confírmalo si te parece bien.", [("action_preview", last["ref"])])
         return refused(last)
 
     if "cuanto" in folded and "guardar" in folded:
