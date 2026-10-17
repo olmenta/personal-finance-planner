@@ -445,6 +445,171 @@ def set_budget(client: OlmentaClient, args: SetBudgetArgs) -> str:
     return f"Set for {month}: {'; '.join(done)}. To Be Assigned is now {eur(last['to_be_assigned_cents'])}."
 
 
+PaymentPattern = Literal["monthly", "some_months", "annual", "every_n", "once", "no_date"]
+PATTERN_GUIDE = (
+    " Patterns: monthly (optional count from start_month); some_months (months 1–12, e.g. September to "
+    "June = [9,10,11,12,1,2,3,4,5,6]); annual (month 1–12); every_n (every_n 2–12 from start_month YYYY-MM); "
+    "once (once_month YYYY-MM, a single future payment); no_date (an annual goal). day only if the user gave "
+    "one; estimated for approximate amounts."
+)
+MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September",
+               "October", "November", "December"]
+
+
+def _months_text(months: list[int]) -> str:
+    """Mirrors app/services/payment_text.py: a run of months reads as a range."""
+    chosen = set(months)
+    if len(chosen) == 12:
+        return "every month"
+    start = next((m for m in months if ((m + 10) % 12) + 1 not in chosen), None)
+    if start is not None:
+        end, n = start, 1
+        while (end % 12) + 1 in chosen and n < len(chosen):
+            end, n = (end % 12) + 1, n + 1
+        if n == len(chosen):
+            return f"in {MONTH_NAMES[start - 1]}" if n == 1 else f"from {MONTH_NAMES[start - 1]} to {MONTH_NAMES[end - 1]}"
+    return "in " + ", ".join(MONTH_NAMES[m - 1][:3] for m in sorted(months))
+
+
+def _describe(p: dict) -> str:
+    """The payment in words (mirrors app/services/payment_text.py)."""
+    a = eur(p["amount_cents"])
+    day = f", day {p['day']}" if p.get("day") else ""
+
+    def month(m: str | None) -> str:
+        if not m:
+            return ""
+        y, mm = m.split("-")
+        return f"{MONTH_NAMES[int(mm) - 1]} {y}"
+
+    match p["pattern"]:
+        case "monthly":
+            text = f"{a} every month{day}" + (f" · {p['count']} payments from {month(p.get('start_month'))}"
+                                               if p.get("count") else "")
+        case "some_months":
+            text = f"{a} {_months_text(list(p.get('months') or []))}{day}"
+        case "annual":
+            text = f"{a} once a year, in {MONTH_NAMES[(p.get('month') or 1) - 1]}{day}"
+        case "every_n":
+            text = f"{a} every {p.get('every_n')} months from {month(p.get('start_month'))}{day}"
+        case "once":
+            text = f"{a} once, in {month(p.get('once_month'))}{day}"
+        case _:
+            text = f"{a} a year, no fixed date"
+    return text + (" (estimated)" if p.get("estimated") else "")
+
+
+def _all_payments(client: OlmentaClient) -> list[tuple[dict, dict]]:
+    """(payment, category) for every active category's payments."""
+    result = []
+    for g in client.categories():
+        for c in g["categories"]:
+            if not c["archived"]:
+                result += [(p, c) for p in client.schedules(c["id"])]
+    return result
+
+
+def _payment(client: OlmentaClient, name: str) -> tuple[dict, dict]:
+    rows = _all_payments(client)
+    counts: dict[str, int] = {}
+    for _, c in rows:
+        counts[c["id"]] = counts.get(c["id"], 0) + 1
+    options = [(p["name"], p["id"]) for p, _ in rows]
+    options += [(c["name"], p["id"]) for p, c in rows if counts[c["id"]] == 1]
+    wanted = resolve(name, list(dict.fromkeys(options)), "payment")
+    payment, category = next((p, c) for p, c in rows if p["id"] == wanted)
+    if payment.get("debt_id"):
+        raise ToolError("That payment belongs to a debt: change it in the app, in Accounts → What you owe.")
+    return payment, category
+
+
+class ListPaymentsArgs(BaseModel):
+    category: str | None = Field(default=None, description="Only this category's payments.")
+
+
+def list_payments(client: OlmentaClient, args: ListPaymentsArgs) -> str:
+    rows = _all_payments(client)
+    if args.category:
+        wanted = _category_id(client, args.category)
+        rows = [(p, c) for p, c in rows if c["id"] == wanted]
+    if not rows:
+        return "No payments yet."
+    return "\n".join(
+        f"- {p['name']} ({c['name']}): {_describe(p)}" + (" — managed in What you owe" if p.get("debt_id") else "")
+        for p, c in rows
+    )
+
+
+class PaymentArgs(BaseModel):
+    pattern: PaymentPattern | None = None
+    months: list[int] | None = Field(default=None, description="1–12, for some_months.")
+    month: int | None = Field(default=None, description="1–12, for annual.")
+    every_n: int | None = None
+    start_month: str | None = Field(default=None, description="YYYY-MM.")
+    once_month: str | None = Field(default=None, description="YYYY-MM.")
+    count: int | None = None
+    day: int | None = Field(default=None, description="1–31, only if the user gave one.")
+    estimated: bool | None = None
+
+
+class AddPaymentArgs(PaymentArgs):
+    category: str = Field(description="Existing category (see list_categories; create one with find_categories first).")
+    name: str = Field(description="Short name, e.g. Alquiler.")
+    amount: Euros = Field(description="Euros per payment.")
+    pattern: PaymentPattern
+
+
+def _payment_fields(args: PaymentArgs) -> dict:
+    fields = {k: getattr(args, k) for k in ("pattern", "months", "month", "every_n", "start_month",
+                                            "once_month", "count", "day", "estimated")}
+    return {k: v for k, v in fields.items() if v is not None}
+
+
+def _monthly_amount(client: OlmentaClient, category_id: str) -> str:
+    month = check_month(None)
+    row = next(c for g in client.budget(month)["groups"] for c in g["categories"] if c["id"] == category_id)
+    return f"{row['name']} now gets {eur(row['assigned_cents'])} in {month}."
+
+
+def add_payment(client: OlmentaClient, args: AddPaymentArgs) -> str:
+    try:
+        category_id = _category_id(client, args.category)
+    except NameError_ as error:
+        raise NameError_(f"{error} If the user wants a new category, use find_categories first.") from error
+    body = {"name": args.name.strip(), "amount_cents": positive_cents(args.amount), **_payment_fields(args)}
+    p = client.create_schedule(category_id, body)
+    return f"Added payment {p['name']}: {_describe(p)}. {_monthly_amount(client, category_id)}"
+
+
+class UpdatePaymentArgs(PaymentArgs):
+    payment: str = Field(description="The payment's name, or its category when that has one payment.")
+    name: str | None = None
+    amount: Euros | None = Field(default=None, description="New euros per payment.")
+
+
+def update_payment(client: OlmentaClient, args: UpdatePaymentArgs) -> str:
+    payment, category = _payment(client, args.payment)
+    body = _payment_fields(args)
+    if args.name:
+        body["name"] = args.name.strip()
+    if args.amount is not None:
+        body["amount_cents"] = positive_cents(args.amount)
+    if not body:
+        raise ToolError("Say what changes (amount, day, months…).")
+    p = client.update_schedule(payment["id"], body)
+    return f"Changed {p['name']}: {_describe(payment)} → {_describe(p)}. {_monthly_amount(client, category['id'])}"
+
+
+class DeletePaymentArgs(BaseModel):
+    payment: str = Field(description="The payment's name, or its category when that has one payment.")
+
+
+def delete_payment(client: OlmentaClient, args: DeletePaymentArgs) -> str:
+    payment, category = _payment(client, args.payment)
+    client.delete_schedule(payment["id"])
+    return f"Removed {payment['name']} ({_describe(payment)}). {_monthly_amount(client, category['id'])}"
+
+
 class CreateTransferArgs(BaseModel):
     amount: Euros = Field(description="Euros moved, positive.")
     from_account: str = Field(description="Account the money leaves (by name).")
@@ -609,6 +774,29 @@ TOOLS: list[ToolSpec] = [
         "e.g. building a budget. Checks every name first; categories with payments are computed and "
         "refused. Results list what was set and the new To Be Assigned.",
         SetBudgetArgs, set_budget, read_only=False,
+    ),
+    ToolSpec(
+        "list_payments",
+        "The user's payments (costs with a date: rent, insurance, school…), each in words, with their "
+        "category; debt payments are marked as managed in What you owe.",
+        ListPaymentsArgs, list_payments, read_only=True,
+    ),
+    ToolSpec(
+        "add_payment",
+        "Add a payment (a cost with a date) to an existing category; it computes the category's monthly "
+        "amount. Confirm the details with the user first." + PATTERN_GUIDE,
+        AddPaymentArgs, add_payment, read_only=False,
+    ),
+    ToolSpec(
+        "update_payment",
+        "Change a payment (only the fields that change). Payments of debts are changed in the app's "
+        "What you owe." + PATTERN_GUIDE,
+        UpdatePaymentArgs, update_payment, read_only=False,
+    ),
+    ToolSpec(
+        "delete_payment",
+        "Remove a payment the user no longer has. Payments of debts are managed in What you owe.",
+        DeletePaymentArgs, delete_payment, read_only=False,
     ),
     ToolSpec(
         "create_transfer",

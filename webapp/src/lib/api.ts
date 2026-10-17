@@ -1169,6 +1169,21 @@ export interface CoachActionPreview {
   to_be_assigned_after_cents: number;
   accounts_unchanged: boolean;
   error: { code: string } | null;
+  /** Payment kinds only: the payment in words and its effect on the category. */
+  payment?: {
+    name: string | null;
+    sentence_before: string | null;
+    sentence_after: string | null;
+    next_due_month: string | null;
+    estimated: boolean;
+    category_id: string;
+  };
+  amounts?: {
+    normal_before_cents: number;
+    normal_after_cents: number;
+    catch_up_before_cents: number;
+    catch_up_after_cents: number;
+  };
   /** Category choices only. */
   name?: string;
   similar?: { id: string; name: string; group_id: string; group_name: string; reason: string }[];
@@ -1188,7 +1203,15 @@ export interface CoachActionPreview {
 
 export interface CoachAction {
   id: string;
-  kind: "transaction" | "assignment" | "assignments" | "moves" | "category";
+  kind:
+    | "transaction"
+    | "assignment"
+    | "assignments"
+    | "moves"
+    | "category"
+    | "payment"
+    | "payment_update"
+    | "payment_delete";
   /** resolved: a category choice answered with an existing category. */
   status: "proposed" | "applied" | "stale" | "cancelled" | "undone" | "resolved";
   title: string;
@@ -1284,7 +1307,7 @@ export async function sendCoachMessage(
 }
 
 export interface CoachActionIn {
-  kind: Exclude<CoachAction["kind"], "category">;
+  kind: "transaction" | "assignment" | "assignments" | "moves";
   moves?: { from_category_id: string | null; to_category_id: string; amount_cents: number }[];
   items?: { category_id: string; amount_cents: number }[];
   category_id?: string | null;

@@ -5,7 +5,7 @@
 The coach SHALL be able to propose payments (payment schedules) with these tools, each storing an action with a dry-run preview and the usual revision, confirm, idempotency and undo lifecycle:
 
 - `propose_payment(category, name, amount, pattern, months?, month?, every_n?, start_month?, once_month?, count?, day?, estimated?)` (kind `payment`): a new payment in an existing category. A category that doesn't exist SHALL go through `propose_category` with the payment as its follow-up.
-- `propose_payment_change(payment, changes)` (kind `payment_update`): the payment is named by its name or its category; ambiguous names are an error listing the candidates.
+- `propose_payment_change(payment, …only the fields that change)` (kind `payment_update`): the payment is named by its name or its category (when that has one payment); ambiguous names are an error listing the candidates. The preview and the recorded "before" use the payment as it is at that moment, so an edit made elsewhere in between makes the preview stale and isn't reverted by Undo.
 - `propose_payment_removal(payment)` (kind `payment_delete`).
 
 Every write SHALL go through the shared payment operation (payment-schedules), so the editor's rules apply:

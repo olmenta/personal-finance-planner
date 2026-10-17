@@ -141,6 +141,9 @@ ChatGPT can't start a program on your computer. OpenAI's **Secure MCP Tunnel** b
 | "Pagué 300 € de la Visa desde BBVA" | `create_transfer` |
 | "¿Qué tengo sin categorizar? Ayúdame a ordenarlo" | `review_uncategorized` → `apply_review` |
 | "Crea una categoría Mascotas" | `find_categories` → you choose → `create_category` |
+| "El alquiler son 850 € al mes, el día 1" / "el seguro del coche, 600 en febrero" | `add_payment` |
+| "El alquiler sube a 900" / "ya no pago el gimnasio" | `update_payment` / `delete_payment` |
+| "¿Qué pagos tengo?" | `list_payments` |
 
 ## The tools
 
@@ -159,6 +162,10 @@ ChatGPT can't start a program on your computer. OpenAI's **Secure MCP Tunnel** b
 | `move_money` | Move money between categories, or from To Be Assigned |
 | `create_category` | Create a category in the group you chose. It never creates without your choice: without a group it lists them (with the suggested one); when similar categories exist it lists them and waits for `confirmed_new=true` |
 | `create_group` | Create a category group; when similar groups exist it lists them and waits for `confirmed_new=true` |
+| `list_payments` | Your payments (costs with a date) in words, with their category; debt payments are marked as managed in What you owe |
+| `add_payment` | Add a payment to a category (monthly, some months, once a year, every N months, once, or a no-date goal); it computes the category's monthly amount |
+| `update_payment` | Change a payment, only what changes; debt payments are refused (change them in What you owe) |
+| `delete_payment` | Remove a payment |
 | `create_transfer` | Move money between your accounts (including paying a card) |
 | `apply_review` | Resolve uncategorized rows: category, payee, note, transfer, or link to the matching transfer |
 

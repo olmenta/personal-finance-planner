@@ -142,7 +142,7 @@ Tap **Work on my debts** on the debt you want to change. You can change the plan
 
 If you pay extra on a loan with installments, ask your bank how many installments are left and update **Installments left**.
 
-Payments that belong to a debt can't be edited from the category's payment editor. That keeps the order and the dates right. The editor shows "Managed from What you owe" with a link.
+Payments that belong to a debt can't be edited from the category's payment editor or by asking your coach. That keeps the order and the dates right. The editor shows "Managed from What you owe" with a link, and the coach points you there.
 
 ## When a debt is paid off
 
