@@ -3,9 +3,7 @@
 ## Purpose
 
 Expected income as user-level schedules (source, payer, rule, day): their CRUD, read-time matching of real income to expected occurrences (received, pending, late, missed, unplanned), the month income contract, linking unplanned income through payee equality, the migration from the single expected figure, the income editor, and the dashboard's late-income nudge. Expected income feeds the plan, never the budget.
-
 ## Requirements
-
 ### Requirement: Income schedules CRUD
 
 The API SHALL expose `GET /income-schedules`, `POST /income-schedules`, `PATCH /income-schedules/{id}` and `DELETE /income-schedules/{id}`. Income schedules belong to the user, not to a category. Each schedule SHALL carry `name`, `amount_cents > 0`, an optional payer, a `pattern` and the pattern's fields, an optional `day` (1–31), and `estimated` (default false, for income whose amount varies). The patterns and their fields SHALL be the payment-schedule patterns `monthly` (optional `count` with `start_month`), `some_months` (`months`), `annual` (`month`), `every_n` (`every_n`, `start_month`) and `once` (`once_month`), with the same validation. `no_date` SHALL be rejected.
@@ -145,3 +143,26 @@ Empty state SHALL invite adding the first income, never apologize.
 
 - **WHEN** the user has no income schedules
 - **THEN** the editor invites "Add your income to see if your plan fits" with the form ready
+
+### Requirement: One shared income operation
+
+Creating, updating and deleting an income schedule, and linking an inflow to a schedule, SHALL go through one backend operation used by the income API, the coach and the dev MCP server (through the API). It SHALL apply the schedule validation, the partial-update merge (switching pattern drops the other pattern's fields; an empty payer clears it) and payer resolution. The API's responses and error codes SHALL stay as they are.
+
+`POST /income/link {transaction_id, schedule_id}` SHALL apply the linking rule atomically:
+
+- the schedule's payee is given to the transaction;
+- or, when the schedule has none, the transaction's payee is given to the schedule;
+- or, when neither has one, the schedule's name becomes a payee resolved for both.
+
+It returns the month's income view. The transaction must be a confirmed, uncategorized inflow of the user (404 `transaction_not_found` otherwise), and the schedule the user's (404).
+
+#### Scenario: Linked in one step
+
+- **WHEN** the client posts a link for an unplanned inflow without payer and a schedule with payer "Acme"
+- **THEN** the inflow gets the payee Acme, and the returned month view shows the occurrence as received
+
+#### Scenario: Neither has a payer
+
+- **WHEN** the schedule "Clases" and the inflow both lack a payer
+- **THEN** a payee "Clases" is resolved, both get it, and later inflows from it match automatically
+
