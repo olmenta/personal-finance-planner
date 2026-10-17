@@ -3,9 +3,7 @@
 ## Purpose
 
 The category tree contract: grouped list shared by management, pickers, and the budget join; category create/update with archive as the only retire path; group create/update/delete-when-empty.
-
 ## Requirements
-
 ### Requirement: Grouped category tree
 
 The API SHALL expose `GET /categories` returning the user's category groups ordered by `sort_order`, each with its categories including `id`, `name`, `icon`, and `archived`. Archived categories SHALL be included (flagged) so management and historical views share one read.
@@ -85,3 +83,18 @@ The API SHALL expose `POST /categories/groups` (name, appended at the end of the
 
 - **WHEN** a client creates a category with the "Tarjetas de crédito" group as `group_id`
 - **THEN** the API returns 409 with code `payment_category_locked`
+
+### Requirement: Similar categories
+
+The API SHALL expose `GET /categories/similar?name=<text>&kind=category|group` returning, for the user's active (non-archived) categories or non-system groups, the ones similar to `name` as defined by category-matching. Each result SHALL carry its id, name, group (for categories), and why it matched (`same_name`, `contains`, `shared_word`, `close_spelling`). For categories, the response SHALL also carry the suggested group for a new category with that name. An empty or blank name SHALL return 422.
+
+#### Scenario: Similar categories listed
+
+- **WHEN** the client requests `GET /categories/similar?name=super`
+- **THEN** the response lists "Supermercado" in group "Comida" with reason `contains`, and the suggested group is "Comida"
+
+#### Scenario: Nothing similar
+
+- **WHEN** the client requests `GET /categories/similar?name=Veterinario` and no category shares a word or a close spelling
+- **THEN** the response has no matches and suggests a group that isn't a system group
+
