@@ -116,10 +116,77 @@ function PaymentBody({ action }: Readonly<{ action: CoachAction }>) {
   );
 }
 
+const STATUS_WORDS: Record<string, string> = {
+  received: "received",
+  pending: "expected",
+  late: "not arrived yet",
+  missed: "didn't arrive",
+};
+
+/** The year's coverage in words, from the plan summary's gap. */
+function coverage(known: boolean, gap: number | null): string {
+  if (!known || gap === null) return "unknown";
+  return gap >= 0 ? "covered" : `short ${euroCents(-gap)} a year`;
+}
+
+function IncomeBody({ action }: Readonly<{ action: CoachAction }>) {
+  const p = action.preview;
+  const plan = p.plan!;
+  const link = p.link;
+  return (
+    <div data-testid="income-preview" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {link ? (
+        <>
+          <div style={row}>
+            <span>{link.occurrence_after?.name ?? "Expected income"}</span>
+            <span>
+              {STATUS_WORDS[link.occurrence_before?.status ?? ""] ?? "expected"}{" "}
+              <Icon name="arrow-right" size={13} style={{ verticalAlign: -2 }} />{" "}
+              <b style={{ color: "var(--text-strong)" }}>{STATUS_WORDS[link.occurrence_after?.status ?? ""] ?? "expected"}</b>
+            </span>
+          </div>
+          {!link.unplanned_after && (
+            <div style={{ ...row, color: "var(--text-muted)" }}>
+              <span>{euroCents(link.amount_cents)} is no longer unplanned</span>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <div style={{ font: "600 14px/1.45 var(--font-sans)", color: "var(--text-strong)" }}>
+            {p.income?.sentence_before && (
+              <span style={{ color: "var(--text-muted)", textDecoration: p.income.sentence_after ? "none" : "line-through" }}>
+                {p.income.sentence_before}
+                {p.income.sentence_after && " → "}
+              </span>
+            )}
+            {p.income?.sentence_after}
+            {p.income?.estimated && <span style={{ color: "var(--text-muted)", fontWeight: 500 }}> · Estimated</span>}
+          </div>
+          <Change label="Expected this month" before={plan.month_expected_before_cents} after={plan.month_expected_after_cents} />
+          <Change label="Expected over 12 months" before={plan.year_expected_before_cents} after={plan.year_expected_after_cents} />
+          <div style={row} data-testid="income-coverage">
+            <span>Your year</span>
+            <span>
+              {coverage(plan.income_known_before, plan.gap_before_cents)}{" "}
+              <Icon name="arrow-right" size={13} style={{ verticalAlign: -2 }} />{" "}
+              <b style={{ color: "var(--text-strong)" }}>{coverage(plan.income_known_after, plan.gap_after_cents)}</b>
+            </span>
+          </div>
+        </>
+      )}
+      <div style={{ ...row, color: "var(--text-muted)" }}>
+        <span>To be assigned changes only when the money arrives</span>
+      </div>
+    </div>
+  );
+}
+
 function PreviewBody({ action }: Readonly<{ action: CoachAction }>) {
   const p = action.preview;
   const t = p.transaction;
   if (p.payment) return <PaymentBody action={action} />;
+  if (p.plan || p.link) return <IncomeBody action={action} />;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {t && (
@@ -344,7 +411,7 @@ export function ActionPreview({ action: shown }: Readonly<{ action: CoachAction 
               <Button size="sm" iconLeft="check" disabled={confirm.isPending} onClick={() => confirm.mutate()}>
                 Confirm
               </Button>
-              {!action.kind.startsWith("payment") && (
+              {!action.kind.startsWith("payment") && !action.kind.startsWith("income") && (
                 <Button size="sm" variant="secondary" iconLeft="pencil" onClick={() => setEditing(editableAmounts(action).map((c) => money(c / 100)))}>
                   Edit
                 </Button>

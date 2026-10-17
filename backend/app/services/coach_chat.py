@@ -126,7 +126,7 @@ def _context(home, locale: str | None = None) -> str:
     lines = [
         f"Snapshot of the user's month {home.month} (computed by Olmenta; for orientation only — "
         "read tools before quoting numbers):",
-        f"- the user's app language: {LANGUAGES.get(locale or 'es', 'Spanish')}",
+        f"- app language, only for messages too short to tell: {LANGUAGES.get(locale or 'es', 'Spanish')}",
         f"- status: {home.status}" + (f" ({', '.join(r.code for r in home.reasons)})" if home.reasons else ""),
         f"- money in accounts {eur(s.accounts_cents)} = reserved for this month's payments "
         f"{eur(s.covered_cents)} + left to spend {eur(s.left_to_spend_cents)} + saved for the future "

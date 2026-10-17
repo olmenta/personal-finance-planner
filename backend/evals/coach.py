@@ -126,9 +126,31 @@ def loan(client: TestClient) -> None:
                                 "installments_left": 10, "next_month": MONTH})
 
 
+def no_income(client: TestClient) -> None:
+    _bank(client, 100000)
+    client.get(f"/budget/{MONTH}")
+
+
+def salary_set(client: TestClient) -> None:
+    _bank(client, 100000)
+    client.post("/income-schedules", json={"name": "Nómina", "amount_cents": 210000, "pattern": "monthly",
+                                           "day": 28, "payer": "Acme"})
+    client.post("/income-schedules", json={"name": "Paga extra", "amount_cents": 210000,
+                                           "pattern": "some_months", "months": [6, 12], "payer": "Acme"})
+
+
+def late_salary(client: TestClient) -> None:
+    _bank(client, 100000)
+    client.post("/income-schedules", json={"name": "Nómina", "amount_cents": 210000, "pattern": "monthly",
+                                           "day": 1, "payer": "Acme"})
+    client.post("/transactions", json={"amount_cents": 208000, "kind": "income", "date": "2026-10-02",
+                                       "note": "TRANSFERENCIA RECIBIDA"})
+
+
 SETUPS: dict[str, Callable[[TestClient], None]] = {
     f.__name__: f for f in (car_insurance, mercadona, overspent, shortfall, planted_note, organized,
-                            pets, fresh_budget, bar_history, fixed_bills, rent_set, loan)
+                            pets, fresh_budget, bar_history, fixed_bills, rent_set, loan,
+                            no_income, salary_set, late_salary)
 }
 
 
@@ -325,6 +347,34 @@ class PaymentChanged(Evaluator):
                 and all(changes[0].get(k) == v for k, v in self.changes.items())}
 
 
+@dataclass
+class IncomeProposed(Evaluator):
+    """Exactly these incomes are proposed (each a subset of fields)."""
+
+    incomes: list[dict[str, Any]]
+
+    def evaluate(self, ctx: EvaluatorContext) -> dict[str, bool]:
+        bodies = [a["command"]["body"] for a in ctx.output["actions"] if a["kind"] == "income"]
+        matched = all(any(all(b.get(k) == v for k, v in want.items()) for b in bodies) for want in self.incomes)
+        return {"income_proposed": len(bodies) == len(self.incomes) and matched}
+
+
+@dataclass
+class KindProposed(Evaluator):
+    """One action of this kind (and no expected-income writes otherwise)."""
+
+    kind: str
+    fields: dict[str, Any] | None = None
+
+    def evaluate(self, ctx: EvaluatorContext) -> dict[str, bool]:
+        found = [a for a in ctx.output["actions"] if a["kind"] == self.kind]
+        ok = len(found) == 1 and all(
+            (found[0]["command"].get("changes") or found[0]["command"]).get(k) == v
+            for k, v in (self.fields or {}).items()
+        )
+        return {f"kind:{self.kind}": ok}
+
+
 def _judge(rubric: str) -> LLMJudge:
     return LLMJudge(rubric=rubric, model=_model("judge", route_config("judge")), include_input=True)
 
@@ -448,6 +498,47 @@ def dataset() -> Dataset:
                             _judge("The output's `text` tells the user, in Spanish, that the Ikea installment is "
                                    "changed in Accounts → What you owe (\"Lo que debes\"), and doesn't claim it "
                                    "changed anything.")],
+            ),
+            Case(
+                name="income_salary",
+                inputs=Ask("no_income", "cobro 2.100 € el día 28 de Acme"),
+                evaluators=[CalledOneOf(["propose_income"]), Attached("action_preview"),
+                            IncomeProposed([{"pattern": "monthly", "amount_cents": 210000, "day": 28, "payer": "Acme"}]),
+                            NoInventedAmounts(), SPANISH],
+            ),
+            Case(
+                name="income_14_pagas",
+                inputs=Ask("no_income", "cobro 1.800 € en 14 pagas, con las extras en junio y diciembre"),
+                evaluators=[IncomeProposed([
+                    {"pattern": "monthly", "amount_cents": 180000},
+                    {"pattern": "some_months", "months": [6, 12], "amount_cents": 180000},
+                ]), SPANISH],
+            ),
+            Case(
+                name="income_estimated",
+                inputs=Ask("no_income", "me pagan unos 400 al mes de clases particulares"),
+                evaluators=[IncomeProposed([{"pattern": "monthly", "amount_cents": 40000, "estimated": True}])],
+            ),
+            Case(
+                name="income_change",
+                inputs=Ask("salary_set", "mi sueldo sube a 2.200"),
+                evaluators=[KindProposed("income_update", {"amount_cents": 220000}), SPANISH],
+            ),
+            Case(
+                name="income_removal",
+                inputs=Ask("salary_set", "ya no cobro la paga extra"),
+                evaluators=[KindProposed("income_delete"), SPANISH],
+            ),
+            Case(
+                name="income_link",
+                inputs=Ask("late_salary", "ese ingreso de 2.080 es la nómina"),
+                evaluators=[CalledOneOf(["propose_income_link"]), KindProposed("income_link"), SPANISH],
+            ),
+            Case(
+                name="arrived_is_a_transaction",
+                inputs=Ask("salary_set", "me ha llegado la nómina, 2.100 €"),
+                evaluators=[KindProposed("transaction", {"direction": "income", "amount_cents": 210000}),
+                            IncomeProposed([]), SPANISH],
             ),
             Case(
                 name="english_user",

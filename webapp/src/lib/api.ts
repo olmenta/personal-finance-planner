@@ -826,6 +826,14 @@ export async function acceptProposal(
 
 export const fetchMonthIncome = (month: string) => request<MonthIncomeView>(`/income/${month}`);
 
+/** "This is…": link an unplanned inflow to an expected income in one step
+    (spec: income-schedules, one shared income operation). */
+export const linkIncome = (transactionId: string, scheduleId: string) =>
+  request<MonthIncomeView>("/income/link", {
+    method: "POST",
+    body: JSON.stringify({ transaction_id: transactionId, schedule_id: scheduleId }),
+  });
+
 export const fetchCategories = () =>
   request<CategoryGroupOut[]>("/categories");
 
@@ -1184,6 +1192,25 @@ export interface CoachActionPreview {
     catch_up_before_cents: number;
     catch_up_after_cents: number;
   };
+  /** Expected-income kinds only: the income in words and its effect on the plan. */
+  income?: { sentence_before: string | null; sentence_after: string | null; estimated: boolean };
+  plan?: {
+    month_expected_before_cents: number;
+    month_expected_after_cents: number;
+    year_expected_before_cents: number;
+    year_expected_after_cents: number;
+    income_known_before: boolean;
+    income_known_after: boolean;
+    gap_before_cents: number | null;
+    gap_after_cents: number | null;
+  };
+  link?: {
+    amount_cents: number;
+    occurrence_before: { name: string; status: string; received_cents: number } | null;
+    occurrence_after: { name: string; status: string; received_cents: number } | null;
+    unplanned_before: boolean;
+    unplanned_after: boolean;
+  };
   /** Category choices only. */
   name?: string;
   similar?: { id: string; name: string; group_id: string; group_name: string; reason: string }[];
@@ -1211,7 +1238,11 @@ export interface CoachAction {
     | "category"
     | "payment"
     | "payment_update"
-    | "payment_delete";
+    | "payment_delete"
+    | "income"
+    | "income_update"
+    | "income_delete"
+    | "income_link";
   /** resolved: a category choice answered with an existing category. */
   status: "proposed" | "applied" | "stale" | "cancelled" | "undone" | "resolved";
   title: string;

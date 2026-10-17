@@ -461,6 +461,11 @@ class UnplannedIncome(BaseModel):
     amount_cents: int
 
 
+class IncomeLinkIn(BaseModel):
+    transaction_id: str
+    schedule_id: str
+
+
 class MonthIncomeView(BaseModel):
     month: str
     has_schedules: bool
@@ -1003,8 +1008,10 @@ class HomeView(BaseModel):
 
 class CoachActionOut(BaseModel):
     id: str
-    kind: Literal["transaction", "assignment", "assignments", "moves", "category",
-                  "payment", "payment_update", "payment_delete"]
+    # transaction | assignment | assignments | moves | category | payment |
+    # payment_update | payment_delete | income | income_update | income_delete |
+    # income_link
+    kind: str
     # resolved: a category choice answered with an existing category
     status: Literal["proposed", "applied", "stale", "cancelled", "undone", "resolved"]
     title: str

@@ -26,7 +26,7 @@ from .. import clock
 from ..models import Account, Category, CoachAction, Payee, PaymentSchedule, Transaction, User
 from . import budget_moves, coach_actions
 from . import category_matching as matching
-from . import payment_ops
+from . import income_ops, payment_ops
 from . import schedules as sched
 from .coach import eur
 from .names import UnknownName, fold, resolve, resolve_account
@@ -109,6 +109,8 @@ def _refusal_message(error: coach_actions.ActionError) -> str:
             return "A move needs two different categories."
         case "category_required":
             return "An expense needs a category. Ask the user which one."
+        case "income_schedule_not_found":
+            return "That expected income doesn't exist anymore. Read get_income again."
         case "invalid_schedule":
             return ("Those payment fields don't fit the pattern (e.g. some_months needs months, annual needs "
                     "month, every_n needs every_n and start_month, once needs once_month). Fix them and try again.")
@@ -352,11 +354,13 @@ def get_future_payments(ctx: RunContext[CoachDeps], name: str | None = None) -> 
 @_tool
 def get_income(ctx: RunContext[CoachDeps], month: str | None = None) -> dict:
     """Income for a month: expected from the user's income schedules versus
-    received, and each expected payment's status."""
+    received, each expected payment's status, and unplanned income (with refs
+    to link with propose_income_link)."""
     from .income import month_income
 
     deps = ctx.deps
     view = month_income(deps.db, deps.user, _month(month, deps.month))
+    deps.refs.update(f"transaction:{u.transaction_id}" for u in view.unplanned)
     return {
         "month": view.month,
         "has_schedules": view.has_schedules,
@@ -368,8 +372,8 @@ def get_income(ctx: RunContext[CoachDeps], month: str | None = None) -> dict:
              "received": eur(o.received_cents), "status": o.status}
             for o in view.occurrences
         ],
-        "unplanned": [{"label": u.label, "date": u.date.isoformat(), "amount": eur(u.amount_cents)}
-                      for u in view.unplanned],
+        "unplanned": [{"ref": f"transaction:{u.transaction_id}", "label": u.label, "date": u.date.isoformat(),
+                       "amount": eur(u.amount_cents)} for u in view.unplanned],
     }
 
 
@@ -451,13 +455,16 @@ def _store(deps: CoachDeps, command: dict) -> dict:
         "title": p["title"],
         "note": "Proposed only: nothing changes until the user confirms the preview.",
         "to_be_assigned": {"before": eur(p["to_be_assigned_before_cents"]),
-                           "after": eur(p["to_be_assigned_after_cents"])},
+                           "after": eur(p["to_be_assigned_after_cents"])}
+        if "to_be_assigned_before_cents" in p else "unchanged (expected income only plans)",
         "categories": [
             {"name": c["name"], "available_before": eur(c["available_before_cents"]),
              "available_after": eur(c["available_after_cents"])}
             for c in p["categories"]
         ],
         "money_in_accounts_unchanged": p["accounts_unchanged"],
+        **({"plan": {k: (eur(v) if k.endswith("_cents") and v is not None else v) for k, v in p["plan"].items()}}
+           if "plan" in p else {}),
     }
 
 
@@ -863,10 +870,141 @@ propose_payment.__doc__ = f"{propose_payment.__doc__}\n\n{PATTERN_HELP}"
 propose_payment_change.__doc__ = f"{propose_payment_change.__doc__}\n\n{PATTERN_HELP}"
 
 
+# ---- expected income (coach-income-setup design D2) -------------------------------------
+
+IncomePattern = Literal["monthly", "some_months", "annual", "every_n", "once"]
+
+INCOME_HELP = """Sentence → pattern:
+- "cobro 2.100 el día 28" → monthly, day=28;
+- "14 pagas" → TWO incomes: the monthly one, and some_months for the extras
+  (usually months=[6,12]; ask if the user didn't say);
+- "en marzo cobro la renta" (once a year) → annual, month=3;
+- "cada 3 meses desde enero" → every_n=3, start_month="2027-01";
+- "en mayo de 2027, una vez" → once, once_month="2027-05".
+`payer` when the user names who pays. "unos", "aprox.", income that varies
+→ estimated=true. Money that already arrived is a transaction, not this."""
+
+
+def _income_body(name, amount, pattern, months, month, every_n, start_month, once_month, count, day,
+                 estimated, payer) -> dict:
+    body = {"name": " ".join(str(name).split()) or "Income", "amount_cents": parse_cents(amount),
+            "pattern": pattern, "months": months, "month": month, "every_n": every_n,
+            "start_month": start_month, "once_month": once_month, "count": count, "day": day,
+            "estimated": bool(estimated), "payer": (payer or "").strip() or None}
+    return {k: v for k, v in body.items() if v is not None}
+
+
+def _income(deps: CoachDeps, text: str):
+    """An expected income by its name, or by its payer when that's unique."""
+    from .income import user_schedules
+
+    schedules = user_schedules(deps.db, deps.user)
+    payers: dict[str, list] = {}
+    for s in schedules:
+        if s.payer:
+            payers.setdefault(s.payer, []).append(s)
+    options = [(s.name, s.id) for s in schedules] + [(p, ss[0].id) for p, ss in payers.items() if len(ss) == 1]
+    wanted = resolve(text, list(dict.fromkeys(options)), "income")
+    return next(s for s in schedules if s.id == wanted)
+
+
+@_tool
+def propose_income(
+    ctx: RunContext[CoachDeps],
+    name: str,
+    amount: float | str,
+    pattern: IncomePattern,
+    months: list[int] | None = None,
+    month: int | None = None,
+    every_n: int | None = None,
+    start_month: str | None = None,
+    once_month: str | None = None,
+    count: int | None = None,
+    day: int | None = None,
+    estimated: bool = False,
+    payer: str | None = None,
+) -> dict:
+    """Propose expected income (what the user expects to earn: a salary, a
+    pension, a side income) so the plan can tell whether the year is covered.
+    It never changes To be assigned: only money that arrives does. Months as
+    YYYY-MM, months of the year as 1–12. Nothing is saved until the user
+    confirms."""
+    deps = ctx.deps
+    body = _income_body(name, amount, pattern, months, month, every_n, start_month, once_month, count, day,
+                        estimated, payer)
+    return _store(deps, {"kind": "income", "month": deps.month, "body": body})
+
+
+@_tool
+def propose_income_change(
+    ctx: RunContext[CoachDeps],
+    income: str,
+    amount: float | str | None = None,
+    name: str | None = None,
+    pattern: IncomePattern | None = None,
+    months: list[int] | None = None,
+    month: int | None = None,
+    every_n: int | None = None,
+    start_month: str | None = None,
+    once_month: str | None = None,
+    count: int | None = None,
+    day: int | None = None,
+    estimated: bool | None = None,
+    payer: str | None = None,
+) -> dict:
+    """Propose changing an expected income ("mi sueldo sube a 2.200"):
+    `income` is its name, or its payer when unique. Pass only what changes."""
+    deps = ctx.deps
+    schedule = _income(deps, income)
+    changes = {"name": name, "amount_cents": parse_cents(amount) if amount is not None else None,
+               "pattern": pattern, "months": months, "month": month, "every_n": every_n,
+               "start_month": start_month, "once_month": once_month, "count": count, "day": day,
+               "estimated": estimated, "payer": payer}
+    changes = {k: v for k, v in changes.items() if v is not None}
+    if not changes:
+        raise ToolInputError("say what changes (amount, day, months…)")
+    return _store(deps, {"kind": "income_update", "month": deps.month, "schedule_id": schedule.id,
+                         "before": income_ops.fields_of(schedule), "changes": changes})
+
+
+@_tool
+def propose_income_removal(ctx: RunContext[CoachDeps], income: str) -> dict:
+    """Propose removing an expected income the user no longer has ("ya no
+    cobro la paga extra"): `income` is its name, or its payer when unique."""
+    deps = ctx.deps
+    schedule = _income(deps, income)
+    return _store(deps, {"kind": "income_delete", "month": deps.month, "schedule_id": schedule.id,
+                         "before": income_ops.fields_of(schedule)})
+
+
+@_tool
+def propose_income_link(ctx: RunContext[CoachDeps], transaction: str, income: str) -> dict:
+    """Propose linking income that arrived to what was expected ("ese
+    ingreso de 2.080 es la nómina"): `transaction` is the `ref` of an
+    unplanned item from get_income (or search_transactions); `income` the
+    expected income's name or payer. Later income from that payer then
+    matches by itself."""
+    deps = ctx.deps
+    txn_id = transaction.split(":", 1)[1] if transaction.startswith("transaction:") else transaction
+    try:
+        txn = income_ops.inflow_or_404(deps.db, deps.user, txn_id)
+    except income_ops.IncomeError as error:
+        raise ToolInputError("That isn't an unplanned income: use a `ref` from get_income's unplanned list.") from error
+    schedule = _income(deps, income)
+    return _store(deps, {"kind": "income_link", "month": txn.date.strftime("%Y-%m"), "transaction_id": txn.id,
+                         "schedule_id": schedule.id, "schedule_name": schedule.name,
+                         "amount_cents": txn.amount_cents})
+
+
+propose_income.__doc__ = f"{propose_income.__doc__}\n\n{INCOME_HELP}"
+propose_income_change.__doc__ = f"{propose_income_change.__doc__}\n\n{INCOME_HELP}"
+
+
 READ_TOOLS = [get_month, get_breakdown, get_category, get_future_payments, get_income, get_debts,
               search_transactions, find_categories]
 PROPOSE_TOOLS = [propose_transaction, propose_assignment, propose_budget, propose_moves, propose_category,
-                 propose_payment, propose_payment_change, propose_payment_removal]
+                 propose_payment, propose_payment_change, propose_payment_removal,
+                 propose_income, propose_income_change, propose_income_removal, propose_income_link]
 
 
 def tools() -> list[Tool]:

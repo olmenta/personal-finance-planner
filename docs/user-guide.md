@@ -183,9 +183,11 @@ Creating a category can be undone while nothing uses it yet.
 
 The preview shows the payment in words, the category's monthly amount before and after (and "to be on time" if you're behind), this month's amount, your money to be assigned, and when the next payment is due. Nothing is saved until you confirm. "El alquiler sube a 900" changes it and "ya no pago el gimnasio" removes it, each with a preview and Undo. If there's no category for it yet, you choose one first (see above). The payments of your debts are changed in **What you owe**, not in the chat.
 
-**Building your budget.** "Ayúdame a armar mi presupuesto": your coach goes through your fixed bills one at a time (housing, utilities, insurance, school, subscriptions) and sets them up as payments. Then it helps with the day-to-day amounts: "pon 300 en el súper, 80 en gasolina y 50 en ocio" arrives as one preview, and confirming sets them all at once (or none). Categories with payments fill themselves from their payments, so the coach leaves them out of the amounts.
+**Telling it what you earn.** "Cobro 2.100 € el día 28 de Acme", "cobro 1.800 en 14 pagas, con las extras en junio y diciembre" (that's two incomes: the monthly one and the extras), "me pagan unos 400 al mes de clases" (marked as estimated). The preview shows the income in words, what you expect this month and over the next 12 months, and whether your year is covered before and after ("short 1.234 € a year" → "covered"). Your money to be assigned doesn't change: income counts there only when it arrives. "Mi sueldo sube a 2.200" changes it, "ya no cobro la paga extra" removes it, each with Undo. If money arrived and Olmenta didn't recognize it, say what it is ("ese ingreso de 2.080 es la nómina") and the coach links it. And "me ha llegado la nómina, 2.100" records the money that arrived, not a new expected income.
 
-**Changing your budget.** "Cubre Restaurantes y Gasolina con lo que tengo sin asignar" or "pon 300 en el súper". Your coach can record transactions, create categories with your choice, set day-to-day amounts, and move money between categories (several moves at once when you ask to cover more than one thing). It can also set up, change and remove payments. It can't change your expected income or your debts: it tells you where to do it.
+**Building your budget.** "Ayúdame a armar mi presupuesto": if you haven't told Olmenta what you earn, your coach starts there, so it can tell whether your plan fits. Then it goes through your fixed bills one at a time (housing, utilities, insurance, school, subscriptions) and sets them up as payments. Then it helps with the day-to-day amounts: "pon 300 en el súper, 80 en gasolina y 50 en ocio" arrives as one preview, and confirming sets them all at once (or none). Categories with payments fill themselves from their payments, so the coach leaves them out of the amounts.
+
+**Changing your budget.** "Cubre Restaurantes y Gasolina con lo que tengo sin asignar" or "pon 300 en el súper". Your coach can record transactions, create categories with your choice, set day-to-day amounts, and move money between categories (several moves at once when you ask to cover more than one thing). It can also set up, change and remove payments and your expected income. It can't change your debts: it tells you where to do it.
 
 **Nothing changes until you confirm.** Every change arrives as a preview:
 
@@ -210,7 +212,7 @@ Olmenta needs to know what income you expect, so it can tell you whether your pl
 
 ### Telling Olmenta what you expect
 
-In **Settings → Income** (or **Edit income** in Future), add each fixed income once:
+In **Settings → Income** (or **Edit income** in Future), or by telling your coach on Home ("cobro 2.100 € el día 28 de Acme"), add each fixed income once:
 
 - a name ("Nómina", "Pensión", "Alquiler piso");
 - the net amount, what actually lands in your account;
@@ -232,7 +234,7 @@ Tap Ready to assign in the budget to see, for the month:
   - **didn't arrive**, for past months;
 - **unplanned income**: money that arrived but didn't match anything you expected.
 
-Olmenta matches incomes by who paid them, or by amount when there's no payer. If it didn't recognize one, use **This is…** on the unplanned income to say which expected income it was. It remembers the payer for the next months.
+Olmenta matches incomes by who paid them, or by amount when there's no payer. If it didn't recognize one, use **This is…** on the unplanned income to say which expected income it was, or tell your coach ("ese ingreso de 2.080 es la nómina"). It remembers the payer for the next months.
 
 When an income is late, your coach tells you, with **Add it** (if it arrived and you didn't record it) or **It's already here** (to link it).
 

@@ -144,6 +144,9 @@ ChatGPT can't start a program on your computer. OpenAI's **Secure MCP Tunnel** b
 | "El alquiler son 850 € al mes, el día 1" / "el seguro del coche, 600 en febrero" | `add_payment` |
 | "El alquiler sube a 900" / "ya no pago el gimnasio" | `update_payment` / `delete_payment` |
 | "¿Qué pagos tengo?" | `list_payments` |
+| "Cobro 2.100 € el día 28 de Acme" / "cobro en 14 pagas" | `add_income` |
+| "Mi sueldo sube a 2.200" / "ya no cobro la paga extra" | `update_income` / `delete_income` |
+| "¿Qué ingresos tengo previstos?" | `list_income` |
 
 ## The tools
 
@@ -166,6 +169,10 @@ ChatGPT can't start a program on your computer. OpenAI's **Secure MCP Tunnel** b
 | `add_payment` | Add a payment to a category (monthly, some months, once a year, every N months, once, or a no-date goal); it computes the category's monthly amount |
 | `update_payment` | Change a payment, only what changes; debt payments are refused (change them in What you owe) |
 | `delete_payment` | Remove a payment |
+| `list_income` | Your expected income in words, with the 12-month total |
+| `add_income` | Add expected income (14 pagas are a monthly income plus the extras in June and December); it plans the year and never changes To Be Assigned |
+| `update_income` | Change an expected income, only what changes |
+| `delete_income` | Remove an expected income |
 | `create_transfer` | Move money between your accounts (including paying a card) |
 | `apply_review` | Resolve uncategorized rows: category, payee, note, transfer, or link to the matching transfer |
 

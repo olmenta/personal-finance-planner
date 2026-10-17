@@ -55,6 +55,7 @@ def _message(status: int, detail: Any) -> str:
         "managed_by_debt": "That payment belongs to a debt: change it in the app, in Accounts → What you owe.",
         "card_plan_exists": "A card's payment category holds only its plan; change it in What you owe.",
         "schedule_not_found": "That payment doesn't exist — check list_payments.",
+        "income_schedule_not_found": "That expected income doesn't exist — check list_income.",
     }
     if code == "insufficient_available" and available is not None:
         return f"The source category only has {eur(available)} available."
@@ -136,6 +137,18 @@ class OlmentaClient:
 
     def delete_schedule(self, schedule_id: str) -> None:
         return self._request("DELETE", f"/schedules/{schedule_id}")
+
+    def income_schedules(self) -> list[dict]:
+        return self._request("GET", "/income-schedules")
+
+    def create_income(self, body: dict) -> dict:
+        return self._request("POST", "/income-schedules", json=body)
+
+    def update_income(self, schedule_id: str, body: dict) -> dict:
+        return self._request("PATCH", f"/income-schedules/{schedule_id}", json=body)
+
+    def delete_income(self, schedule_id: str) -> None:
+        return self._request("DELETE", f"/income-schedules/{schedule_id}")
 
     def create_transfer(self, body: dict) -> dict:
         return self._request("POST", "/transfers", json=body)

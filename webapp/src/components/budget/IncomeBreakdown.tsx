@@ -18,8 +18,7 @@ import {
 import { Badge } from "@/components/ui/Badge";
 import {
   fetchMonthIncome,
-  updateIncomeSchedule,
-  updateTransaction,
+  linkIncome,
   type BudgetMonthView,
   type IncomeOccurrence,
   type UnplannedIncome,
@@ -66,26 +65,13 @@ function StatusChip({ occ }: Readonly<{ occ: IncomeOccurrence }>) {
   }
 }
 
-/** "This is…": link an unplanned inflow to an expected occurrence through
-    payee equality (spec: income-schedules, linking). */
-async function linkIncome(item: UnplannedIncome, occ: IncomeOccurrence): Promise<void> {
-  if (occ.payee_id && occ.payer) {
-    await updateTransaction(item.transaction_id, { payee: occ.payer });
-  } else if (item.payee_id) {
-    await updateIncomeSchedule(occ.schedule_id, { payer: item.label });
-  } else {
-    await updateIncomeSchedule(occ.schedule_id, { payer: occ.name });
-    await updateTransaction(item.transaction_id, { payee: occ.name });
-  }
-}
-
 function UnplannedRow({
   item,
   candidates,
 }: Readonly<{ item: UnplannedIncome; candidates: IncomeOccurrence[] }>) {
   const queryClient = useQueryClient();
   const link = useMutation({
-    mutationFn: (occ: IncomeOccurrence) => linkIncome(item, occ),
+    mutationFn: (occ: IncomeOccurrence) => linkIncome(item.transaction_id, occ.schedule_id),
     onSettled: () => {
       invalidateMoneyQueries(queryClient);
       invalidateIncomeQueries(queryClient);
