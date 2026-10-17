@@ -42,6 +42,7 @@ def _message(status: int, detail: Any) -> str:
         "account_not_found": "That account doesn't exist — check list_accounts.",
         "account_exists": "An active account with that name already exists.",
         "category_exists": "A category with that name already exists in that group.",
+        "group_exists": "A group with that name already exists.",
         "group_not_found": "That category group doesn't exist — check list_categories.",
         "same_category": "Source and destination are the same category.",
         "same_account": "A transfer needs two different accounts.",
@@ -98,6 +99,9 @@ class OlmentaClient:
     def review(self) -> dict:
         return self._request("POST", "/transactions/review")
 
+    def similar(self, name: str, kind: str = "category") -> dict:
+        return self._request("GET", "/categories/similar", params={"name": name, "kind": kind})
+
     # ---- writes ------------------------------------------------------------
     def add_transaction(self, body: dict) -> dict:
         return self._request("POST", "/transactions", json=body)
@@ -112,6 +116,9 @@ class OlmentaClient:
 
     def create_category(self, body: dict) -> dict:
         return self._request("POST", "/categories", json=body)
+
+    def create_group(self, body: dict) -> dict:
+        return self._request("POST", "/categories/groups", json=body)
 
     def create_transfer(self, body: dict) -> dict:
         return self._request("POST", "/transfers", json=body)

@@ -163,9 +163,19 @@ Write the way you'd talk. Your coach reads your real numbers before answering an
 
 **Asking.** "¿Cuánto tendría que guardar para el seguro del coche?", "¿Cómo voy este mes?", "¿En qué me he gastado el dinero?". The answer comes with cards that show the exact figures from your budget. For a coming payment, the card shows what's saved of what you'll need, your current monthly plan next to what it takes to make it, and how many contributions are left. **Review adjustment** shows what the change would do; **Reviewing doesn't change your budget**.
 
-**Recording an expense.** "gasté 40 en Mercadona" becomes a ready-to-confirm transaction, in the category you used last time with that payee. If it's a new payee, the coach asks which category.
+**Recording an expense.** "gasté 40 en Mercadona" becomes a ready-to-confirm transaction, in the category you used last time with that payee. Say where the money came from and it goes there: "pagué 12 en efectivo en el bar" records it in your cash account ("con la tarjeta" uses your card). If you have two accounts of that kind, the coach asks which one.
 
-**Changing your budget.** "Cubre Restaurantes y Gasolina con lo que tengo sin asignar" or "pon 300 en el súper". Your coach can record transactions, set a day-to-day category's amount, and move money between categories (several moves at once when you ask to cover more than one thing). It can't change payments, income or debts: it tells you where to do it.
+**A new category, never a duplicate.** When nothing in your budget fits ("gasté 15 en el veterinario"), the coach first looks for categories you already have that are similar, by name ("Super" → Supermercado) or by meaning (a vet → Mascotas). You get a card:
+
+- **Use Mascotas**: nothing new is created, and the expense goes there;
+- **Create "Veterinario" in** a group: the coach suggests the group that fits best, and you can pick any other from the list, or **New group…** to name one;
+- either way, the expense then shows as a preview waiting for your **Confirm**.
+
+Creating a category can be undone while nothing uses it yet.
+
+**Building your budget.** "Ayúdame a armar mi presupuesto" or straight "pon 300 en el súper, 80 en gasolina y 50 en ocio": several amounts arrive as one preview, and confirming sets them all at once (or none). Categories with payments (rent, insurance) fill themselves from their payments, so the coach leaves them out.
+
+**Changing your budget.** "Cubre Restaurantes y Gasolina con lo que tengo sin asignar" or "pon 300 en el súper". Your coach can record transactions, create categories with your choice, set day-to-day amounts, and move money between categories (several moves at once when you ask to cover more than one thing). It can't change payments, income or debts: it tells you where to do it.
 
 **Nothing changes until you confirm.** Every change arrives as a preview:
 

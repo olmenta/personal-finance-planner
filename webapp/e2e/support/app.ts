@@ -36,6 +36,13 @@ export class Api {
     return Object.fromEntries(groups.flatMap((g) => g.categories.map((c) => [c.name, c.id])));
   }
 
+  async groupId(name: string): Promise<string> {
+    const groups: { id: string; name: string }[] = await this.send("GET", "/categories");
+    const group = groups.find((g) => g.name === name);
+    if (!group) throw new Error(`no group named ${name}`);
+    return group.id;
+  }
+
   async firstGroupId(): Promise<string> {
     const groups: { id: string }[] = await this.send("GET", "/categories");
     return groups[0].id;

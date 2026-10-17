@@ -3,9 +3,7 @@
 ## Purpose
 
 What the user owes and the plan to pay it off: card, installment loan and personal debts linked to the categories that pay them, what's owed per kind, the optional rate and card minimum, the debts API, the paydown order (highest known interest first) with the optional extra and its rollover, the debt-free simulation, the emergency cushion suggestion, converting a loan set up as a card, the "What you owe" screen with its always-visible "Work on my debts" button, the plan editor, and the late debt payment nudge.
-
 ## Requirements
-
 ### Requirement: Debt kinds and what is owed
 
 A debt SHALL be a record linked one-to-one to a category, with a `kind`.
@@ -147,7 +145,7 @@ Converting a credit account into a loan (see accounts-api) SHALL create a `loan`
 
 ### Requirement: What you owe screen
 
-The webapp SHALL provide a "What you owe" screen at `/debts` (sidebar entry; reachable from the dashboard on mobile). It SHALL show:
+The webapp SHALL provide a "What you owe" screen at `/debts`, reached from a "What you owe" card on Accounts (total owed and debt-free month), with Accounts highlighted in the navigation while it is open. It SHALL show:
 
 - the total owed, and the debt-free month ("Debt-free in June 2028 if you keep this plan") or a plain explanation when there is none;
 - the debts in order, each with its name, amount owed, its required payment and end, and its rate in plain words ("1,5 % a month", "no interest", "rate unknown");
@@ -190,3 +188,4 @@ A plan below the minimum SHALL show why it matters before saving.
 
 - **WHEN** the user skips the minimum question
 - **THEN** the debt saves without it
+

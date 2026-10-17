@@ -118,11 +118,15 @@ def messages_out(db: Session, user: User, messages: list[CoachMessage]) -> list[
 # ---- the run -------------------------------------------------------------------------
 
 
-def _context(home) -> str:
+LANGUAGES = {"es": "Spanish", "en": "English"}
+
+
+def _context(home, locale: str | None = None) -> str:
     s = home.summary
     lines = [
         f"Snapshot of the user's month {home.month} (computed by Olmenta; for orientation only — "
         "read tools before quoting numbers):",
+        f"- the user's app language: {LANGUAGES.get(locale or 'es', 'Spanish')}",
         f"- status: {home.status}" + (f" ({', '.join(r.code for r in home.reasons)})" if home.reasons else ""),
         f"- money in accounts {eur(s.accounts_cents)} = reserved for this month's payments "
         f"{eur(s.covered_cents)} + left to spend {eur(s.left_to_spend_cents)} + saved for the future "
@@ -235,7 +239,7 @@ def send(db: Session, user: User, text: str, client_message_id: str) -> tuple[Co
     home = build_home(db, user)
     user_message.snapshot_version = home.snapshot_version
     prompt = load_prompt()
-    context = _context(home)
+    context = _context(home, user.locale)
     messages = [
         {"role": "system", "content": prompt.body.replace("{today}", clock.today_madrid().isoformat())},
         {"role": "system", "content": context},
@@ -250,8 +254,8 @@ def send(db: Session, user: User, text: str, client_message_id: str) -> tuple[Co
     attached = {(w["data"] or {}).get("action_id") for w in widgets}
     for action in deps.actions:
         if action.id not in attached:
-            widgets.append(coach_widgets.envelope("action_preview", {"action_id": action.id},
-                                                  home.snapshot_version))
+            kind = "category_choice" if action.kind == "category" else "action_preview"
+            widgets.append(coach_widgets.envelope(kind, {"action_id": action.id}, home.snapshot_version))
     unsourced = _unsourced_amounts(output.text, [context, *deps.tool_outputs])
     if unsourced:
         logger.info("coach reply quoted %d amount(s) not returned by tools", unsourced)

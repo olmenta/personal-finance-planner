@@ -1003,8 +1003,9 @@ class HomeView(BaseModel):
 
 class CoachActionOut(BaseModel):
     id: str
-    kind: Literal["transaction", "assignment", "moves"]
-    status: Literal["proposed", "applied", "stale", "cancelled", "undone"]
+    kind: Literal["transaction", "assignment", "assignments", "moves", "category"]
+    # resolved: a category choice answered with an existing category
+    status: Literal["proposed", "applied", "stale", "cancelled", "undone", "resolved"]
     title: str
     command: dict  # the typed command (ids), for Edit
     preview: dict
@@ -1050,12 +1051,18 @@ class CoachMoveIn(BaseModel):
     amount_cents: int = Field(gt=0)
 
 
+class CoachBudgetItemIn(BaseModel):
+    category_id: str
+    amount_cents: int = Field(ge=0)
+
+
 class CoachActionIn(BaseModel):
     """A command reviewed from a widget (Review adjustment) or edited in a
     preview (Edit): stored as a new proposed action, never applied."""
 
-    kind: Literal["transaction", "assignment", "moves"]
+    kind: Literal["transaction", "assignment", "assignments", "moves"]
     moves: list[CoachMoveIn] | None = None
+    items: list[CoachBudgetItemIn] | None = None
     category_id: str | None = None
     amount_cents: int | None = Field(default=None, gt=0)
     direction: Literal["expense", "income"] = "expense"
@@ -1069,8 +1076,43 @@ class CoachActionIn(BaseModel):
 class CoachCommitIn(BaseModel):
     revision: str
     idempotency_key: str = Field(min_length=8, max_length=64)
+    # Category actions only: the group picked in the choice, or a new one.
+    group_id: str | None = None
+    new_group_name: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 class CoachCommitOut(BaseModel):
     action: CoachActionOut
     message: CoachMessageOut | None  # the action_result message in the conversation
+    follow_up: CoachActionOut | None = None  # what a created category was for
+
+
+class CoachResolveIn(BaseModel):
+    category_id: str
+
+
+class CoachResolveOut(BaseModel):
+    action: CoachActionOut
+    follow_up: CoachActionOut | None
+
+
+# ---- Similar categories (spec: category-matching) ----------------------------
+
+
+class SimilarMatch(BaseModel):
+    id: str
+    name: str
+    reason: Literal["same_name", "contains", "shared_word", "close_spelling"]
+    group_id: str | None = None  # categories only
+    group_name: str | None = None
+
+
+class SimilarGroup(BaseModel):
+    id: str
+    name: str
+
+
+class SimilarView(BaseModel):
+    matches: list[SimilarMatch]  # strongest first, at most 5
+    suggested_group: SimilarGroup | None = None  # categories only
+

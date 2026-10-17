@@ -10,8 +10,10 @@ archive): category CRUD may not archive, re-parent or delete them, nor put
 other categories into the system group (409 `payment_category_locked`).
 """
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -24,7 +26,12 @@ from ..schemas import (
     CategoryUpdate,
     GroupCreate,
     GroupUpdate,
+    SimilarGroup,
+    SimilarMatch,
+    SimilarView,
 )
+from ..services import categories as categories_service
+from ..services import category_matching as matching
 
 router = APIRouter(prefix="/categories", tags=["categories"])
 
@@ -47,44 +54,56 @@ def list_categories(
     )
 
 
+def _http(error: categories_service.CategoryError) -> HTTPException:
+    return HTTPException(status_code=error.status, detail={"code": error.code})
+
+
 def get_group_or_404(db: Session, user_id: str, group_id: str) -> CategoryGroup:
-    group = db.scalar(
-        select(CategoryGroup).where(
-            CategoryGroup.id == group_id, CategoryGroup.user_id == user_id
-        )
-    )
-    if group is None:
-        raise HTTPException(status_code=404, detail={"code": "group_not_found"})
-    return group
+    try:
+        return categories_service.get_group(db, user_id, group_id)
+    except categories_service.CategoryError as error:
+        raise _http(error) from error
 
 
 def ensure_name_free_in_group(
     db: Session, user_id: str, group_id: str, name: str, exclude_id: str | None = None
 ) -> None:
-    """Per-group unique names, case-insensitive (design D3). Different groups
-    may share a name ("Seguro" under Coche and Casa)."""
-    query = select(Category).where(
-        Category.user_id == user_id,
-        Category.group_id == group_id,
-        func.lower(Category.name) == name.lower(),
-    )
-    if exclude_id:
-        query = query.where(Category.id != exclude_id)
-    if db.scalar(query) is not None:
-        raise HTTPException(status_code=409, detail={"code": "category_exists"})
+    try:
+        categories_service.ensure_name_free_in_group(db, user_id, group_id, name, exclude_id)
+    except categories_service.CategoryError as error:
+        raise _http(error) from error
 
 
 def ensure_group_name_free(
     db: Session, user_id: str, name: str, exclude_id: str | None = None
 ) -> None:
-    query = select(CategoryGroup).where(
-        CategoryGroup.user_id == user_id,
-        func.lower(CategoryGroup.name) == name.lower(),
+    try:
+        categories_service.ensure_group_name_free(db, user_id, name, exclude_id)
+    except categories_service.CategoryError as error:
+        raise _http(error) from error
+
+
+@router.get("/similar", response_model=SimilarView)
+def similar(
+    name: str = Query(max_length=120),
+    kind: Literal["category", "group"] = "category",
+    db: Session = Depends(get_db),
+    user: User = Depends(current_user),
+) -> SimilarView:
+    """Categories (or groups) that look like `name` (spec: category-matching):
+    what to offer before creating a new one."""
+    if not name.strip():
+        raise HTTPException(status_code=422, detail={"code": "name_required"})
+    if kind == "group":
+        matches = matching.similar_groups(db, user, name)
+        return SimilarView(matches=[SimilarMatch(id=m.id, name=m.name, reason=m.reason) for m in matches])
+    matches = matching.similar_categories(db, user, name)
+    group = matching.suggest_group(db, user, name, matches)
+    return SimilarView(
+        matches=[SimilarMatch(id=m.id, name=m.name, reason=m.reason, group_id=m.group_id, group_name=m.group_name)
+                 for m in matches],
+        suggested_group=SimilarGroup(id=group.id, name=group.name) if group else None,
     )
-    if exclude_id:
-        query = query.where(CategoryGroup.id != exclude_id)
-    if db.scalar(query) is not None:
-        raise HTTPException(status_code=409, detail={"code": "group_exists"})
 
 
 @router.post("", response_model=CategoryOut, status_code=201)
@@ -93,19 +112,12 @@ def create_category(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> Category:
-    group = get_group_or_404(db, user.id, payload.group_id)
-    if group.system:
-        raise locked()
-    name = payload.name.strip()
-    ensure_name_free_in_group(db, user.id, group.id, name)
-
-    category = Category(
-        user_id=user.id, group_id=group.id, name=name, icon=payload.icon,
-        kind="savings" if payload.savings else "flexible",
-    )
-    db.add(category)
-    db.flush()
-    return category
+    try:
+        return categories_service.create_category(
+            db, user.id, payload.group_id, payload.name, payload.icon, payload.savings
+        )
+    except categories_service.CategoryError as error:
+        raise _http(error) from error
 
 
 @router.patch("/{category_id}", response_model=CategoryOut)
@@ -157,15 +169,10 @@ def create_group(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> CategoryGroup:
-    name = payload.name.strip()
-    ensure_group_name_free(db, user.id, name)
-    max_order = db.scalar(
-        select(func.max(CategoryGroup.sort_order)).where(CategoryGroup.user_id == user.id)
-    )
-    group = CategoryGroup(user_id=user.id, name=name, sort_order=(max_order or 0) + 1)
-    db.add(group)
-    db.flush()
-    return group
+    try:
+        return categories_service.create_group(db, user.id, payload.name)
+    except categories_service.CategoryError as error:
+        raise _http(error) from error
 
 
 @router.patch("/groups/{group_id}", response_model=CategoryGroupOut)

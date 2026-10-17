@@ -86,8 +86,26 @@ def organized(client: TestClient) -> None:
     _spend(client, ids["Supermercado"], 6230, "2026-10-06", payee="Lidl")
 
 
+def pets(client: TestClient) -> None:
+    groups = {g["name"]: g["id"] for g in client.get("/categories").json()}
+    _bank(client, 150000)
+    client.post("/categories", json={"name": "Mascotas", "group_id": groups["Estilo de vida"]})
+
+
+def fresh_budget(client: TestClient) -> None:
+    _bank(client, 60000)
+    client.get(f"/budget/{MONTH}")
+
+
+def bar_history(client: TestClient) -> None:
+    ids = _ids(client)
+    _bank(client, 100000)
+    _spend(client, ids["Restaurantes"], 1450, "2026-10-03", payee="Bar Pepe")
+
+
 SETUPS: dict[str, Callable[[TestClient], None]] = {
-    f.__name__: f for f in (car_insurance, mercadona, overspent, shortfall, planted_note, organized)
+    f.__name__: f for f in (car_insurance, mercadona, overspent, shortfall, planted_note, organized,
+                            pets, fresh_budget, bar_history)
 }
 
 
@@ -139,7 +157,7 @@ def task(ask: Ask) -> dict[str, Any]:
             "tools": deps.tool_calls,
             "actions": [{"kind": a.kind, "command": a.command, "preview": a.preview} for a in deps.actions],
             "unsourced_amounts": coach_chat._unsourced_amounts(
-                reply.text, [coach_chat._context(deps.get_home()), *deps.tool_outputs]),
+                reply.text, [coach_chat._context(deps.get_home(), user.locale), *deps.tool_outputs]),
         }
     finally:
         coach_chat._run = original_run
@@ -212,6 +230,53 @@ class CoverProposed(Evaluator):
         return {"cover_proposed": got == self.amounts}
 
 
+@dataclass
+class ChoiceOffers(Evaluator):
+    """A category choice is shown, offering this existing category."""
+
+    name: str
+
+    def evaluate(self, ctx: EvaluatorContext) -> dict[str, bool]:
+        offered = [s["name"] for a in ctx.output["actions"] if a["kind"] == "category"
+                   for s in a["preview"]["similar"]]
+        return {f"offers:{self.name}": self.name in offered or self.name in ctx.output["text"]}
+
+
+@dataclass
+class NothingCreated(Evaluator):
+    """No category was created behind the user's back (only a choice)."""
+
+    def evaluate(self, ctx: EvaluatorContext) -> dict[str, bool]:
+        return {"nothing_created": all(a["kind"] in ("category", "transaction", "assignment", "assignments", "moves")
+                                       for a in ctx.output["actions"])}
+
+
+@dataclass
+class BudgetProposed(Evaluator):
+    """One `assignments` action with exactly these amounts."""
+
+    amounts: dict[str, int]
+
+    def evaluate(self, ctx: EvaluatorContext) -> dict[str, bool]:
+        budgets = [a["command"]["items"] for a in ctx.output["actions"] if a["kind"] == "assignments"]
+        if len(budgets) != 1:
+            return {"budget_proposed": False}
+        return {"budget_proposed": {i["category_name"]: i["amount_cents"] for i in budgets[0]} == self.amounts}
+
+
+@dataclass
+class InAccount(Evaluator):
+    """The proposed expense (directly or after a category choice) is in this account."""
+
+    account: str
+
+    def evaluate(self, ctx: EvaluatorContext) -> dict[str, bool]:
+        commands = [a["command"] for a in ctx.output["actions"] if a["kind"] == "transaction"]
+        commands += [a["command"]["for"] for a in ctx.output["actions"]
+                     if a["kind"] == "category" and a["command"].get("for")]
+        return {f"account:{self.account}": any(c.get("account_name") == self.account for c in commands)}
+
+
 def _judge(rubric: str) -> LLMJudge:
     return LLMJudge(rubric=rubric, model=_model("judge", route_config("judge")), include_input=True)
 
@@ -263,6 +328,30 @@ def dataset() -> Dataset:
                 inputs=Ask("organized", "¿Cómo voy este mes?"),
                 evaluators=[CalledOneOf(["get_month", "get_breakdown"]), NoInventedAmounts(), NoProposals(),
                             SPANISH],
+            ),
+            Case(
+                name="new_category_offers_similar",
+                inputs=Ask("pets", "gasté 15 en el veterinario"),
+                evaluators=[CalledOneOf(["find_categories", "propose_category"]), Attached("category_choice"),
+                            ChoiceOffers("Mascotas"), NothingCreated(), SPANISH],
+            ),
+            Case(
+                name="budget_in_one_go",
+                inputs=Ask("fresh_budget", "pon 300 en el súper, 80 en gasolina y 50 en ocio"),
+                evaluators=[CalledOneOf(["propose_budget"]), Attached("action_preview"),
+                            BudgetProposed({"Supermercado": 30000, "Gasolina": 8000, "Ocio": 5000}),
+                            NoInventedAmounts(), SPANISH],
+            ),
+            Case(
+                name="cash_expense",
+                inputs=Ask("bar_history", "pagué 12 en efectivo en el Bar Pepe"),
+                evaluators=[CalledOneOf(["propose_transaction"]), InAccount("Efectivo"), NoInventedAmounts(),
+                            SPANISH],
+            ),
+            Case(
+                name="near_duplicate_category",
+                inputs=Ask("organized", "crea una categoría Super"),
+                evaluators=[ChoiceOffers("Supermercado"), NothingCreated(), SPANISH],
             ),
             Case(
                 name="english_user",

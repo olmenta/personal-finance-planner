@@ -22,7 +22,7 @@ SCHEMA_VERSION = 1
 
 WidgetType = Literal[
     "month_summary", "breakdown", "future_payment", "action_preview", "action_result",
-    "coach_proposal", "transaction",
+    "coach_proposal", "transaction", "category_choice",
 ]
 
 # ref prefix -> the widget type it builds
@@ -31,9 +31,14 @@ REF_TYPES = {
     "breakdown": "breakdown",
     "future_payment": "future_payment",
     "action": "action_preview",
+    "choice": "category_choice",
     "proposal": "coach_proposal",
     "transaction": "transaction",
 }
+
+
+# Widgets that show an action: their live state is merged in on read.
+ACTION_WIDGETS = ("action_preview", "action_result", "category_choice")
 
 
 class WidgetRef(BaseModel):
@@ -79,7 +84,7 @@ def _data(deps: CoachDeps, kind: str, subject: str) -> dict | None:
             return {"summary": deps.get_home().summary.model_dump()}
         case "future_payment":
             return future_payment_by_id(db, user, deps.view(), subject)
-        case "action_preview":
+        case "action_preview" | "category_choice":
             if any(a.id == subject for a in deps.actions):
                 return {"action_id": subject}
             return None
@@ -114,7 +119,7 @@ def with_live_actions(db: Session, user: User, messages: list[CoachMessage]) -> 
     ids = {
         (w.get("data") or {}).get("action_id")
         for m in messages for w in (m.widgets or [])
-        if w.get("type") in ("action_preview", "action_result")
+        if w.get("type") in ACTION_WIDGETS
     }
     ids.discard(None)
     actions = {
@@ -127,7 +132,7 @@ def with_live_actions(db: Session, user: User, messages: list[CoachMessage]) -> 
         widgets = []
         for w in m.widgets or []:
             action_id = (w.get("data") or {}).get("action_id")
-            if w.get("type") in ("action_preview", "action_result"):
+            if w.get("type") in ACTION_WIDGETS:
                 if action_id not in actions:
                     continue
                 w = {**w, "data": {**w["data"], "action": actions[action_id]}}

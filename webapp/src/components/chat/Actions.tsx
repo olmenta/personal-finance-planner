@@ -96,9 +96,13 @@ function PreviewBody({ action }: Readonly<{ action: CoachAction }>) {
           </b>
         </div>
       )}
-      {p.categories.map((c) => (
-        <Change key={c.category_id} label={`${c.name}: available`} before={c.available_before_cents} after={c.available_after_cents} />
-      ))}
+      {p.categories.map((c) =>
+        action.kind === "assignments" ? (
+          <Change key={c.category_id} label={`${c.name}: assigned`} before={c.assigned_before_cents} after={c.assigned_after_cents} />
+        ) : (
+          <Change key={c.category_id} label={`${c.name}: available`} before={c.available_before_cents} after={c.available_after_cents} />
+        ),
+      )}
       {p.to_be_assigned_before_cents !== p.to_be_assigned_after_cents && (
         <Change label="To be assigned" before={p.to_be_assigned_before_cents} after={p.to_be_assigned_after_cents} />
       )}
@@ -128,11 +132,20 @@ const STATUS_TEXT: Record<CoachAction["status"], string> = {
   stale: "Needs updating",
   cancelled: "Cancelled",
   undone: "Undone",
+  resolved: "Done",
 };
 
 /** Amount fields for Edit: one per move, or the one amount. */
 function editableAmounts(action: CoachAction): number[] {
-  return action.command.moves ? action.command.moves.map((m) => m.amount_cents) : [action.command.amount_cents ?? 0];
+  const c = action.command;
+  if (c.moves) return c.moves.map((m) => m.amount_cents);
+  if (c.items) return c.items.map((i) => i.amount_cents);
+  return [c.amount_cents ?? 0];
+}
+
+/** The label of each amount field in Edit. */
+function amountLabel(action: CoachAction, i: number): string {
+  return action.command.moves?.[i]?.to_name ?? action.command.items?.[i]?.category_name ?? "Amount";
 }
 
 function edited(action: CoachAction, amounts: number[]): CoachActionIn {
@@ -146,6 +159,13 @@ function edited(action: CoachAction, amounts: number[]): CoachActionIn {
         to_category_id: m.to_category_id,
         amount_cents: amounts[i],
       })),
+    };
+  }
+  if (action.kind === "assignments") {
+    return {
+      kind: "assignments",
+      replaces: action.id,
+      items: (c.items ?? []).map((item, i) => ({ category_id: item.category_id, amount_cents: amounts[i] })),
     };
   }
   if (action.kind === "assignment") {
@@ -240,7 +260,7 @@ export function ActionPreview({ action: shown }: Readonly<{ action: CoachAction 
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {editing.map((value, i) => (
             <label key={i} style={{ ...row, alignItems: "center" }}>
-              <span>{action.command.moves?.[i]?.to_name ?? "Amount"}</span>
+              <span>{amountLabel(action, i)}</span>
               <input
                 aria-label={`Amount ${i + 1}`}
                 inputMode="decimal"
@@ -264,7 +284,8 @@ export function ActionPreview({ action: shown }: Readonly<{ action: CoachAction 
                 disabled={save.isPending}
                 onClick={() => {
                   const cents = editing.map((v) => parseEuroToCents(v));
-                  if (cents.some((c) => c === null || c <= 0)) {
+                  const zeroOk = action.kind === "assignments"; // clearing a category is a valid budget
+                  if (cents.some((c) => c === null || c < 0 || (c === 0 && !zeroOk))) {
                     setError("Enter amounts greater than zero.");
                     return;
                   }
