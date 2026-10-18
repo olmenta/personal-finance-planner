@@ -25,7 +25,7 @@ The repository SHALL provide an MCP server, runnable with `uv run python -m mcp_
 
 ### Requirement: Curated tool set
 
-The server SHALL expose exactly these tools: reads `get_budget`, `get_month_overview`, `list_transactions`, `list_categories`, `list_accounts`, `review_uncategorized`, `find_categories`, `list_payments`, `list_income`; writes `add_transaction`, `assign`, `set_budget`, `move_money`, `create_category`, `create_group`, `add_payment`, `update_payment`, `delete_payment`, `add_income`, `update_income`, `delete_income`, `create_transfer`, `apply_review`. Each tool SHALL carry a description stating when to use it, its units and defaults, and what it must not do. Write tools SHALL perform exactly the API write they describe and nothing else.
+The server SHALL expose exactly these tools: reads `get_budget`, `get_month_overview`, `list_transactions`, `list_categories`, `list_accounts`, `review_uncategorized`, `find_categories`, `list_payments`, `list_income`, `list_debts`; writes `add_transaction`, `assign`, `set_budget`, `move_money`, `create_category`, `create_group`, `add_payment`, `update_payment`, `delete_payment`, `add_income`, `update_income`, `delete_income`, `add_debt`, `update_debt`, `delete_debt`, `set_debt_extra`, `create_transfer`, `apply_review`. Each tool SHALL carry a description stating when to use it, its units and defaults, and what it must not do. Write tools SHALL perform exactly the API write they describe and nothing else.
 
 #### Scenario: Expense added from a sentence
 
@@ -66,6 +66,11 @@ The server SHALL expose exactly these tools: reads `get_budget`, `get_month_over
 
 - **WHEN** the host calls `add_income` with `name = "Nómina"`, `amount = 2100`, `pattern = "monthly"`, `day = 28`, `payer = "Acme"`
 - **THEN** the income schedule is saved, nothing changes in the budget, and the result states the income in words and the year's expected total
+
+#### Scenario: A loan added from a sentence
+
+- **WHEN** the host calls `add_debt` with `kind = "loan"`, `name = "Ikea"`, `installment = 45`, `installments_left = 10`, `next_month = "2026-11"`
+- **THEN** the loan is saved in the "Deudas" group, and the result states its end month and the new debt-free month
 
 ### Requirement: LLM-friendly arguments and results
 
