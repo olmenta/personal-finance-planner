@@ -52,6 +52,8 @@ PAYMENT = re.compile(r"^el\s+(.+?)\s+son\s+(\d+(?:[.,]\d{1,2})?)\s*(?:€|euros?
 RAISE = re.compile(r"^el\s+(.+?)\s+sube\s+a\s+(\d+(?:[.,]\d{1,2})?)", re.IGNORECASE)
 INCOME = re.compile(r"^cobro\s+(\d+(?:[.,]\d{1,2})?)(?:\s*(?:€|euros?))?(?:\s+al\s+mes)?(?:,?\s+el\s+d[ií]a\s+(\d+))?", re.IGNORECASE)
 SALARY_RAISE = re.compile(r"^mi\s+sueldo\s+sube\s+a\s+(\d+(?:[.,]\d{1,2})?)", re.IGNORECASE)
+CARD_DEBT = re.compile(r"^la\s+(.+?)\s+debe\s+(\d+(?:[.,]\d{1,2})?)(?:\s*(?:€|euros?))?\s+y\s+puedo\s+pagar\s+(\d+(?:[.,]\d{1,2})?)", re.IGNORECASE)
+WHAT_IF = re.compile(r"y\s+si\s+pongo\s+(\d+(?:[.,]\d{1,2})?)(?:\s*(?:€|euros?))?\s+m[aá]s", re.IGNORECASE)
 # Meaning-based matches a real model would add (e2e only).
 MEANING = {"veterinario": ["Mascotas"]}
 
@@ -95,6 +97,21 @@ def _e2e(messages: list, info: AgentInfo) -> ModelResponse:
             })
         if tool == "propose_category" and last.get("existing"):
             return call("propose_transaction", {"amount": amount, "payee": payee, "category": last["existing"], **account})
+        return refused(last)
+
+    if match := CARD_DEBT.search(prompt.strip()):
+        if not returns:
+            return call("propose_debt", {"kind": "card", "account": match.group(1), "plan_monthly": match.group(3)})
+        if "ref" in last:
+            return reply("Así quedaría tu deuda. Confírmala si es correcta.", [("action_preview", last["ref"])])
+        return refused(last)
+
+    if match := WHAT_IF.search(folded):
+        if not returns:
+            return call("propose_debt_extra", {"amount": match.group(1)})
+        if "ref" in last:
+            return reply("Esto pasaría con tus deudas. No cambia nada hasta que lo confirmes.",
+                         [("action_preview", last["ref"])])
         return refused(last)
 
     if match := INCOME.search(prompt.strip()):
