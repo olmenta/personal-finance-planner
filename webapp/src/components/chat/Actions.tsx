@@ -57,7 +57,7 @@ function useActionState(shown: CoachAction) {
   return [action, setAction] as const;
 }
 
-const row: React.CSSProperties = {
+const rowStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
@@ -68,7 +68,7 @@ const row: React.CSSProperties = {
 
 function Change({ label, before, after }: Readonly<{ label: string; before: number; after: number }>) {
   return (
-    <div style={row}>
+    <div style={rowStyle}>
       <span>{label}</span>
       <span style={{ whiteSpace: "nowrap" }}>
         {euroCents(before)} <Icon name="arrow-right" size={13} style={{ verticalAlign: -2 }} />{" "}
@@ -93,7 +93,7 @@ function PaymentBody({ action }: Readonly<{ action: CoachAction }>) {
           </span>
         )}
         {pay.sentence_after}
-        {pay.estimated && <span style={{ ...row, display: "inline", color: "var(--text-muted)", fontWeight: 500 }}> · Estimated</span>}
+        {pay.estimated && <span style={{ ...rowStyle, display: "inline", color: "var(--text-muted)", fontWeight: 500 }}> · Estimated</span>}
       </div>
       <Change label="Monthly amount" before={a.normal_before_cents} after={a.normal_after_cents} />
       {(a.catch_up_before_cents !== a.normal_before_cents || a.catch_up_after_cents !== a.normal_after_cents) && (
@@ -104,7 +104,7 @@ function PaymentBody({ action }: Readonly<{ action: CoachAction }>) {
         <Change label="To be assigned" before={p.to_be_assigned_before_cents} after={p.to_be_assigned_after_cents} />
       )}
       {pay.next_due_month && (
-        <div style={{ ...row, color: "var(--text-muted)" }}>
+        <div style={{ ...rowStyle, color: "var(--text-muted)" }}>
           <span>Next payment</span>
           <span>{monthLabel(pay.next_due_month)}</span>
         </div>
@@ -137,7 +137,7 @@ function IncomeBody({ action }: Readonly<{ action: CoachAction }>) {
     <div data-testid="income-preview" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {link ? (
         <>
-          <div style={row}>
+          <div style={rowStyle}>
             <span>{link.occurrence_after?.name ?? "Expected income"}</span>
             <span>
               {STATUS_WORDS[link.occurrence_before?.status ?? ""] ?? "expected"}{" "}
@@ -146,7 +146,7 @@ function IncomeBody({ action }: Readonly<{ action: CoachAction }>) {
             </span>
           </div>
           {!link.unplanned_after && (
-            <div style={{ ...row, color: "var(--text-muted)" }}>
+            <div style={{ ...rowStyle, color: "var(--text-muted)" }}>
               <span>{euroCents(link.amount_cents)} is no longer unplanned</span>
             </div>
           )}
@@ -165,7 +165,7 @@ function IncomeBody({ action }: Readonly<{ action: CoachAction }>) {
           </div>
           <Change label="Expected this month" before={plan.month_expected_before_cents} after={plan.month_expected_after_cents} />
           <Change label="Expected over 12 months" before={plan.year_expected_before_cents} after={plan.year_expected_after_cents} />
-          <div style={row} data-testid="income-coverage">
+          <div style={rowStyle} data-testid="income-coverage">
             <span>Your year</span>
             <span>
               {coverage(plan.income_known_before, plan.gap_before_cents)}{" "}
@@ -175,9 +175,77 @@ function IncomeBody({ action }: Readonly<{ action: CoachAction }>) {
           </div>
         </>
       )}
-      <div style={{ ...row, color: "var(--text-muted)" }}>
+      <div style={{ ...rowStyle, color: "var(--text-muted)" }}>
         <span>To be assigned changes only when the money arrives</span>
       </div>
+    </div>
+  );
+}
+
+const freeText = (month: string | null) => (month ? monthLabel(month) : "not within 10 years");
+
+function DebtBody({ action }: Readonly<{ action: CoachAction }>) {
+  const p = action.preview;
+  const d = p.debt!;
+  const row = d.after ?? d.before;
+  const c = p.categories[0];
+  return (
+    <div data-testid="debt-preview" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {action.kind === "debt_extra" ? (
+        <Change label="Extra a month" before={d.extra_before_cents} after={d.extra_after_cents} />
+      ) : (
+        <div style={{ font: "600 14px/1.45 var(--font-sans)", color: "var(--text-strong)" }}>
+          {d.before && (
+            <span style={{ color: "var(--text-muted)", textDecoration: d.after ? "none" : "line-through" }}>
+              {d.before.text}
+              {d.after && " → "}
+            </span>
+          )}
+          {d.after?.text}
+        </div>
+      )}
+      {row?.position && d.after && (
+        <div style={rowStyle}>
+          <span>Order</span>
+          <span>{row.position === 1 ? "Paid first" : `Number ${row.position}`}</span>
+        </div>
+      )}
+      <div style={rowStyle} data-testid="debt-free">
+        <span>Debt-free</span>
+        <span>
+          {d.total_owed_before_cents === 0 ? "no debts" : freeText(d.debt_free_before)}{" "}
+          <Icon name="arrow-right" size={13} style={{ verticalAlign: -2 }} />{" "}
+          <b style={{ color: "var(--text-strong)" }}>
+            {d.total_owed_after_cents === 0 ? "debt-free" : freeText(d.debt_free_after)}
+          </b>
+        </span>
+      </div>
+      {action.kind === "debt_extra" && d.extra_target && d.extra_after_cents > 0 && (
+        <div style={{ ...rowStyle, color: "var(--text-muted)" }}>
+          <span>It goes first to {d.extra_target}</span>
+        </div>
+      )}
+      {c && c.assigned_before_cents !== c.assigned_after_cents && (
+        <Change label={`${c.name} this month`} before={c.assigned_before_cents} after={c.assigned_after_cents} />
+      )}
+      {p.to_be_assigned_before_cents !== p.to_be_assigned_after_cents && (
+        <Change label="To be assigned" before={p.to_be_assigned_before_cents} after={p.to_be_assigned_after_cents} />
+      )}
+      {d.after?.below_minimum && (
+        <div style={{ font: "500 13px var(--font-sans)", color: "#8A5300" }}>
+          Below the minimum the bank allows: that usually means a fee and more interest.
+        </div>
+      )}
+      {d.cushion_note && (
+        <div role="note" data-testid="cushion-note" style={{ font: "500 13px/1.45 var(--font-sans)", color: "var(--text-body)", background: "var(--mint-50)", borderRadius: "var(--r-md)", padding: "8px 10px" }}>
+          Consider a small cushion first (about {euroCents(d.cushion_suggested_cents)}), so the next surprise doesn&apos;t end up on the card.
+        </div>
+      )}
+      {action.kind === "debt_convert" && (
+        <div style={{ ...rowStyle, color: "var(--text-muted)" }}>
+          <span>The card account is archived and its money moves to the loan. This can&apos;t be undone here.</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -185,12 +253,13 @@ function IncomeBody({ action }: Readonly<{ action: CoachAction }>) {
 function PreviewBody({ action }: Readonly<{ action: CoachAction }>) {
   const p = action.preview;
   const t = p.transaction;
+  if (p.debt) return <DebtBody action={action} />;
   if (p.payment) return <PaymentBody action={action} />;
   if (p.plan || p.link) return <IncomeBody action={action} />;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {t && (
-        <div style={{ ...row, flexWrap: "wrap" }}>
+        <div style={{ ...rowStyle, flexWrap: "wrap" }}>
           <span>
             {t.direction === "income" ? "Income" : "Expense"}
             {t.payee ? ` · ${t.payee}` : ""}
@@ -215,7 +284,7 @@ function PreviewBody({ action }: Readonly<{ action: CoachAction }>) {
         <Change label="To be assigned" before={p.to_be_assigned_before_cents} after={p.to_be_assigned_after_cents} />
       )}
       {p.accounts_unchanged && (
-        <div style={{ ...row, color: "var(--text-muted)" }}>
+        <div style={{ ...rowStyle, color: "var(--text-muted)" }}>
           <span>Money in accounts</span>
           <span>unchanged</span>
         </div>
@@ -367,7 +436,7 @@ export function ActionPreview({ action: shown }: Readonly<{ action: CoachAction 
       {editing && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {editing.map((value, i) => (
-            <label key={i} style={{ ...row, alignItems: "center" }}>
+            <label key={i} style={{ ...rowStyle, alignItems: "center" }}>
               <span>{amountLabel(action, i)}</span>
               <input
                 aria-label={`Amount ${i + 1}`}
@@ -411,7 +480,7 @@ export function ActionPreview({ action: shown }: Readonly<{ action: CoachAction 
               <Button size="sm" iconLeft="check" disabled={confirm.isPending} onClick={() => confirm.mutate()}>
                 Confirm
               </Button>
-              {!action.kind.startsWith("payment") && !action.kind.startsWith("income") && (
+              {["transaction", "assignment", "assignments", "moves"].includes(action.kind) && (
                 <Button size="sm" variant="secondary" iconLeft="pencil" onClick={() => setEditing(editableAmounts(action).map((c) => money(c / 100)))}>
                   Edit
                 </Button>
@@ -456,7 +525,9 @@ export function ActionResult({ action: shown }: Readonly<{ action: CoachAction }
       </div>
       {!undone && !action.can_undo && (
         <span style={{ font: "500 12.5px var(--font-sans)", color: "var(--text-muted)" }}>
-          Can&apos;t be undone anymore: something it changed was edited since.
+          {action.kind === "debt_convert"
+            ? "This change can't be undone from the chat."
+            : "Can't be undone anymore: something it changed was edited since."}
         </span>
       )}
       {error && (

@@ -35,7 +35,26 @@ export interface ComposerProps {
 export function Composer({ onSend, busy }: Readonly<ComposerProps>) {
   const [text, setText] = React.useState("");
   const [adding, setAdding] = React.useState(false);
-  React.useEffect(() => setText(readDraft()), []);
+  React.useEffect(() => {
+    // A draft handed over in the URL (e.g. from What you owe) fills an empty
+    // field without sending; a draft the user was writing wins.
+    let initial = readDraft();
+    try {
+      const url = new URL(window.location.href);
+      const handed = url.searchParams.get("draft");
+      if (handed) {
+        if (!initial) {
+          initial = handed;
+          writeDraft(handed);
+        }
+        url.searchParams.delete("draft");
+        window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+      }
+    } catch {
+      /* no URL access: keep the stored draft */
+    }
+    setText(initial);
+  }, []);
   const update = (value: string) => {
     setText(value);
     writeDraft(value);

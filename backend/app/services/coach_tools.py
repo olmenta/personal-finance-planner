@@ -109,6 +109,12 @@ def _refusal_message(error: coach_actions.ActionError) -> str:
             return "A move needs two different categories."
         case "category_required":
             return "An expense needs a category. Ask the user which one."
+        case "invalid_debt":
+            return "Those debt details don't fit its kind (check the fields for a card, loan or money owed)."
+        case "debt_exists":
+            return "That card or category already has a debt: change it with propose_debt_change."
+        case "not_convertible":
+            return "Only an active credit account can be turned into a loan."
         case "income_schedule_not_found":
             return "That expected income doesn't exist anymore. Read get_income again."
         case "invalid_schedule":
@@ -117,8 +123,8 @@ def _refusal_message(error: coach_actions.ActionError) -> str:
         case "outside_planning_horizon":
             return "That date is beyond the 10-year planning horizon. Ask for a nearer date."
         case "managed_by_debt":
-            return ("That payment belongs to a debt: it's changed in Accounts → What you owe, not here. "
-                    "Point the user there.")
+            return ("That payment belongs to a debt: change it as a debt with propose_debt_change "
+                    "(read get_debts for its name).")
         case "card_plan_exists":
             return "A card's payment category holds only its plan; change it in What you owe."
         case _:
@@ -380,12 +386,25 @@ def get_income(ctx: RunContext[CoachDeps], month: str | None = None) -> dict:
 @_tool
 def get_debts(ctx: RunContext[CoachDeps]) -> dict:
     """What the user owes: each debt with what's owed, this month's required
-    payment, its rate when known, the paydown order and the debt-free month.
-    Debts are edited in Accounts → What you owe, not from the chat."""
+    payment, its rate when known, the paydown order and the debt-free month,
+    plus credit cards with a balance but no plan yet (with what they owe).
+    Change them with propose_debt, propose_debt_change, propose_debt_removal
+    and propose_debt_extra."""
+    from .accounts import balances
     from .debts import build_debts_view
 
-    view = build_debts_view(ctx.deps.db, ctx.deps.user)
+    deps = ctx.deps
+    view = build_debts_view(deps.db, deps.user)
+    with_plan = {d.account_id for d in view.debts if d.account_id}
+    owed = balances(deps.db, deps.user.id)
+    cards = deps.db.execute(select(Account.id, Account.name).where(
+        Account.user_id == deps.user.id, Account.type == "credit", Account.archived.is_(False))).all()
     return {
+        # A card's debt comes from its account balance: never ask the user for it.
+        "cards_without_a_plan": [
+            {"account": name, "owed": eur(max(0, -owed.get(account_id, 0)))}
+            for account_id, name in cards if account_id not in with_plan and owed.get(account_id, 0) < 0
+        ],
         "total_owed": eur(view.total_owed_cents),
         "debt_free_month": view.debt_free_month,
         "extra_monthly": eur(view.extra_monthly_cents),
@@ -445,8 +464,12 @@ def search_transactions(
 
 
 def _store(deps: CoachDeps, command: dict) -> dict:
-    action = coach_actions.propose(deps.db, deps.user, command)
-    deps.actions.append(action)
+    # The same proposal twice in one reply (e.g. re-proposed after checking
+    # something) is one action: the user sees one preview.
+    action = next((a for a in deps.actions if a.command == command), None)
+    if action is None:
+        action = coach_actions.propose(deps.db, deps.user, command)
+        deps.actions.append(action)
     ref = f"action:{action.id}"
     deps.refs.add(ref)
     p = action.preview
@@ -465,6 +488,13 @@ def _store(deps: CoachDeps, command: dict) -> dict:
         "money_in_accounts_unchanged": p["accounts_unchanged"],
         **({"plan": {k: (eur(v) if k.endswith("_cents") and v is not None else v) for k, v in p["plan"].items()}}
            if "plan" in p else {}),
+        **({"debt": {
+            "plan_before": (p["debt"]["before"] or {}).get("text"),
+            "plan_after": (p["debt"]["after"] or {}).get("text"),
+            "debt_free_before": p["debt"]["debt_free_before"], "debt_free_after": p["debt"]["debt_free_after"],
+            "extra_goes_to": p["debt"]["extra_target"], "cushion_note": p["debt"]["cushion_note"],
+            "below_minimum": (p["debt"]["after"] or {}).get("below_minimum"),
+        }} if "debt" in p else {}),
     }
 
 
@@ -1000,11 +1030,195 @@ propose_income.__doc__ = f"{propose_income.__doc__}\n\n{INCOME_HELP}"
 propose_income_change.__doc__ = f"{propose_income_change.__doc__}\n\n{INCOME_HELP}"
 
 
+# ---- debts (coach-debts-setup design D2) -------------------------------------------------
+
+DEBT_HELP = """One debt at a time. Cards: what's owed comes from the card's account
+balance (see get_debts), so never ask for it; give a monthly plan
+(`plan_monthly`) OR a date to be done (`target_month`), never both; then ask the least the bank lets them pay
+(`minimum`) and the rate. Loans: installment, installments left, next one
+(YYYY-MM), day. Money owed to someone: who (`lender`), how much (`owed`), a
+date only if they need it back by then. Rates: `rate_percent` with `rate_per`
+"month" or "year". When the user doesn't know the minimum or the rate, leave
+them out: never guess."""
+
+
+def _rate(rate_percent: float | None, rate_per: str | None) -> dict:
+    if rate_percent is None:
+        return {}
+    if rate_per not in ("month", "year"):
+        raise ToolInputError("say whether the rate is per month or per year")
+    return {"rate_bp": round(rate_percent * 100), "rate_period": rate_per}
+
+
+def _credit_account(deps: CoachDeps, name: str) -> tuple[str, str]:
+    accounts = deps.db.execute(select(Account.name, Account.id, Account.type).where(
+        Account.user_id == deps.user.id, Account.archived.is_(False), Account.type == "credit")).all()
+    account_id = resolve_account(name, accounts)
+    return account_id, next(n for n, i, _ in accounts if i == account_id)
+
+
+def _debt(deps: CoachDeps, text: str):
+    """A debt by its name, its card account or its lender."""
+    from .debts import build_debts_view
+
+    rows = build_debts_view(deps.db, deps.user).debts
+    options = [(d.name, d.id) for d in rows] + [(d.lender, d.id) for d in rows if d.lender]
+    wanted = resolve(text, list(dict.fromkeys(options)), "debt")
+    return next(d for d in rows if d.id == wanted)
+
+
+@_tool
+def propose_debt(
+    ctx: RunContext[CoachDeps],
+    kind: Literal["card", "loan", "personal"],
+    account: str | None = None,
+    plan_monthly: float | str | None = None,
+    target_month: str | None = None,
+    minimum: float | str | None = None,
+    name: str | None = None,
+    installment: float | str | None = None,
+    installments_left: int | None = None,
+    next_month: str | None = None,
+    day: int | None = None,
+    owed: float | str | None = None,
+    lender: str | None = None,
+    due_month: str | None = None,
+    rate_percent: float | None = None,
+    rate_per: Literal["month", "year"] | None = None,
+) -> dict:
+    """Propose a debt the user tells you about: a card (by its account),
+    a loan with installments, or money owed to someone. Amounts in euros,
+    months as YYYY-MM. Nothing is saved until the user confirms."""
+    deps = ctx.deps
+    rate = _rate(rate_percent, rate_per)
+    if kind == "card":
+        if not account:
+            raise ToolInputError("which card? give `account` (its name, or \"tarjeta\")")
+        if (plan_monthly is None) == (target_month is None):
+            raise ToolInputError("a card needs `plan_monthly` or `target_month` (one of them)")
+        account_id, label = _credit_account(deps, account)
+        body = {"kind": "card", "account_id": account_id, **rate}
+        if plan_monthly is not None:
+            body["plan_monthly_cents"] = parse_cents(plan_monthly)
+        else:
+            body["target_month"] = target_month
+        if minimum is not None:
+            body["minimum_cents"] = parse_cents(minimum)
+    elif kind == "loan":
+        if not (name and installment is not None and installments_left and next_month):
+            raise ToolInputError("a loan needs name, installment, installments_left and next_month")
+        label = name.strip()
+        body = {"kind": "loan", "name": label, "installment_cents": parse_cents(installment),
+                "installments_left": installments_left, "next_month": next_month, **rate}
+        if day:
+            body["day"] = day
+    else:
+        if not (name and owed is not None):
+            raise ToolInputError("money owed needs a name and `owed`")
+        label = name.strip()
+        body = {"kind": "personal", "name": label, "owed_cents": parse_cents(owed), **rate}
+        if lender:
+            body["lender"] = lender.strip()
+        if due_month:
+            body["due_month"] = due_month
+    return _store(deps, {"kind": "debt", "month": deps.month, "label": label, "body": body})
+
+
+@_tool
+def propose_debt_change(
+    ctx: RunContext[CoachDeps],
+    debt: str,
+    plan_monthly: float | str | None = None,
+    target_month: str | None = None,
+    minimum: float | str | None = None,
+    name: str | None = None,
+    installment: float | str | None = None,
+    installments_left: int | None = None,
+    next_month: str | None = None,
+    day: int | None = None,
+    owed: float | str | None = None,
+    lender: str | None = None,
+    due_month: str | None = None,
+    rate_percent: float | None = None,
+    rate_per: Literal["month", "year"] | None = None,
+) -> dict:
+    """Propose changing a debt ("la Visa: ahora puedo pagar 250", "me quedan
+    30 cuotas del Ikea"): `debt` is its name, card or lender. Pass only what
+    changes; only the fields of its kind apply."""
+    deps = ctx.deps
+    row = _debt(deps, debt)
+    changes = {
+        "plan_monthly_cents": parse_cents(plan_monthly) if plan_monthly is not None else None,
+        "target_month": target_month,
+        "minimum_cents": parse_cents(minimum) if minimum is not None else None,
+        "name": name, "installment_cents": parse_cents(installment) if installment is not None else None,
+        "installments_left": installments_left, "next_month": next_month, "day": day,
+        "owed_cents": parse_cents(owed) if owed is not None else None, "lender": lender, "due_month": due_month,
+        **_rate(rate_percent, rate_per),
+    }
+    changes = {k: v for k, v in changes.items() if v is not None}
+    if not changes:
+        raise ToolInputError("say what changes")
+    return _store(deps, {"kind": "debt_update", "month": deps.month, "debt_id": row.id,
+                         "category_id": row.category_id, "label": row.name, "changes": changes})
+
+
+@_tool
+def propose_debt_removal(ctx: RunContext[CoachDeps], debt: str) -> dict:
+    """Propose removing a debt's plan (paid off, or entered by mistake): its
+    category and history stay. `debt` is its name, card or lender."""
+    deps = ctx.deps
+    row = _debt(deps, debt)
+    return _store(deps, {"kind": "debt_delete", "month": deps.month, "debt_id": row.id,
+                         "category_id": row.category_id, "label": row.name})
+
+
+@_tool
+def propose_debt_extra(ctx: RunContext[CoachDeps], amount: float | str) -> dict:
+    """Propose the monthly extra for paying debts faster ("¿y si pongo 100 €
+    más al mes?"); 0 removes it. The preview shows the debt-free month before
+    and after and which debt gets it: nothing changes unless confirmed, so it
+    also answers "what if"."""
+    deps = ctx.deps
+    cents = 0 if str(amount).strip() in ("0", "0,00", "0.0") else parse_cents(amount)
+    return _store(deps, {"kind": "debt_extra", "month": deps.month, "extra_cents": cents})
+
+
+@_tool
+def propose_debt_conversion(
+    ctx: RunContext[CoachDeps],
+    account: str,
+    installment: float | str,
+    installments_left: int,
+    next_month: str,
+    day: int | None = None,
+    rate_percent: float | None = None,
+    rate_per: Literal["month", "year"] | None = None,
+) -> dict:
+    """Propose turning a credit account that is really a loan (fixed
+    installments) into a loan debt. It archives the account and moves its
+    payment money: it can't be undone from the chat."""
+    deps = ctx.deps
+    account_id, label = _credit_account(deps, account)
+    body = {"installment_cents": parse_cents(installment), "installments_left": installments_left,
+            "next_month": next_month, **_rate(rate_percent, rate_per)}
+    if day:
+        body["day"] = day
+    return _store(deps, {"kind": "debt_convert", "month": deps.month, "account_id": account_id,
+                         "label": label, "body": body})
+
+
+propose_debt.__doc__ = f"{propose_debt.__doc__}\n\n{DEBT_HELP}"
+propose_debt_change.__doc__ = f"{propose_debt_change.__doc__}\n\n{DEBT_HELP}"
+
+
 READ_TOOLS = [get_month, get_breakdown, get_category, get_future_payments, get_income, get_debts,
               search_transactions, find_categories]
 PROPOSE_TOOLS = [propose_transaction, propose_assignment, propose_budget, propose_moves, propose_category,
                  propose_payment, propose_payment_change, propose_payment_removal,
-                 propose_income, propose_income_change, propose_income_removal, propose_income_link]
+                 propose_income, propose_income_change, propose_income_removal, propose_income_link,
+                 propose_debt, propose_debt_change, propose_debt_removal, propose_debt_extra,
+                 propose_debt_conversion]
 
 
 def tools() -> list[Tool]:

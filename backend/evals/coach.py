@@ -147,10 +147,25 @@ def late_salary(client: TestClient) -> None:
                                        "note": "TRANSFERENCIA RECIBIDA"})
 
 
+def visa_card(client: TestClient) -> None:
+    _bank(client, 100000)
+    client.post("/accounts", json={"name": "Visa", "type": "credit", "opening_balance_cents": -63462})
+    client.get(f"/budget/{MONTH}")
+
+
+def debts_set(client: TestClient) -> None:
+    _bank(client, 100000)
+    visa = client.post("/accounts", json={"name": "Visa", "type": "credit", "opening_balance_cents": -63462}).json()
+    client.post("/debts", json={"kind": "card", "account_id": visa["id"], "plan_monthly_cents": 20000,
+                                "rate_bp": 150, "rate_period": "month"})
+    client.post("/debts", json={"kind": "loan", "name": "Ikea", "installment_cents": 4500, "installments_left": 10,
+                                "next_month": MONTH, "rate_bp": 700, "rate_period": "year"})
+
+
 SETUPS: dict[str, Callable[[TestClient], None]] = {
     f.__name__: f for f in (car_insurance, mercadona, overspent, shortfall, planted_note, organized,
                             pets, fresh_budget, bar_history, fixed_bills, rent_set, loan,
-                            no_income, salary_set, late_salary)
+                            no_income, salary_set, late_salary, visa_card, debts_set)
 }
 
 
@@ -375,6 +390,24 @@ class KindProposed(Evaluator):
         return {f"kind:{self.kind}": ok}
 
 
+@dataclass
+class DebtProposed(Evaluator):
+    """One new debt whose body includes these fields (and not the absent ones)."""
+
+    fields: dict[str, Any]
+    absent: tuple[str, ...] = ()
+
+    def evaluate(self, ctx: EvaluatorContext) -> dict[str, bool]:
+        bodies = [a["command"]["body"] for a in ctx.output["actions"] if a["kind"] == "debt"]
+        ok = (len(bodies) == 1 and all(bodies[0].get(k) == v for k, v in self.fields.items())
+              and all(k not in bodies[0] for k in self.absent))
+        return {f"debt:{self.fields.get('kind', '?')}": ok}
+
+
+NO_JARGON = ("The output's `text` uses plain Spanish with no finance jargon: no TAE, TIN, APR, amortización, "
+             "bola de nieve, avalancha, snowball or avalanche.")
+
+
 def _judge(rubric: str) -> LLMJudge:
     return LLMJudge(rubric=rubric, model=_model("judge", route_config("judge")), include_input=True)
 
@@ -492,12 +525,9 @@ def dataset() -> Dataset:
                             SPANISH],
             ),
             Case(
-                name="debt_payment_refused",
+                name="debt_installment_change",
                 inputs=Ask("loan", "la cuota de Ikea sube a 50 €"),
-                evaluators=[NoProposals(),
-                            _judge("The output's `text` tells the user, in Spanish, that the Ikea installment is "
-                                   "changed in Accounts → What you owe (\"Lo que debes\"), and doesn't claim it "
-                                   "changed anything.")],
+                evaluators=[KindProposed("debt_update", {"installment_cents": 5000}), SPANISH],
             ),
             Case(
                 name="income_salary",
@@ -539,6 +569,59 @@ def dataset() -> Dataset:
                 inputs=Ask("salary_set", "me ha llegado la nómina, 2.100 €"),
                 evaluators=[KindProposed("transaction", {"direction": "income", "amount_cents": 210000}),
                             IncomeProposed([]), SPANISH],
+            ),
+            Case(
+                name="debt_card_plan",
+                inputs=Ask("visa_card", "la Visa debe 634,62 €, cobra un 1,5 % al mes, el mínimo son 30 € y puedo "
+                                        "pagar 200 al mes"),
+                evaluators=[CalledOneOf(["propose_debt"]), Attached("action_preview"),
+                            DebtProposed({"kind": "card", "plan_monthly_cents": 20000, "rate_bp": 150,
+                                          "rate_period": "month", "minimum_cents": 3000}), SPANISH],
+            ),
+            Case(
+                name="debt_card_target_no_minimum",
+                inputs=Ask("visa_card", "quiero terminar de pagar la Visa en enero; no sé el interés ni el mínimo"),
+                evaluators=[DebtProposed({"kind": "card", "target_month": "2027-01"},
+                                         absent=("minimum_cents", "rate_bp", "plan_monthly_cents")), SPANISH],
+            ),
+            Case(
+                name="debt_loan",
+                inputs=Ask("no_income", "el préstamo del coche son 290,17 € al mes, me quedan 34 cuotas desde "
+                                        "noviembre, el día 2; no sé el interés"),
+                evaluators=[DebtProposed({"kind": "loan", "installment_cents": 29017, "installments_left": 34,
+                                          "next_month": "2026-11", "day": 2}, absent=("rate_bp",)), SPANISH],
+            ),
+            Case(
+                name="debt_personal",
+                inputs=Ask("no_income", "le debo 670 € a mi hermano Juan, no hay fecha para devolverlo"),
+                evaluators=[DebtProposed({"kind": "personal", "owed_cents": 67000}, absent=("due_month",)), SPANISH],
+            ),
+            Case(
+                name="debt_what_if",
+                inputs=Ask("debts_set", "¿y si pongo 100 € más al mes para las deudas?"),
+                evaluators=[CalledOneOf(["propose_debt_extra"]), KindProposed("debt_extra", {"extra_cents": 10000}),
+                            NoInventedAmounts(), SPANISH],
+            ),
+            Case(
+                name="debt_change",
+                inputs=Ask("debts_set", "la Visa: ahora puedo pagar 250 al mes"),
+                evaluators=[KindProposed("debt_update", {"plan_monthly_cents": 25000}), SPANISH],
+            ),
+            Case(
+                name="debt_stress_tone",
+                inputs=Ask("debts_set", "estoy agobiado con las deudas, no sé cómo voy a salir de esto"),
+                evaluators=[NoProposals(), NoInventedAmounts(),
+                            _judge("The output's `text` answers someone stressed about debt. Pass only if it is in "
+                                   "Spanish, calm and practical (e.g. points to the plan or when they'd be "
+                                   "debt-free), with no jokes, no emoji, no judgment about how the debt happened. "
+                                   + NO_JARGON)],
+            ),
+            Case(
+                name="debt_order_explained",
+                inputs=Ask("debts_set", "¿por qué tengo que pagar primero la Visa y no el Ikea?"),
+                evaluators=[NoProposals(),
+                            _judge("The output's `text` explains in Spanish that the Visa goes first because it "
+                                   "charges more interest than the Ikea loan. " + NO_JARGON)],
             ),
             Case(
                 name="english_user",

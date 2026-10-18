@@ -135,7 +135,7 @@ def test_a_debt_payment_is_refused(client, db, user):
     ok(client.post("/debts", json={"kind": "loan", "name": "Ikea", "installment_cents": 4500,
                                    "installments_left": 10, "next_month": MONTH}))
     result, _ = run_tool(client, "propose_payment_change", {"payment": "Ikea", "amount": 50})
-    assert result["error"] == "managed_by_debt" and "What you owe" in result["message"]
+    assert result["error"] == "managed_by_debt" and "propose_debt_change" in result["message"]
     assert db.scalar(select(func.count()).select_from(CoachAction).where(CoachAction.user_id == user.id)) == 0
 
 

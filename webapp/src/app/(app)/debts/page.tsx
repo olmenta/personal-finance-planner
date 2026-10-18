@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DebtEditor } from "@/components/debts/DebtEditor";
@@ -165,6 +166,10 @@ function ExtraPanel({ data }: Readonly<{ data: DebtsView }>) {
   );
 }
 
+/** The first message when the user takes their debts to the coach (spec:
+    debts, What you owe screen). Spanish: the coach's launch language. */
+const COACH_DRAFT = "Quiero ordenar mis deudas";
+
 export default function DebtsPage() {
   const query = useQuery({ queryKey: ["debts"], queryFn: fetchDebts });
   const [editing, setEditing] = React.useState<{ open: boolean; debt: DebtOut | null }>({ open: false, debt: null });
@@ -177,7 +182,12 @@ export default function DebtsPage() {
       <TopBar title="What you owe" sub="A plan to pay it off, starting with the one that costs you most" />
       <div className="app-content">
         {/* Always visible: the entry point to work on any debt (spec: debts). */}
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+          <Link href={`/?draft=${encodeURIComponent(COACH_DRAFT)}`} style={{ textDecoration: "none" }}>
+            <Button variant="secondary" iconLeft="sparkles" data-testid="talk-to-coach">
+              Talk it through with your coach
+            </Button>
+          </Link>
           <Button iconLeft="plus" onClick={() => open(null)} data-testid="work-on-debts">
             Work on my debts
           </Button>

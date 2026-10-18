@@ -24,6 +24,7 @@ from ..models import (
     CategoryGroup,
     CoachAction,
     CoachMessage,
+    Debt,
     IncomeSchedule,
     PaymentSchedule,
     Transaction,
@@ -32,7 +33,8 @@ from ..models import (
 from . import budget_moves, budget_view
 from . import categories as categories_service
 from . import category_matching as matching
-from . import income_ops, payment_ops
+from . import debt_ops, income_ops, payment_ops
+from .debts import DebtError
 from .payment_text import describe
 from .categories import CategoryError
 from .coach import eur
@@ -83,6 +85,8 @@ def _apply(db: Session, user: User, command: dict) -> dict:
         return _apply_payment(db, user, command)
     if kind in INCOME_KINDS:
         return _apply_income(db, user, command)
+    if kind in DEBT_KINDS:
+        return _apply_debt(db, user, command)
     touched = _touched(command)
     before = _assigned(db, user, month, touched)
     if kind == "assignment":
@@ -110,7 +114,7 @@ def _touched(command: dict) -> list[str]:
         return [command["category_id"]]
     if command["kind"] == "assignments":
         return [item["category_id"] for item in command["items"]]
-    if command["kind"] in ("category", *INCOME_KINDS):
+    if command["kind"] in ("category", *INCOME_KINDS, *DEBT_KINDS):
         return []
     if command["kind"] == "moves":
         ids: list[str] = []
@@ -149,7 +153,7 @@ def _refusal(error: Exception) -> dict:
     """The refusal as the forms report it: code, status and extra fields."""
     if isinstance(error, budget_moves.MoveError):
         return {"code": error.code, "status": error.status, **error.extra}
-    if isinstance(error, (EntryError, CategoryError, payment_ops.PaymentError, income_ops.IncomeError)):
+    if isinstance(error, (EntryError, CategoryError, payment_ops.PaymentError, income_ops.IncomeError, DebtError)):
         return {"code": error.code, "status": error.status}
     detail = getattr(error, "detail", None)
     status = getattr(error, "status_code", 422)
@@ -160,7 +164,7 @@ def _refusal(error: Exception) -> dict:
 
 REFUSALS = (
     budget_moves.MoveError, EntryError, HTTPException, CategoryError, payment_ops.PaymentError,
-    income_ops.IncomeError,
+    income_ops.IncomeError, DebtError,
 )
 
 
@@ -355,6 +359,145 @@ def _income_preview(db: Session, user: User, command: dict) -> dict:
     return result
 
 
+# ---- debts (coach-debts-setup design D2–D4) -------------------------------------------
+
+DEBT_KINDS = ("debt", "debt_update", "debt_delete", "debt_extra", "debt_convert")
+
+
+def _apply_debt(db: Session, user: User, command: dict) -> dict:
+    kind = command["kind"]
+    if kind == "debt":
+        debt = debt_ops.create(db, user, command["body"])
+        return {"debt_id": debt.id, "category_id": debt.category_id, "after": debt_ops.fields_of(db, user, debt)}
+    if kind == "debt_extra":
+        previous = debt_ops.set_extra(db, user, command["extra_cents"])
+        return {"extra_before": previous, "extra_after": command["extra_cents"]}
+    if kind == "debt_convert":
+        debt = debt_ops.convert(db, user, command["account_id"], command["body"])
+        return {"debt_id": debt.id, "category_id": debt.category_id}
+    debt = debt_ops.debt_or_404(db, user, command["debt_id"])
+    before = debt_ops.fields_of(db, user, debt)
+    category_id = debt.category_id
+    if kind == "debt_update":
+        debt = debt_ops.update(db, user, command["debt_id"], command["changes"])
+        return {"debt_id": debt.id, "category_id": category_id, "before": before,
+                "after": debt_ops.fields_of(db, user, debt)}
+    debt_ops.delete(db, user, command["debt_id"])
+    return {"debt_id": command["debt_id"], "category_id": category_id, "before": before}
+
+
+def debt_text(row) -> str:
+    """A debt's plan in words: "200,00 € a month · done in January 2027"."""
+    from .payment_text import month_label
+
+    if row is None:
+        return "no plan"
+    if row.kind == "card":
+        text = f"{eur(row.plan_monthly_cents)} a month" if row.plan_monthly_cents else "no plan"
+    elif row.kind == "loan":
+        text = (f"{eur(row.installment_cents or 0)} × {row.installments_left or 0} from "
+                f"{month_label(row.next_month)}" + (f", day {row.day}" if row.day else ""))
+    else:
+        text = eur(row.owed_cents) + (f", due {month_label(row.due_month)}" if row.due_month else ", no date")
+        if row.lender:
+            text += f", to {row.lender}"
+    if row.kind != "personal" and row.end_month:
+        text += f" · done in {month_label(row.end_month)}"
+    return text
+
+
+def _debts_snapshot(db: Session, user: User, debt_id: str | None, category_id: str | None, month: str) -> dict:
+    from .debts import build_debts_view
+
+    view = build_debts_view(db, user)
+    budget = budget_view.build_view(db, user, month)
+    row = next((d for d in view.debts if d.id == debt_id), None) if debt_id else None
+    target = next((d.name for d in view.debts if d.id == view.extra_target_debt_id), None)
+    category = budget_moves.find_category(budget, category_id) if category_id else None
+    return {
+        "total_owed_cents": view.total_owed_cents,
+        "debt_free_month": view.debt_free_month,
+        "extra_monthly_cents": view.extra_monthly_cents,
+        "extra_target": target,
+        "cushion": view.cushion.model_dump(),
+        "to_be_assigned_cents": budget.to_be_assigned_cents,
+        "row": {
+            "name": row.name, "kind": row.kind, "position": row.position, "end_month": row.end_month,
+            "required_monthly_cents": row.required_monthly_cents, "below_minimum": row.below_minimum,
+            "monthly_interest_cents": row.monthly_interest_cents, "text": debt_text(row),
+        } if row else None,
+        "category": {"category_id": category.id, "name": category.name, "assigned_cents": category.assigned_cents,
+                     "available_cents": category.available_cents} if category else None,
+    }
+
+
+_RESTORE_FIELDS = {
+    "card": ("plan_monthly_cents", "minimum_cents"),
+    "loan": ("name", "installment_cents", "installments_left", "next_month", "day"),
+    "personal": ("name", "owed_cents", "due_month", "lender"),
+}
+
+
+def _debt_restore(before: dict) -> dict:
+    """The update that puts a debt back to `before` (its recorded fields)."""
+    changes = {k: before.get(k) for k in _RESTORE_FIELDS[before["kind"]]}
+    changes["rate_bp"] = before.get("rate_bp")
+    changes["rate_period"] = before.get("rate_period")
+    return changes
+
+
+def _debt_preview(db: Session, user: User, command: dict) -> dict:
+    month = command["month"]
+    debt_id = command.get("debt_id")
+    category_id = command.get("category_id")
+    before = _debts_snapshot(db, user, debt_id, category_id, month)
+    after, error = None, None
+    savepoint = db.begin_nested()
+    try:
+        result = _apply_debt(db, user, command)
+        after = _debts_snapshot(db, user, result.get("debt_id") if command["kind"] != "debt_delete" else None,
+                                result.get("category_id") or category_id, month)
+    except REFUSALS as refusal:
+        error = _refusal(refusal)
+    finally:
+        savepoint.rollback()
+    after = after or before
+    b_cat, a_cat = before["category"], after["category"]
+    categories = []
+    if a_cat or b_cat:
+        cat = a_cat or b_cat
+        categories.append({
+            # A category the dry run creates gets a new id each time: leave it
+            # out, or every revision would differ and the commit go stale.
+            "category_id": b_cat["category_id"] if b_cat else None, "name": cat["name"],
+            "assigned_before_cents": b_cat["assigned_cents"] if b_cat else 0,
+            "assigned_after_cents": a_cat["assigned_cents"] if a_cat else (b_cat or {}).get("assigned_cents", 0),
+            "available_before_cents": b_cat["available_cents"] if b_cat else 0,
+            "available_after_cents": a_cat["available_cents"] if a_cat else (b_cat or {}).get("available_cents", 0),
+        })
+    cushion = after["cushion"]
+    return {
+        "kind": command["kind"],
+        "month": month,
+        "title": title(command),
+        "debt": {
+            "before": before["row"], "after": after["row"] if command["kind"] != "debt_delete" else None,
+            "debt_free_before": before["debt_free_month"], "debt_free_after": after["debt_free_month"],
+            "total_owed_before_cents": before["total_owed_cents"], "total_owed_after_cents": after["total_owed_cents"],
+            "extra_before_cents": before["extra_monthly_cents"], "extra_after_cents": after["extra_monthly_cents"],
+            "extra_target": after["extra_target"],
+            "cushion_note": (command["kind"] == "debt_extra" and after["extra_monthly_cents"] > 0
+                             and cushion["saved_cents"] < cushion["suggested_cents"]),
+            "cushion_suggested_cents": cushion["suggested_cents"],
+        },
+        "categories": categories,
+        "to_be_assigned_before_cents": before["to_be_assigned_cents"],
+        "to_be_assigned_after_cents": after["to_be_assigned_cents"],
+        "accounts_unchanged": True,
+        "error": error,
+    }
+
+
 # ---- creating a category (coach-budget-setup design D2) -----------------------------
 
 
@@ -489,6 +632,8 @@ def preview(db: Session, user: User, command: dict) -> dict:
         return _category_preview(db, user, command)
     if command["kind"] in INCOME_KINDS:
         return _income_preview(db, user, command)
+    if command["kind"] in DEBT_KINDS:
+        return _debt_preview(db, user, command)
     month = command["month"]
     ids = _touched(command)
     before_view = budget_view.build_view(db, user, month)
@@ -577,6 +722,16 @@ def title(command: dict, current: dict | None = None) -> str:
         return f"Remove income: {now['name']} ({income_sentence(now)})"
     if command["kind"] == "income_link":
         return f"Link {eur(command['amount_cents'])} to {command['schedule_name']}"
+    if command["kind"] == "debt":
+        return f"Add debt: {command['label']}"
+    if command["kind"] == "debt_update":
+        return f"Change debt: {command['label']}"
+    if command["kind"] == "debt_delete":
+        return f"Remove the plan of {command['label']}"
+    if command["kind"] == "debt_extra":
+        return f"Pay {eur(command['extra_cents'])} extra a month on debts"
+    if command["kind"] == "debt_convert":
+        return f"Turn {command['label']} into a loan"
     moves = command["moves"]
     if len(moves) == 1:
         m = moves[0]
@@ -740,6 +895,19 @@ def can_undo(db: Session, user: User, action: CoachAction) -> bool:
         after = action.result["after"]
         return (txn is not None and schedule is not None and txn.payee_id == after["txn_payee"]
                 and schedule.payee_id == after["schedule_payee"])
+    if action.kind in ("debt", "debt_update"):
+        debt = db.scalar(select(Debt).where(Debt.id == action.result["debt_id"], Debt.user_id == user.id))
+        return debt is not None and debt_ops.fields_of(db, user, debt) == action.result["after"]
+    if action.kind == "debt_delete":
+        from .debts import debt_for_category
+
+        return debt_for_category(db, action.result["category_id"]) is None
+    if action.kind == "debt_extra":
+        from .debts import settings as debt_settings
+
+        return debt_settings(db, user).extra_monthly_cents == action.result["extra_after"]
+    if action.kind == "debt_convert":
+        return False
     if action.kind == "payment_delete":
         category = db.scalar(select(Category).where(
             Category.id == action.command["category_id"], Category.user_id == user.id))
@@ -766,6 +934,19 @@ def undo(db: Session, user: User, action_id: str) -> CoachAction:
         db.flush()
         if payee_id:
             delete_orphan_payees(db, user.id, {payee_id})
+    elif action.kind in DEBT_KINDS:
+        try:
+            if action.kind == "debt":
+                debt_ops.delete(db, user, action.result["debt_id"])
+            elif action.kind == "debt_update":
+                debt_ops.update(db, user, action.result["debt_id"], _debt_restore(action.result["before"]))
+            elif action.kind == "debt_delete":
+                recreated = debt_ops.create(db, user, action.result["before"])
+                action.result = {**action.result, "recreated_id": recreated.id}
+            else:
+                debt_ops.set_extra(db, user, action.result["extra_before"])
+        except DebtError as error:
+            raise ActionError(409, "undo_not_possible") from error
     elif action.kind in INCOME_KINDS:
         try:
             if action.kind == "income":

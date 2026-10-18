@@ -30,7 +30,32 @@ The screen shows:
 - **Your debts in order**: the order to pay them in, with one sentence on why the first one goes first.
 - **Extra for your debts each month**: optional (see [Paying faster with an extra](#paying-faster-with-an-extra)).
 
-The **Work on my debts** button is always there: at the top of the screen, and on every debt. Use it any time you want to add a debt or change a plan.
+The **Work on my debts** button is always there: at the top of the screen, and on every debt. Use it any time you want to add a debt or change a plan. Or tap **Talk it through with your coach** and do it by talking (see [Talking about your debts](#talking-about-your-debts)).
+
+## Talking about your debts
+
+You can do everything on this screen by talking to your coach on Home, one debt at a time. **Talk it through with your coach** opens Home with "Quiero ordenar mis deudas" ready to send.
+
+- **A card:** "la Visa debe 634 €, puedo pagar 200 al mes", or "quiero terminar de pagarla en enero".
+- **A loan:** "el préstamo del coche son 290 € al mes, me quedan 34 cuotas desde noviembre, el día 2".
+- **Money you owe someone:** "le debo 670 € a mi hermano, sin fecha".
+
+The coach asks for what's missing, one question at a time. It always asks the least the bank lets you pay and the interest, and "no lo sé" is fine: you can add them later.
+
+Every debt arrives as a preview before anything is saved:
+
+- the plan in words;
+- its place in the order and when it ends;
+- your debt-free month before and after;
+- what it sets aside this month.
+
+Confirm saves it, and Undo puts things back while nothing changed since.
+
+**Changes** work the same way: "la Visa: ahora puedo pagar 250", "me quedan 30 cuotas del Ikea", "el préstamo cobra un 7 % al año", or "ya pagué lo de mi hermano" (it removes the plan; the category and its history stay).
+
+**"¿Y si pongo 100 € más al mes?"** shows your new debt-free month and which debt the extra goes to, before anything changes. If you don't have a cushion yet, the coach says so, and why. Cancel and nothing changes; confirm and the extra is set.
+
+**A loan set up as a card** ("la tarjeta Sabadell en realidad es un préstamo de 290 € al mes") can be turned into a loan from the chat too. That one can't be undone from the chat.
 
 ## Adding a debt
 
@@ -142,7 +167,7 @@ Tap **Work on my debts** on the debt you want to change. You can change the plan
 
 If you pay extra on a loan with installments, ask your bank how many installments are left and update **Installments left**.
 
-Payments that belong to a debt can't be edited from the category's payment editor or by asking your coach. That keeps the order and the dates right. The editor shows "Managed from What you owe" with a link, and the coach points you there.
+Payments that belong to a debt can't be edited from the category's payment editor. That keeps the order and the dates right. The editor shows "Managed from What you owe" with a link. Your coach changes them as debts, never as payments.
 
 ## When a debt is paid off
 

@@ -1,34 +1,20 @@
 """Debts: what's owed, the paydown order and the plan (spec: debts)."""
 
 from fastapi import APIRouter, Body, Depends, HTTPException
-from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import current_user
-from ..models import Debt, User
-from ..schemas import horizon_error, DebtExtraIn, DebtIn, DebtsView, DebtUpdate
+from ..models import User
+from ..schemas import DebtExtraIn, DebtsView
+from ..services import debt_ops
 from ..services import debts as service
 
 router = APIRouter(tags=["debts"])
 
-_create: TypeAdapter = TypeAdapter(DebtIn)
-
-
-def _code(exc: ValidationError) -> str:
-    return "outside_planning_horizon" if horizon_error(exc) else "invalid_debt"
-
 
 def _fail(error: service.DebtError) -> HTTPException:
     return HTTPException(status_code=error.status, detail={"code": error.code})
-
-
-def _debt_or_404(db: Session, user: User, debt_id: str) -> Debt:
-    debt = db.scalar(select(Debt).where(Debt.id == debt_id, Debt.user_id == user.id))
-    if debt is None:
-        raise HTTPException(status_code=404, detail={"code": "debt_not_found"})
-    return debt
 
 
 @router.get("/debts", response_model=DebtsView)
@@ -43,11 +29,7 @@ def create_debt(
     user: User = Depends(current_user),
 ) -> DebtsView:
     try:
-        valid = _create.validate_python(body)
-    except ValidationError as exc:
-        raise HTTPException(status_code=422, detail={"code": _code(exc)}) from exc
-    try:
-        service.create_debt(db, user, valid)
+        debt_ops.create(db, user, body)
     except service.DebtError as error:
         raise _fail(error) from error
     return service.build_debts_view(db, user)
@@ -60,13 +42,8 @@ def update_debt(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> DebtsView:
-    debt = _debt_or_404(db, user, debt_id)
     try:
-        valid = DebtUpdate.model_validate(body)
-    except ValidationError as exc:
-        raise HTTPException(status_code=422, detail={"code": _code(exc)}) from exc
-    try:
-        service.update_debt(db, user, debt, valid)
+        debt_ops.update(db, user, debt_id, body)
     except service.DebtError as error:
         raise _fail(error) from error
     return service.build_debts_view(db, user)
@@ -78,7 +55,10 @@ def delete_debt(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> None:
-    service.delete_debt(db, user, _debt_or_404(db, user, debt_id))
+    try:
+        debt_ops.delete(db, user, debt_id)
+    except service.DebtError as error:
+        raise _fail(error) from error
 
 
 @router.put("/debts/extra", response_model=DebtsView)
@@ -87,6 +67,5 @@ def put_extra(
     db: Session = Depends(get_db),
     user: User = Depends(current_user),
 ) -> DebtsView:
-    service.settings(db, user).extra_monthly_cents = body.extra_monthly_cents
-    db.flush()
+    debt_ops.set_extra(db, user, body.extra_monthly_cents)
     return service.build_debts_view(db, user)

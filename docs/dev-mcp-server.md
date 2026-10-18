@@ -147,6 +147,9 @@ ChatGPT can't start a program on your computer. OpenAI's **Secure MCP Tunnel** b
 | "Cobro 2.100 € el día 28 de Acme" / "cobro en 14 pagas" | `add_income` |
 | "Mi sueldo sube a 2.200" / "ya no cobro la paga extra" | `update_income` / `delete_income` |
 | "¿Qué ingresos tengo previstos?" | `list_income` |
+| "La Visa debe 634 €, puedo pagar 200 al mes" / "el préstamo son 290 € al mes, quedan 34 cuotas" | `add_debt` |
+| "¿Qué deudas tengo y cuándo termino?" | `list_debts` |
+| "¿Y si pongo 100 € más al mes?" | `set_debt_extra` |
 
 ## The tools
 
@@ -173,6 +176,10 @@ ChatGPT can't start a program on your computer. OpenAI's **Secure MCP Tunnel** b
 | `add_income` | Add expected income (14 pagas are a monthly income plus the extras in June and December); it plans the year and never changes To Be Assigned |
 | `update_income` | Change an expected income, only what changes |
 | `delete_income` | Remove an expected income |
+| `list_debts` | Your debts in paydown order (highest interest first), with the total, the debt-free month, the extra and the cushion |
+| `add_debt` | Add a card (with a monthly plan or a date to be done), a loan with installments, or money you owe someone; unknown minimum or rate are left out |
+| `update_debt` / `delete_debt` | Change a debt, or remove its plan (the category and history stay) |
+| `set_debt_extra` | The monthly extra for paying debts faster; it goes to the first debt and rolls forward |
 | `create_transfer` | Move money between your accounts (including paying a card) |
 | `apply_review` | Resolve uncategorized rows: category, payee, note, transfer, or link to the matching transfer |
 

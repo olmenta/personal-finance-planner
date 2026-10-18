@@ -1211,6 +1211,20 @@ export interface CoachActionPreview {
     unplanned_before: boolean;
     unplanned_after: boolean;
   };
+  /** Debt kinds only: the debt's plan and the paydown before and after. */
+  debt?: {
+    before: CoachDebtRow | null;
+    after: CoachDebtRow | null;
+    debt_free_before: string | null;
+    debt_free_after: string | null;
+    total_owed_before_cents: number;
+    total_owed_after_cents: number;
+    extra_before_cents: number;
+    extra_after_cents: number;
+    extra_target: string | null;
+    cushion_note: boolean;
+    cushion_suggested_cents: number;
+  };
   /** Category choices only. */
   name?: string;
   similar?: { id: string; name: string; group_id: string; group_name: string; reason: string }[];
@@ -1228,6 +1242,17 @@ export interface CoachActionPreview {
   };
 }
 
+export interface CoachDebtRow {
+  name: string;
+  kind: "card" | "loan" | "personal";
+  position: number | null;
+  end_month: string | null;
+  required_monthly_cents: number;
+  below_minimum: boolean | null;
+  monthly_interest_cents: number | null;
+  text: string;
+}
+
 export interface CoachAction {
   id: string;
   kind:
@@ -1242,7 +1267,12 @@ export interface CoachAction {
     | "income"
     | "income_update"
     | "income_delete"
-    | "income_link";
+    | "income_link"
+    | "debt"
+    | "debt_update"
+    | "debt_delete"
+    | "debt_extra"
+    | "debt_convert";
   /** resolved: a category choice answered with an existing category. */
   status: "proposed" | "applied" | "stale" | "cancelled" | "undone" | "resolved";
   title: string;

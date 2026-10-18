@@ -310,3 +310,35 @@ def test_unknown_income_lists_candidates(olmenta):
     call(olmenta, "add_income", name="Nómina", amount=2100, pattern="monthly")
     result = call(olmenta, "update_income", income="pensión", amount=10)
     assert result.startswith("Error:") and "Nómina" in result
+
+
+# ---- debts (coach-debts-setup) ---------------------------------------------------
+
+
+def test_add_a_loan(olmenta):
+    result = call(olmenta, "add_debt", kind="loan", name="Ikea", installment=45, installments_left=10,
+                  next_month="2026-11")
+    assert result.startswith("Added: 1. Ikea (loan): owes 450,00 €; 45,00 € × 10 installments")
+    assert "Total owed 450,00 €" in result
+
+
+def test_a_card_by_type_with_a_plan(olmenta, client):
+    client.post("/accounts", json={"name": "Visa", "type": "credit", "opening_balance_cents": -63462})
+    result = call(olmenta, "add_debt", kind="card", account="tarjeta", plan_monthly=200, rate_percent=1.5,
+                  rate_per="month")
+    assert "Visa (card): owes 634,62 €; 200,00 € a month; 1,50 % a month" in result
+
+
+def test_update_delete_and_extra(olmenta, client):
+    call(olmenta, "add_debt", kind="loan", name="Ikea", installment=45, installments_left=10, next_month="2026-11")
+    assert "45,00 € × 8 installments" in call(olmenta, "update_debt", debt="ikea", installments_left=8)
+    assert "It goes to Ikea first." in call(olmenta, "set_debt_extra", amount=50)
+    assert call(olmenta, "delete_debt", debt="Ikea").startswith("Removed the plan of Ikea")
+    assert call(olmenta, "list_debts") == "No debts yet."
+
+
+def test_a_second_debt_on_a_card_is_refused(olmenta, client):
+    client.post("/accounts", json={"name": "Visa", "type": "credit", "opening_balance_cents": -63462})
+    call(olmenta, "add_debt", kind="card", account="Visa", plan_monthly=200)
+    result = call(olmenta, "add_debt", kind="card", account="Visa", plan_monthly=100)
+    assert result.startswith("Error:") and "update_debt" in result

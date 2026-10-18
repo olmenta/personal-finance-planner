@@ -148,7 +148,9 @@ def run_structured(
 
 
 # A tool-using run may loop model → tool → model; bound it (cost and latency).
-MAX_TOOL_REQUESTS = 8
+# Raised from 8: open questions about the month ("me he quedado sin trabajo")
+# read several areas (month, income, debts) before answering.
+MAX_TOOL_REQUESTS = 12
 
 
 def run_with_tools(

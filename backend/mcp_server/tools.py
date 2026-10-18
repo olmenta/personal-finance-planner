@@ -709,6 +709,150 @@ def delete_income(client: OlmentaClient, args: DeleteIncomeArgs) -> str:
     return f"Removed {income['name']} ({_income_text(income)}). Expected over the next 12 months: {_yearly_total(client)}."
 
 
+def _month_label(m: str | None) -> str:
+    if not m:
+        return ""
+    y, mm = m.split("-")
+    return f"{MONTH_NAMES[int(mm) - 1]} {y}"
+
+
+def _debt_line(d: dict) -> str:
+    if d["kind"] == "card":
+        plan = f"{eur(d['plan_monthly_cents'])} a month" if d.get("plan_monthly_cents") else "no plan"
+    elif d["kind"] == "loan":
+        plan = f"{eur(d.get('installment_cents') or 0)} × {d.get('installments_left') or 0} installments"
+    else:
+        plan = (f"due {_month_label(d['due_month'])}" if d.get("due_month") else "no date") + (
+            f", to {d['lender']}" if d.get("lender") else "")
+    rate = (f"{d['monthly_rate_bp'] / 100:.2f} % a month".replace(".", ",") if d.get("monthly_rate_bp") is not None
+            else "rate unknown")
+    end = f"done {_month_label(d['end_month'])}" if d.get("end_month") else "doesn't end within 10 years"
+    return f"{d.get('position') or '-'}. {d['name']} ({d['kind']}): owes {eur(d['owed_cents'])}; {plan}; {rate}; {end}"
+
+
+def _debts_summary(view: dict) -> str:
+    free = (f"Debt-free in {_month_label(view['debt_free_month'])}." if view.get("debt_free_month")
+            else "Not debt-free within 10 years with this plan.")
+    return f"Total owed {eur(view['total_owed_cents'])}. {free} Extra: {eur(view['extra_monthly_cents'])} a month."
+
+
+def _debt(client: OlmentaClient, name: str) -> dict:
+    rows = client.debts()["debts"]
+    options = [(d["name"], d["id"]) for d in rows] + [(d["lender"], d["id"]) for d in rows if d.get("lender")]
+    wanted = resolve(name, list(dict.fromkeys(options)), "debt")
+    return next(d for d in rows if d["id"] == wanted)
+
+
+def _rate(args) -> dict:
+    if args.rate_percent is None:
+        return {}
+    if args.rate_per is None:
+        raise ToolError("Say whether the rate is per month or per year (rate_per).")
+    return {"rate_bp": round(args.rate_percent * 100), "rate_period": args.rate_per}
+
+
+def list_debts(client: OlmentaClient, args: NoArgs) -> str:
+    view = client.debts()
+    if not view["debts"]:
+        return "No debts yet."
+    cushion = view["cushion"]
+    lines = [_debt_line(d) for d in view["debts"]]
+    note = ""
+    if view["extra_monthly_cents"] > 0 and cushion["saved_cents"] < cushion["suggested_cents"]:
+        note = (f" Cushion: {eur(cushion['saved_cents'])} saved of the suggested {eur(cushion['suggested_cents'])} — "
+                "suggest building it first so the next surprise doesn't end up on the card.")
+    return "\n".join(lines) + f"\n{_debts_summary(view)}{note}"
+
+
+class DebtFieldsArgs(BaseModel):
+    plan_monthly: Euros | None = Field(default=None, description="Card: euros a month (or target_month, not both).")
+    target_month: str | None = Field(default=None, description="Card: YYYY-MM to be done by.")
+    minimum: Euros | None = Field(default=None, description="Card: the least the bank allows. Omit if unknown.")
+    name: str | None = Field(default=None, description="Loan or money owed: a name.")
+    installment: Euros | None = Field(default=None, description="Loan: euros per installment.")
+    installments_left: int | None = None
+    next_month: str | None = Field(default=None, description="Loan: YYYY-MM of the next installment.")
+    day: int | None = None
+    owed: Euros | None = Field(default=None, description="Money owed: euros.")
+    lender: str | None = Field(default=None, description="Money owed: who to.")
+    due_month: str | None = Field(default=None, description="Money owed: YYYY-MM if they need it back by then.")
+    rate_percent: float | None = Field(default=None, description="Omit if unknown; never guess.")
+    rate_per: Literal["month", "year"] | None = None
+
+
+class AddDebtArgs(DebtFieldsArgs):
+    kind: Literal["card", "loan", "personal"]
+    account: str | None = Field(default=None, description="Card: the credit account by name (or \"tarjeta\").")
+
+
+def _cents_fields(args: DebtFieldsArgs) -> dict:
+    out = {
+        "plan_monthly_cents": positive_cents(args.plan_monthly) if args.plan_monthly is not None else None,
+        "target_month": args.target_month,
+        "minimum_cents": positive_cents(args.minimum) if args.minimum is not None else None,
+        "name": args.name.strip() if args.name else None,
+        "installment_cents": positive_cents(args.installment) if args.installment is not None else None,
+        "installments_left": args.installments_left, "next_month": args.next_month, "day": args.day,
+        "owed_cents": positive_cents(args.owed) if args.owed is not None else None,
+        "lender": args.lender, "due_month": args.due_month, **_rate(args),
+    }
+    return {k: v for k, v in out.items() if v is not None}
+
+
+def add_debt(client: OlmentaClient, args: AddDebtArgs) -> str:
+    body = {"kind": args.kind, **_cents_fields(args)}
+    if args.kind == "card":
+        if not args.account:
+            raise ToolError("A card debt needs its account (see list_accounts).")
+        accounts = [(a["name"], a["id"], a["type"]) for a in client.accounts()
+                    if not a["archived"] and a["type"] == "credit"]
+        body["account_id"] = resolve_account(args.account, accounts)
+    view = client.create_debt(body)
+    created = next((d for d in view["debts"] if d["kind"] == args.kind and (
+        d.get("account_id") == body.get("account_id") if args.kind == "card" else d["name"] == body.get("name"))),
+        None)
+    head = f"Added: {_debt_line(created)}." if created else "Added."
+    return f"{head} {_debts_summary(view)}"
+
+
+class UpdateDebtArgs(DebtFieldsArgs):
+    debt: str = Field(description="The debt's name, card or lender.")
+
+
+def update_debt(client: OlmentaClient, args: UpdateDebtArgs) -> str:
+    debt = _debt(client, args.debt)
+    body = _cents_fields(args)
+    if not body:
+        raise ToolError("Say what changes.")
+    view = client.update_debt(debt["id"], body)
+    row = next(d for d in view["debts"] if d["id"] == debt["id"])
+    return f"Changed: {_debt_line(row)}. {_debts_summary(view)}"
+
+
+class DeleteDebtArgs(BaseModel):
+    debt: str = Field(description="The debt's name, card or lender.")
+
+
+def delete_debt(client: OlmentaClient, args: DeleteDebtArgs) -> str:
+    debt = _debt(client, args.debt)
+    client.delete_debt(debt["id"])
+    return f"Removed the plan of {debt['name']} (its category and history stay). {_debts_summary(client.debts())}"
+
+
+class SetDebtExtraArgs(BaseModel):
+    amount: Euros = Field(description="Euros a month on top of the required payments; 0 removes it.")
+
+
+def set_debt_extra(client: OlmentaClient, args: SetDebtExtraArgs) -> str:
+    cents = parse_euros(args.amount)
+    if cents < 0:
+        raise AmountError("the extra can't be negative")
+    view = client.set_debt_extra(cents)
+    target = next((d["name"] for d in view["debts"] if d["id"] == view.get("extra_target_debt_id")), None)
+    goes = f" It goes to {target} first." if target and cents else ""
+    return f"Extra set to {eur(cents)} a month.{goes} {_debts_summary(view)}"
+
+
 class CreateTransferArgs(BaseModel):
     amount: Euros = Field(description="Euros moved, positive.")
     from_account: str = Field(description="Account the money leaves (by name).")
@@ -919,6 +1063,35 @@ TOOLS: list[ToolSpec] = [
         "delete_income",
         "Remove an expected income the user no longer has.",
         DeleteIncomeArgs, delete_income, read_only=False,
+    ),
+    ToolSpec(
+        "list_debts",
+        "The user's debts in paydown order (highest interest first): owed, plan, rate, end month, plus the "
+        "total, the debt-free month, the extra and the cushion.",
+        NoArgs, list_debts, read_only=True,
+    ),
+    ToolSpec(
+        "add_debt",
+        "Add a debt the user tells you about: a card (by its credit account, with plan_monthly OR "
+        "target_month), a loan (installment, installments_left, next_month) or money owed (owed, lender, "
+        "optional due_month). Ask the minimum and the rate, but leave them out when unknown; never guess.",
+        AddDebtArgs, add_debt, read_only=False,
+    ),
+    ToolSpec(
+        "update_debt",
+        "Change a debt (only what changes; only the fields of its kind apply).",
+        UpdateDebtArgs, update_debt, read_only=False,
+    ),
+    ToolSpec(
+        "delete_debt",
+        "Remove a debt's plan (paid off or entered by mistake); its category and history stay.",
+        DeleteDebtArgs, delete_debt, read_only=False,
+    ),
+    ToolSpec(
+        "set_debt_extra",
+        "Set the monthly extra for paying debts faster; it goes to the first debt in the order and rolls "
+        "forward. Suggest a small cushion first when the user has no savings.",
+        SetDebtExtraArgs, set_debt_extra, read_only=False,
     ),
     ToolSpec(
         "create_transfer",

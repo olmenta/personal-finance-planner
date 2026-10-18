@@ -56,6 +56,9 @@ def _message(status: int, detail: Any) -> str:
         "card_plan_exists": "A card's payment category holds only its plan; change it in What you owe.",
         "schedule_not_found": "That payment doesn't exist — check list_payments.",
         "income_schedule_not_found": "That expected income doesn't exist — check list_income.",
+        "invalid_debt": "Those debt details don't fit its kind (a card needs a plan or a target month; a loan needs installment, installments left and next month; money owed needs an amount).",
+        "debt_exists": "That card or category already has a debt — change it with update_debt.",
+        "debt_not_found": "That debt doesn't exist — check list_debts.",
     }
     if code == "insufficient_available" and available is not None:
         return f"The source category only has {eur(available)} available."
@@ -149,6 +152,21 @@ class OlmentaClient:
 
     def delete_income(self, schedule_id: str) -> None:
         return self._request("DELETE", f"/income-schedules/{schedule_id}")
+
+    def debts(self) -> dict:
+        return self._request("GET", "/debts")
+
+    def create_debt(self, body: dict) -> dict:
+        return self._request("POST", "/debts", json=body)
+
+    def update_debt(self, debt_id: str, body: dict) -> dict:
+        return self._request("PATCH", f"/debts/{debt_id}", json=body)
+
+    def delete_debt(self, debt_id: str) -> None:
+        return self._request("DELETE", f"/debts/{debt_id}")
+
+    def set_debt_extra(self, cents: int) -> dict:
+        return self._request("PUT", "/debts/extra", json={"extra_monthly_cents": cents})
 
     def create_transfer(self, body: dict) -> dict:
         return self._request("POST", "/transfers", json=body)
