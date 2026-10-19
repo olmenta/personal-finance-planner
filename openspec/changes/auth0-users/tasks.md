@@ -69,4 +69,4 @@
 - [x] 5.3 e2e green in auth-disabled mode (`volta run npm run e2e`). Add to `e2e/home.spec.ts`: the sidebar shows "Development user" and no Maya placeholder.
 - [x] 5.4 Auth0 objects in `olmenta.eu.auth0.com`: the dev and beta APIs, the dev and beta applications, the Machine-to-Machine application and its grant, and the Action, through the Auth0 MCP; the connections, the Action binding and the Google OAuth client by hand.
 - [x] 5.5 Manual: the user adds the `dev.olmenta.com` public hostname to the tunnel (`docs/dev-tunnel.md`).
-- [ ] 5.6 Manual: the user runs the login checklist locally (`localhost:3000`, or `dev.olmenta.com` through cloudflared), including the linking cases.
+- [x] 5.6 Manual: the user runs the login checklist locally (`localhost:3000`, or `dev.olmenta.com` through cloudflared), including the linking cases.
