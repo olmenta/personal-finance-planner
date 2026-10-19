@@ -43,7 +43,8 @@ The response SHALL satisfy `M = T + L + F + U` exactly. Already paid and card pa
 
 `status` SHALL be:
 
-- `no_accounts` when the user has no active account;
+- `not_set_up` when the user hasn't set up a budget yet: no categories and no transactions (a new user, before the onboarding or the starter template);
+- otherwise `no_accounts` when the user has no active account;
 - otherwise `needs_organizing` when at least one reason applies;
 - otherwise `organized`.
 
@@ -55,6 +56,8 @@ Reasons, each with its amount in cents:
 | `overspent_categories` | Categories are overspent (cash); the reason lists each category and its amount |
 | `unbudgeted_card_spending` | Card spending exceeded its category |
 | `uncovered_payments` | This month's pending payments are short |
+
+In `not_set_up` there's nothing to analyze: the response SHALL carry no reasons, no priority and no suggestion groups, and Home SHALL show no amounts, only the invitation to the setup chat.
 
 When the status isn't `organized`, Home SHALL NOT present "Left to spend" as money you can spend. It shows the status and keeps the exact figure in the breakdown.
 
@@ -72,6 +75,16 @@ When the status isn't `organized`, Home SHALL NOT present "Left to spend" as mon
 
 - **WHEN** the user has no active accounts
 - **THEN** the status is `no_accounts`, and Home invites adding an account and its balance without showing amounts
+
+#### Scenario: A new user before setup
+
+- **WHEN** a user who has just signed in for the first time, with only the empty cash account, opens Home
+- **THEN** the status is `not_set_up`, there are no reasons or suggestions, and Home invites the setup chat instead of saying "I've updated your month"
+
+#### Scenario: Setup done another way
+
+- **WHEN** that user applies the starter template, or records money without the onboarding
+- **THEN** the status is no longer `not_set_up`
 
 ### Requirement: Data status
 
