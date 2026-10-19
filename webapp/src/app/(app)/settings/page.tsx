@@ -4,10 +4,11 @@ import Link from "next/link";
 import React from "react";
 import { useAccounts } from "@/components/AccountPicker";
 import { Avatar } from "@/components/ui/Avatar";
-import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { IconChip, type ChipTone } from "@/components/ui/IconChip";
 import { Switch } from "@/components/ui/Switch";
+import { useCurrentUser } from "@/components/shell/CurrentUser";
 import { TopBar } from "@/components/shell/TopBar";
 import { CategorySettings } from "@/components/CategorySettings";
 import { IncomeEditor } from "@/components/plan/IncomeEditor";
@@ -74,6 +75,7 @@ const groupStyle: React.CSSProperties = {
 };
 
 export default function SettingsPage() {
+  const user = useCurrentUser();
   const { active: accounts, isSuccess } = useAccounts();
   let accountsSub: string | undefined;
   if (isSuccess) accountsSub = accounts.length === 1 ? "1 account" : `${accounts.length} accounts`;
@@ -90,8 +92,8 @@ export default function SettingsPage() {
             gap: 14,
           }}
         >
-          <Avatar name="Maya Ortiz" ring="brand" size={56} />
-          <div style={{ flex: 1 }}>
+          <Avatar name={user.name} src={user.picture ?? undefined} ring="brand" size={56} />
+          <div style={{ flex: 1 }} data-testid="settings-user">
             <div
               style={{
                 font: "700 17px var(--font-sans)",
@@ -99,21 +101,26 @@ export default function SettingsPage() {
                 color: "var(--text-strong)",
               }}
             >
-              Maya Ortiz
+              {user.name}
             </div>
-            <div
-              style={{
-                font: "500 13px var(--font-sans)",
-                color: "var(--text-muted)",
-                marginTop: 1,
-              }}
-            >
-              maya@olmenta.app
-            </div>
+            {user.email && (
+              <div
+                style={{
+                  font: "500 13px var(--font-sans)",
+                  color: "var(--text-muted)",
+                  marginTop: 1,
+                }}
+              >
+                {user.email}
+              </div>
+            )}
           </div>
-          <Badge tone="mint" icon="sparkles">
-            Pro
-          </Badge>
+          {user.canLogOut && (
+            // A full navigation: the SDK's logout route ends both sessions.
+            <a href="/auth/logout" style={{ textDecoration: "none" }}>
+              <Button variant="secondary" size="sm" iconLeft="log-out">Log out</Button>
+            </a>
+          )}
         </div>
 
         <div>

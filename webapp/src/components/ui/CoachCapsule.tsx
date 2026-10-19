@@ -27,19 +27,23 @@ export function CoachCapsule({
       onClick={onClick}
       style={{
         display: "flex",
+        flexWrap: "wrap",
         alignItems: "center",
         justifyContent: "space-between",
-        gap: 12,
+        gap: "8px 12px",
         background: "var(--grad-coach)",
         color: "#fff",
-        borderRadius: "var(--r-full)",
+        // A pill on one line (54px tall); a rounded card when the CTA wraps.
+        borderRadius: 27,
         padding: "12px 16px 12px 14px",
         boxShadow: "var(--shadow-coach)",
         cursor: onClick ? "pointer" : "default",
         ...style,
       }}
     >
-      <span style={{ display: "flex", alignItems: "center", gap: 11, minWidth: 0 }}>
+      {/* When the message and the CTA don't fit on one line, the CTA moves
+          under the message instead of squeezing it. */}
+      <span style={{ display: "flex", alignItems: "center", gap: 11, minWidth: 0, flex: "1 1 220px" }}>
         <span
           style={{
             width: 30,
@@ -54,13 +58,16 @@ export function CoachCapsule({
         >
           <Icon name="sparkles" size={16} color={sparkColor} strokeWidth={2} />
         </span>
+        {/* At most two lines. */}
         <span
+          data-testid="coach-capsule-message"
           style={{
-            font: "600 14.5px var(--font-sans)",
+            font: "600 14.5px/1.3 var(--font-sans)",
             letterSpacing: "-0.1px",
-            whiteSpace: "nowrap",
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
             overflow: "hidden",
-            textOverflow: "ellipsis",
           }}
         >
           {message}
@@ -76,6 +83,7 @@ export function CoachCapsule({
             color: "rgba(255,255,255,.85)",
             whiteSpace: "nowrap",
             flex: "none",
+            marginLeft: "auto",
           }}
         >
           {cta}

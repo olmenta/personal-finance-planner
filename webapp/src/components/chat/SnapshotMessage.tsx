@@ -8,6 +8,7 @@ import {
   NoAccounts,
   PriorityAction,
   RecommendationGroups,
+  SetupInvitation,
   coachLine,
   futureSentence,
   reasonList,
@@ -40,6 +41,13 @@ export function SnapshotMessage({ home }: Readonly<{ home: HomeView }>) {
   const [split, setSplit] = React.useState(false);
   const [more, setMore] = React.useState(false);
   const time = timeOf(home.generated_at);
+  if (home.status === "not_set_up") {
+    return (
+      <CoachBubble time={time} testId="snapshot-message">
+        <SetupInvitation />
+      </CoachBubble>
+    );
+  }
   if (home.status === "no_accounts") {
     return (
       <CoachBubble time={time} testId="snapshot-message">

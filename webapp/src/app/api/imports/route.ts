@@ -2,16 +2,19 @@
    would break the multipart boundary, so this handler forwards the FormData
    and lets fetch set the header. */
 
-const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
+import { BACKEND_URL, authHeaders } from "@/lib/server/backend";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const auth = await authHeaders();
+  if (auth instanceof Response) return auth;
   let upstream: Response;
   try {
     upstream = await fetch(`${BACKEND_URL}/imports`, {
       method: "POST",
       body: await request.formData(),
+      headers: auth,
       cache: "no-store",
     });
   } catch {

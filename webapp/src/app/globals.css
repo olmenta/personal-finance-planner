@@ -105,11 +105,41 @@
 .assign-edit-mobile { display: none; }
 .assign-edit-desktop { display: block; }
 
+/* Budget rows: Assigned · Spent · Available. Desktop: three columns on the
+   row's line, labeled once per group (.budget-cols-head). Mobile: a labeled
+   second line under the name. */
+.budget-row-main { display: flex; align-items: center; gap: 13px; }
+.budget-cols {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(3, 116px);
+  column-gap: 8px;
+  align-items: start;
+  justify-items: end;
+}
+.budget-cell { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 0; }
+.budget-cell-label { display: none; }
+
+@media (max-width: 1023px) {
+  .budget-row-main { flex-wrap: wrap; row-gap: 10px; }
+  .budget-cols {
+    order: 3;
+    flex-basis: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    justify-items: start;
+  }
+  .budget-cell { align-items: flex-start; }
+  .budget-cell-label { display: block; }
+  .budget-available { min-width: 0 !important; }
+  .budget-cols-head { display: none !important; }
+}
+
 @media (max-width: 1023px) {
   /* Editing via numpad sheet; compact sticky hero */
   .assign-edit-desktop { display: none; }
   .assign-edit-mobile { display: block; }
   .tba-hero { padding: 10px 14px !important; }
+  .tba-hero-action { display: none; }
   .tba-hero-amount { font-size: 19px !important; letter-spacing: -0.5px !important; }
 }
 

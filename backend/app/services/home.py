@@ -14,7 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import clock
-from ..models import Account, ImportBatch, Transaction, User
+from ..models import Account, Category, ImportBatch, Transaction, User
 from ..schemas import (
     HomeData,
     HomeFuture,
@@ -127,6 +127,16 @@ def _groups(proposals: list) -> tuple:
     ]
 
 
+def _is_set_up(db: Session, user: User) -> bool:
+    """Setup done: the user has a budget (categories, from the onboarding or
+    the starter template) or has recorded money. A freshly provisioned user,
+    with only the empty cash account, has neither (spec: home, not_set_up)."""
+    has_categories = db.scalar(select(Category.id).where(Category.user_id == user.id).limit(1))
+    if has_categories:
+        return True
+    return db.scalar(select(Transaction.id).where(Transaction.user_id == user.id).limit(1)) is not None
+
+
 def build_home(db: Session, user: User) -> HomeView:
     from .budget_view import build_view
     from .income import user_schedules
@@ -142,8 +152,11 @@ def build_home(db: Session, user: User) -> HomeView:
     overview = build_overview(db, user, month)
     view = build_view(db, user, month)
     income_known = bool(user_schedules(db, user))
-    reasons = _reasons(overview, view)
-    if not has_accounts:
+    set_up = _is_set_up(db, user)
+    reasons = _reasons(overview, view) if set_up else []
+    if not set_up:
+        status = "not_set_up"
+    elif not has_accounts:
         status = "no_accounts"
     elif reasons:
         status = "needs_organizing"
@@ -152,7 +165,8 @@ def build_home(db: Session, user: User) -> HomeView:
     summary = _summary(overview)
     data = _data(db, user, view, income_known)
     future = _future(db, user, month, income_known)
-    visible = coach.visible(db, user)
+    # Nothing to analyze before setup: no reasons, no suggestions.
+    visible = coach.visible(db, user) if set_up else []
     priority, groups = _groups(visible)
     version_source = {
         "summary": summary.model_dump(),

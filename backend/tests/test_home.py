@@ -60,6 +60,41 @@ def test_identity_over_generated_data(client, category_ids):
     assert identity(home(client))
 
 
+def fresh_user(db):
+    """A user as Auth0 provisioning leaves them: the empty cash account, no
+    categories, no transactions (auth0-users)."""
+    from app.services import users
+    return users.resolve(db, "auth0|fresh", "fresh@example.com")
+
+
+def test_not_set_up_before_the_onboarding(db, client):
+    from app.services.home import build_home
+    h = build_home(db, fresh_user(db))
+    assert h.status == "not_set_up"
+    assert h.reasons == [] and h.priority is None and h.groups == []
+    assert h.summary.accounts_cents == 0
+
+
+def test_the_starter_template_sets_up(db, client):
+    from app.services.category_setup import DEFAULT_CATEGORY_TREE, create_tree
+    from app.services.home import build_home
+    user = fresh_user(db)
+    create_tree(db, user.id, DEFAULT_CATEGORY_TREE)
+    assert build_home(db, user).status != "not_set_up"
+
+
+def test_recorded_money_sets_up(db, client):
+    from sqlalchemy import select
+    from app.models import Account
+    from app.services.accounts import write_opening_balance
+    from app.services.home import build_home
+    user = fresh_user(db)
+    cash = db.scalar(select(Account).where(Account.user_id == user.id))
+    write_opening_balance(db, cash, 5000, date(2026, 10, 14))
+    db.flush()
+    assert build_home(db, user).status != "not_set_up"
+
+
 def test_no_accounts(client):
     for account in client.get("/accounts").json():  # the seed's default account
         client.patch(f"/accounts/{account['id']}", json={"archived": True})
@@ -172,3 +207,11 @@ def test_snapshot_version(client, category_ids):
     client.post("/transactions", json={"amount_cents": 1500, "category_id": category_ids["Ocio"],
                                        "date": "2026-10-12"})
     assert home(client)["snapshot_version"] != first["snapshot_version"]
+
+
+def test_the_coach_is_told_not_to_analyze_before_setup(db, client):
+    from app.services.coach_chat import _context
+    from app.services.home import build_home
+    context = _context(build_home(db, fresh_user(db)), "es")
+    assert "hasn't set up their budget" in context
+    assert "money in accounts" not in context

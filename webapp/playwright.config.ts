@@ -61,6 +61,9 @@ export default defineConfig({
         SENTRY_DSN: "",
         ANTHROPIC_API_KEY: "",
         LLM_ROUTE_COACH_MODEL: "fake:e2e",
+        // The e2e suite runs without Auth0, as the seeded development user.
+        APP_ENV: "test",
+        AUTH_MODE: "dev_user",
       },
     },
     {
@@ -71,6 +74,8 @@ export default defineConfig({
       env: {
         BACKEND_URL: `http://127.0.0.1:${API_PORT}`,
         NEXT_DIST_DIR: ".next-e2e",
+        APP_ENV: "test",
+        AUTH0_DOMAIN: "",
         NEXT_PUBLIC_SENTRY_DSN: "",
         SENTRY_DSN: "",
       },

@@ -6,9 +6,10 @@ import { E2E_TODAY } from "./constants";
 
 export { euroCents };
 
-/** Clean, seeded e2e database: migrate, truncate, dev user + default tree. */
-export function resetDb(): void {
-  execFileSync("uv", ["run", "python", "-m", "app.e2e_reset"], {
+/** Clean, seeded e2e database: migrate, truncate, dev user + default tree.
+    `fresh` leaves the user as a new sign-up: the cash account, no tree. */
+export function resetDb({ fresh = false }: { fresh?: boolean } = {}): void {
+  execFileSync("uv", ["run", "python", "-m", "app.e2e_reset", ...(fresh ? ["--fresh"] : [])], {
     cwd: path.resolve(__dirname, "../../../backend"),
     stdio: "inherit",
   });
@@ -83,6 +84,16 @@ export class Api {
 
   async expense(categoryId: string, amountCents: number, date: string, payee?: string): Promise<void> {
     await this.send("POST", "/transactions", { amount_cents: amountCents, category_id: categoryId, date, payee });
+  }
+
+  /** Money between own accounts — into a card, it's a payment to the card. */
+  async transfer(fromAccountId: string, toAccountId: string, amountCents: number, date: string): Promise<void> {
+    await this.send("POST", "/transfers", {
+      from_account_id: fromAccountId,
+      to_account_id: toAccountId,
+      amount_cents: amountCents,
+      date,
+    });
   }
 
   async schedule(categoryId: string, body: Record<string, unknown>): Promise<void> {

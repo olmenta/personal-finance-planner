@@ -227,7 +227,8 @@ export function ConversationView() {
           style={{ flex: 1, minHeight: 0, overflowY: "auto" }}
         >
           <div style={{ maxWidth: 1040, margin: "0 auto", padding: "16px 24px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
-            <OnboardingNudge />
+            {/* Before setup the snapshot itself is the invitation. */}
+            {home.data?.status !== "not_set_up" && <OnboardingNudge />}
             {hasMore && (
               <Button variant="ghost" size="sm" onClick={loadOlder} disabled={loadingOlder} style={{ alignSelf: "center" }}>
                 {loadingOlder ? "Loading…" : "Show earlier messages"}

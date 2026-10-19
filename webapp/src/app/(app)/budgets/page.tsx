@@ -18,6 +18,7 @@ import { MoveMoneySheet } from "@/components/budget/MoveMoneySheet";
 import { ScheduleEditor } from "@/components/plan/ScheduleEditor";
 import { TopBar } from "@/components/shell/TopBar";
 import { euroCents } from "@/lib/format";
+import { MONTH_NAMES } from "@/lib/schedules";
 import {
   type BudgetCategoryView,
   type BudgetGroupView,
@@ -211,8 +212,11 @@ function AssignMode() {
   const allDrafted = draftIds.length === totalCategories;
 
   const pendingNoun = draftIds.length === 1 ? "amount" : "amounts";
+  const monthIndex = Number(month.month.slice(5, 7)) - 1;
+  const thisMonth = MONTH_NAMES[monthIndex];
+  const lastMonth = MONTH_NAMES[(monthIndex + 11) % 12];
   const capsuleMessage = allDrafted
-    ? `May's plan fits June — ${euroCents(draftTotal, 0)} across ${draftIds.length} categories`
+    ? `${lastMonth}'s plan fits ${thisMonth} — ${euroCents(draftTotal, 0)} across ${draftIds.length} categories`
     : `${draftIds.length} suggested ${pendingNoun} still pending`;
 
   return (
