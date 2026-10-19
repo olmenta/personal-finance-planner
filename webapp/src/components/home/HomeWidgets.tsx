@@ -301,6 +301,23 @@ export function FutureWidget({ home }: Readonly<{ home: HomeView }>) {
   );
 }
 
+/* Before setup (no budget, no money recorded) there's nothing to analyze:
+   the snapshot only invites the setup chat (spec: home, not_set_up). */
+export function SetupInvitation() {
+  return (
+    <div data-testid="setup-invitation" style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-start" }}>
+      <div style={{ font: "700 17px var(--font-sans)", color: "var(--text-strong)" }}>Let&apos;s set up your budget</div>
+      <div style={{ font: "500 14px/1.5 var(--font-sans)", color: "var(--text-muted)", maxWidth: 520 }}>
+        Tell me about your income, your accounts and the payments you make every month. In about two minutes
+        I&apos;ll build your budget with you.
+      </div>
+      <Link href="/onboarding" style={{ textDecoration: "none" }}>
+        <Button>Start the setup chat</Button>
+      </Link>
+    </div>
+  );
+}
+
 export function NoAccounts() {
   return (
     <div data-testid="no-accounts">

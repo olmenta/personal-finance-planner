@@ -21,9 +21,21 @@ Three rules make it work:
 
 ## Getting started
 
+### Signing in
+
+Olmenta is invitation-only for now. When you're invited, you get an email to choose your password. Then sign in with your email and that password.
+
+If the address you were invited with is a Google account, you can use **Continue with Google** instead, with or without setting a password. Both ways open the same Olmenta. A Google account with a different address won't get in.
+
+You stay signed in on that device. If you're away long enough, Olmenta asks you to sign in again and brings you back to where you were; a message you were writing to the coach is kept.
+
+Your name and email are at the bottom of the sidebar and in **Settings**, where **Log out** signs you out. Your budget is yours alone: nobody else who uses Olmenta sees it.
+
 ### The setup chat
 
-The first time you open Olmenta, a short chat asks about your life: who you manage money with, where your income comes from, your bank accounts and cards, your home, your car, your subscriptions and your debts. It takes about two minutes, and you can answer by tapping.
+The first time you open Olmenta, Home invites you to set up your budget: **Start the setup chat**. Until you do, there's no month to analyze, so Home shows only that invitation.
+
+The setup chat asks about your life: who you manage money with, where your income comes from, your bank accounts and cards, your home, your car, your subscriptions and your debts. It takes about two minutes, and you can answer by tapping.
 
 At the end you see a **review screen** with everything it proposes: your accounts, your income, your categories, and the people and businesses you pay. Nothing is saved yet. Uncheck what you don't need, rename anything, add what's missing, then confirm.
 

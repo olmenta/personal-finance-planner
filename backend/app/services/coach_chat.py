@@ -122,6 +122,14 @@ LANGUAGES = {"es": "Spanish", "en": "English"}
 
 
 def _context(home, locale: str | None = None) -> str:
+    if home.status == "not_set_up":
+        return "\n".join([
+            "The user hasn't set up their budget yet: no categories and no money recorded.",
+            f"- app language, only for messages too short to tell: {LANGUAGES.get(locale or 'es', 'Spanish')}",
+            "- Don't analyze their month or show month widgets: every figure would be zero and mean nothing.",
+            "- Answer general questions briefly, then invite them to the setup chat: the \"Start the setup "
+            "chat\" button on Home (/onboarding), about two minutes on income, accounts and monthly payments.",
+        ])
     s = home.summary
     lines = [
         f"Snapshot of the user's month {home.month} (computed by Olmenta; for orientation only — "

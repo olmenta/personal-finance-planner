@@ -201,17 +201,24 @@ export default function OnboardingPage() {
     onSuccess: finishedSetup,
   });
 
+  const lastEntry = session?.transcript.at(-1);
+  const interviewDone = Boolean(lastEntry?.done && session?.proposal);
+
+  // The chat fills the viewport: only the message list scrolls, so the
+  // newest message and the answer options stay in view.
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [session?.transcript.length, send.isPending]);
 
-  const lastEntry = session?.transcript.at(-1);
-  const interviewDone = Boolean(lastEntry?.done && session?.proposal);
+  // The review is a long page read from the top.
+  React.useEffect(() => {
+    if (interviewDone) window.scrollTo({ top: 0 });
+  }, [interviewDone]);
 
   return (
     <main
       style={{
-        minHeight: "100dvh",
+        ...(interviewDone ? { minHeight: "100dvh" } : { height: "100dvh" }),
         background: "var(--bg-app)",
         display: "flex",
         justifyContent: "center",
@@ -222,6 +229,7 @@ export default function OnboardingPage() {
         style={{
           width: "100%",
           maxWidth: 640,
+          minHeight: 0,
           display: "flex",
           flexDirection: "column",
           gap: 18,
@@ -258,6 +266,7 @@ export default function OnboardingPage() {
               ref={scrollRef}
               style={{
                 flex: 1,
+                minHeight: 0,
                 overflowY: "auto",
                 display: "flex",
                 flexDirection: "column",

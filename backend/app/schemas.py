@@ -993,7 +993,7 @@ class HomeGroup(BaseModel):
 class HomeView(BaseModel):
     month: str
     generated_at: datetime
-    status: Literal["organized", "needs_organizing", "no_accounts"]
+    status: Literal["organized", "needs_organizing", "no_accounts", "not_set_up"]
     reasons: list[HomeReason]
     summary: HomeSummary
     data: HomeData
@@ -1123,4 +1123,14 @@ class SimilarGroup(BaseModel):
 class SimilarView(BaseModel):
     matches: list[SimilarMatch]  # strongest first, at most 5
     suggested_group: SimilarGroup | None = None  # categories only
+
+
+class MeOut(BaseModel):
+    """The signed-in user (spec: authentication)."""
+
+    model_config = {"from_attributes": True}
+
+    email: str
+    locale: str
+    created_at: datetime
 

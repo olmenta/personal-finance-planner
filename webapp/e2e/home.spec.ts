@@ -40,7 +40,9 @@ test("the sidebar has the five destinations", async ({ page }) => {
   await expect(nav.getByRole("link", { name: "Coach" })).toHaveCount(0);
   const sidebar = page.locator(".app-sidebar");
   await expect(sidebar.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
-  await expect(sidebar).toContainText("Maya Ortiz");
+  // The e2e suite runs without Auth0, as the development user (auth0-users).
+  await expect(sidebar.getByTestId("sidebar-user")).toContainText("Development user");
+  await expect(sidebar).not.toContainText("Maya Ortiz");
   await expect(sidebar).not.toContainText("Olmenta Pro");
 });
 

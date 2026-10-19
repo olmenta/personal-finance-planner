@@ -4,7 +4,9 @@ The e2e database (olmenta_e2e in the local Postgres, docker-compose.yml) holds
 no personal data: migrate to head, truncate every table, and run the dev
 seed. The Playwright suite runs this before each spec file.
 
-Run: uv run python -m app.e2e_reset
+Run: uv run python -m app.e2e_reset [--fresh]
+
+`--fresh` seeds the dev user without the category tree: a new user before setup.
 """
 
 import os
@@ -62,7 +64,7 @@ def main() -> None:
 
     from .seed import main as seed_main
 
-    seed_main()
+    seed_main(with_tree="--fresh" not in sys.argv[1:])
     print(f"Reset e2e database ({len(tables)} tables truncated)")
 
 

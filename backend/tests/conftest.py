@@ -15,6 +15,10 @@ os.environ["SENTRY_DSN"] = ""
 # (including expected errors like the API-down test) to the real project.
 # Tests capture spans in memory via additional_span_processors instead.
 os.environ["LOGFIRE_TOKEN"] = ""
+# Tests run as the seeded development user unless a test opts into Auth0
+# (tests/test_auth.py); a developer's .env Auth0 settings must not leak in.
+os.environ["APP_ENV"] = "test"
+os.environ["AUTH_MODE"] = "dev_user"
 from pathlib import Path  # noqa: E402
 
 from app.llm import observability  # noqa: E402

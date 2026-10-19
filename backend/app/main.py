@@ -16,6 +16,7 @@ from .routers import (
     coach_chat,
     imports,
     income,
+    me,
     onboarding,
     payees,
     plan,
@@ -25,8 +26,10 @@ from .routers import (
     transfers,
 )
 from .llm.observability import configure_logfire
+from .config import check_auth_config, get_settings
 from .telemetry import configure_sentry
 
+check_auth_config(get_settings())
 configure_sentry()
 
 app = FastAPI(title="Personal Finance Planner API")
@@ -49,6 +52,7 @@ app.include_router(debts.router)
 app.include_router(coach.router)
 app.include_router(home.router)
 app.include_router(coach_chat.router)
+app.include_router(me.router)
 
 
 @app.get("/health")

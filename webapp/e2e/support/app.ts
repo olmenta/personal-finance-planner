@@ -6,9 +6,10 @@ import { E2E_TODAY } from "./constants";
 
 export { euroCents };
 
-/** Clean, seeded e2e database: migrate, truncate, dev user + default tree. */
-export function resetDb(): void {
-  execFileSync("uv", ["run", "python", "-m", "app.e2e_reset"], {
+/** Clean, seeded e2e database: migrate, truncate, dev user + default tree.
+    `fresh` leaves the user as a new sign-up: the cash account, no tree. */
+export function resetDb({ fresh = false }: { fresh?: boolean } = {}): void {
+  execFileSync("uv", ["run", "python", "-m", "app.e2e_reset", ...(fresh ? ["--fresh"] : [])], {
     cwd: path.resolve(__dirname, "../../../backend"),
     stdio: "inherit",
   });

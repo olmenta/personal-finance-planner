@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Avatar } from "@/components/ui/Avatar";
 import { Icon } from "@/components/ui/Icon";
+import { useCurrentUser } from "./CurrentUser";
 
 const items = [
   { href: "/", icon: "home", label: "Home" },
@@ -75,6 +76,7 @@ function SideItem({
 
 export function Sidebar() {
   const pathname = usePathname();
+  const user = useCurrentUser();
 
   return (
     <aside
@@ -121,22 +123,24 @@ export function Sidebar() {
             textDecoration: "none",
           }}
         >
-          <Avatar name="Maya Ortiz" size={40} />
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <Avatar name={user.name} src={user.picture ?? undefined} size={40} />
+          <div style={{ flex: 1, minWidth: 0 }} data-testid="sidebar-user">
             <div style={{ font: "700 13.5px var(--font-sans)", color: "var(--text-strong)" }}>
-              Maya Ortiz
+              {user.name}
             </div>
-            <div
-              style={{
-                font: "500 12px var(--font-sans)",
-                color: "var(--text-muted)",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              maya@olmenta.app
-            </div>
+            {user.email && (
+              <div
+                style={{
+                  font: "500 12px var(--font-sans)",
+                  color: "var(--text-muted)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {user.email}
+              </div>
+            )}
           </div>
           <Icon name="chevron-right" size={18} color="var(--text-subtle)" />
         </Link>

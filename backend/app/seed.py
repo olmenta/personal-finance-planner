@@ -21,7 +21,9 @@ def get_dev_user(session: Session) -> User | None:
     return session.scalar(select(User).where(User.email == DEV_USER_EMAIL))
 
 
-def seed(session: Session) -> User:
+def seed(session: Session, *, with_tree: bool = True) -> User:
+    """`with_tree=False` leaves the user as Auth0 provisioning does (the cash
+    account only), before any setup — the e2e suite's fresh-user state."""
     user = get_dev_user(session)
     if user is None:
         user = User(email=DEV_USER_EMAIL, locale="es")
@@ -32,15 +34,16 @@ def seed(session: Session) -> User:
     if account is None:
         session.add(Account(user_id=user.id, name="Efectivo", type="cash"))
 
-    create_tree(session, user.id, DEFAULT_CATEGORY_TREE)
+    if with_tree:
+        create_tree(session, user.id, DEFAULT_CATEGORY_TREE)
 
     session.commit()
     return user
 
 
-def main() -> None:
+def main(*, with_tree: bool = True) -> None:
     with get_session_factory()() as session:
-        user = seed(session)
+        user = seed(session, with_tree=with_tree)
         print(f"Seeded dev user {user.email} ({user.id})")
 
 

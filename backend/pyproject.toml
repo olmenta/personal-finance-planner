@@ -12,6 +12,7 @@ dependencies = [
     "psycopg[binary]>=3.3.4",
     "pydantic-ai-slim[anthropic]>=2.54.0",
     "pydantic-settings>=2.14.1",
+    "pyjwt[crypto]>=2.15.1",
     "python-multipart>=0.0.32",
     "pyyaml>=6.0.3",
     "sentry-sdk>=2.62.0",

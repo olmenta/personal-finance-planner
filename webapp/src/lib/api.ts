@@ -498,8 +498,22 @@ export class ApiError extends Error {
   }
 }
 
+/** fetch to the BFF. A 401 `unauthenticated` means the session ended: send
+    the person to sign in and come back to this page (spec: authentication). */
+async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(input, init);
+  if (res.status === 401 && typeof window !== "undefined") {
+    const body = await res.clone().json().catch(() => null);
+    if (body?.code === "unauthenticated" || body?.detail?.code === "unauthenticated") {
+      const here = `${window.location.pathname}${window.location.search}`;
+      window.location.assign(`/auth/login?returnTo=${encodeURIComponent(here)}`);
+    }
+  }
+  return res;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const res = await apiFetch(`/api${path}`, {
     ...init,
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
@@ -552,7 +566,7 @@ export const updateSchedule = (id: string, body: Partial<ScheduleIn>) =>
   request<ScheduleOut>(`/schedules/${id}`, { method: "PATCH", body: JSON.stringify(body) });
 
 export async function deleteSchedule(id: string): Promise<void> {
-  const res = await fetch(`/api/schedules/${id}`, { method: "DELETE" });
+  const res = await apiFetch(`/api/schedules/${id}`, { method: "DELETE" });
   if (!res.ok) throw new ApiError("delete_failed", res.status);
 }
 
@@ -579,7 +593,7 @@ export const updateIncomeSchedule = (id: string, body: Partial<IncomeScheduleIn>
   });
 
 export async function deleteIncomeSchedule(id: string): Promise<void> {
-  const res = await fetch(`/api/income-schedules/${id}`, { method: "DELETE" });
+  const res = await apiFetch(`/api/income-schedules/${id}`, { method: "DELETE" });
   if (!res.ok) throw new ApiError("delete_failed", res.status);
 }
 
@@ -686,7 +700,7 @@ export const updateDebt = (id: string, body: DebtUpdate) =>
   request<DebtsView>(`/debts/${id}`, { method: "PATCH", body: JSON.stringify(body) });
 
 export async function deleteDebt(id: string): Promise<void> {
-  const res = await fetch(`/api/debts/${id}`, { method: "DELETE" });
+  const res = await apiFetch(`/api/debts/${id}`, { method: "DELETE" });
   if (!res.ok) throw new ApiError("delete_failed", res.status);
 }
 
@@ -768,7 +782,7 @@ export interface HomeReason {
 export interface HomeView {
   month: string;
   generated_at: string;
-  status: "organized" | "needs_organizing" | "no_accounts";
+  status: "organized" | "needs_organizing" | "no_accounts" | "not_set_up";
   reasons: HomeReason[];
   summary: HomeSummary;
   data: {
@@ -792,7 +806,7 @@ export interface HomeView {
 export const fetchHome = () => request<HomeView>("/home");
 
 export async function dismissProposal(fingerprint: string): Promise<void> {
-  const res = await fetch(`/api/coach/proposals/${encodeURIComponent(fingerprint)}/dismiss`, {
+  const res = await apiFetch(`/api/coach/proposals/${encodeURIComponent(fingerprint)}/dismiss`, {
     method: "POST",
   });
   if (!res.ok) throw new ApiError("dismiss_failed", res.status);
@@ -811,7 +825,7 @@ export async function acceptProposal(
   revision: string,
   fromCategoryId?: string,
 ): Promise<CoachProposalsView> {
-  const res = await fetch(`/api/coach/proposals/${encodeURIComponent(fingerprint)}/accept`, {
+  const res = await apiFetch(`/api/coach/proposals/${encodeURIComponent(fingerprint)}/accept`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ revision, ...(fromCategoryId ? { from_category_id: fromCategoryId } : {}) }),
@@ -864,7 +878,7 @@ export const updateCategoryGroup = (id: string, patch: GroupUpdate) =>
   });
 
 export const deleteCategoryGroup = async (id: string): Promise<void> => {
-  const res = await fetch(`/api/categories/groups/${id}`, { method: "DELETE" });
+  const res = await apiFetch(`/api/categories/groups/${id}`, { method: "DELETE" });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new ApiError(
@@ -883,7 +897,7 @@ export const fetchTransactions = (month?: string) =>
   );
 
 async function requestVoid(path: string, init?: RequestInit): Promise<void> {
-  const res = await fetch(`/api${path}`, init);
+  const res = await apiFetch(`/api${path}`, init);
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new ApiError(
@@ -951,7 +965,7 @@ export const applyReview = (decisions: ReviewDecisions) =>
   });
 
 export const deleteTransaction = async (id: string): Promise<void> => {
-  const res = await fetch(`/api/transactions/${id}`, { method: "DELETE" });
+  const res = await apiFetch(`/api/transactions/${id}`, { method: "DELETE" });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new ApiError(
@@ -971,7 +985,7 @@ export async function uploadImport(
   form.append("bank", bank);
   if (accountId) form.append("account_id", accountId);
   // No Content-Type header — fetch sets the multipart boundary.
-  const res = await fetch("/api/imports", { method: "POST", body: form });
+  const res = await apiFetch("/api/imports", { method: "POST", body: form });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new ApiError(
@@ -1002,7 +1016,7 @@ export const confirmImport = (id: string, decisions: ReviewDecisions) =>
   });
 
 export const discardImport = async (id: string): Promise<void> => {
-  const res = await fetch(`/api/imports/${id}`, { method: "DELETE" });
+  const res = await apiFetch(`/api/imports/${id}`, { method: "DELETE" });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new ApiError(
@@ -1354,7 +1368,7 @@ export async function sendCoachMessage(
   text: string,
   clientMessageId: string,
 ): Promise<{ user_message: ChatMessage; reply: ChatMessage }> {
-  const res = await fetch("/api/coach/messages", {
+  const res = await apiFetch("/api/coach/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text, client_message_id: clientMessageId }),
@@ -1402,7 +1416,7 @@ export async function commitCoachAction(
   idempotencyKey: string,
   choice?: GroupChoice,
 ): Promise<{ action: CoachAction; message: ChatMessage | null; follow_up?: CoachAction | null }> {
-  const res = await fetch(`/api/coach/actions/${encodeURIComponent(id)}/commit`, {
+  const res = await apiFetch(`/api/coach/actions/${encodeURIComponent(id)}/commit`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ revision, idempotency_key: idempotencyKey, ...choice }),
