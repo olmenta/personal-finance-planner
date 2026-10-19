@@ -132,7 +132,9 @@ export function TbaHero({
           </div>
         </div>
       </div>
-      {action && <div style={{ flex: "none" }}>{action}</div>}
+      {/* Below 1024px the hero is a compact sticky bar: the action hides
+          (the suggestions capsule under it offers the same one). */}
+      {action && <div className="tba-hero-action" style={{ flex: "none" }}>{action}</div>}
     </div>
   );
 }

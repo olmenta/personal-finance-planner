@@ -61,9 +61,27 @@ function QuickFill({
   );
 }
 
-/* One category row in the assignment list: chip + name, editable Assigned cell
-   (inline input on desktop, numpad sheet on mobile), spent, available chip
-   colored by sign, progress bar, expandable rollover breakdown. */
+const signed = (cents: number) => (cents > 0 ? `+${euroCents(cents)}` : euroCents(cents));
+
+const cellLabel: React.CSSProperties = { color: "var(--text-subtle)" };
+const carryStyle: React.CSSProperties = {
+  font: "500 11.5px var(--font-sans)",
+  color: "var(--text-muted)",
+  fontVariantNumeric: "tabular-nums",
+  whiteSpace: "nowrap",
+};
+const spentStyle: React.CSSProperties = {
+  padding: "8px 0",
+  font: "600 14.5px var(--font-sans)",
+  color: "var(--text-body)",
+  fontVariantNumeric: "tabular-nums",
+  whiteSpace: "nowrap",
+};
+
+/* One category row in the assignment list: chip + name, then three cells —
+   Assigned (inline input on desktop, numpad sheet on mobile, plus what
+   carries over), Spent, and the Available chip colored by sign
+   (budget-spent-column) — progress bar, expandable rollover breakdown. */
 export function AssignRow({
   category: c,
   onAssign,
@@ -111,9 +129,29 @@ export function AssignRow({
   // shown, never typed (change the payments, or move money explicitly).
   const fromPayments = c.normal_cents !== null;
 
+  // The middle column: payments to the card for its payment category.
+  const spentLabel = isPayment ? "Paid" : "Spent";
+  // What Available adds on top of this month's assignment, under Assigned,
+  // so the visible amounts add up (budget-spent-column D4).
+  const carry: string[] = [];
+  if (c.rollover_cents !== 0) carry.push(`${signed(c.rollover_cents)} from last month`);
+  if (funded > 0) carry.push(`${signed(funded)} set aside`);
+  // The subtitle keeps only the payment notes (D5).
+  const notes: React.ReactNode[] = [];
+  if (c.normal_cents !== null && c.catch_up_cents !== null) {
+    notes.push(<React.Fragment key="normal">normal {euroCents(c.normal_cents)}</React.Fragment>);
+    if (c.catch_up_cents > c.normal_cents) {
+      notes.push(
+        <span key="catch-up" style={{ color: "#9A5B00" }}>
+          {" · "}to be on time {euroCents(c.catch_up_cents)}
+        </span>,
+      );
+    }
+  }
+
   return (
     <div data-testid={`category-row-${c.name}`} style={{ padding: "13px 0", borderBottom: "1px solid var(--border-hairline)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 13 }}>
+      <div className="budget-row-main">
         <IconChip
           icon={c.icon}
           tone={cashOver ? "expense" : over ? "warning" : toneForCategory(c.icon)}
@@ -167,88 +205,101 @@ export function AssignRow({
               </span>
             )}
           </div>
-          <div
-            style={{
-              font: "500 12.5px var(--font-sans)",
-              color: "var(--text-muted)",
-              marginTop: 2,
-              fontVariantNumeric: "tabular-nums",
-            }}
-          >
-            {isPayment ? "Paid" : "Spent"} {euroCents(c.spent_cents)}
-            {funded > 0 && <> · set aside {euroCents(funded)} from card purchases</>}
-            {c.normal_cents !== null && c.catch_up_cents !== null && (
-              <>
-                {" · "}normal {euroCents(c.normal_cents)}
-                {c.catch_up_cents > c.normal_cents && (
-                  <span style={{ color: "#9A5B00" }}> · to be on time {euroCents(c.catch_up_cents)}</span>
-                )}
-              </>
+          {notes.length > 0 && (
+            <div
+              style={{
+                font: "500 12.5px var(--font-sans)",
+                color: "var(--text-muted)",
+                marginTop: 2,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {notes}
+            </div>
+          )}
+        </div>
+
+        <div className="budget-cols">
+          <div className="budget-cell">
+            <span className="budget-cell-label ol-eyebrow" style={cellLabel}>Assigned</span>
+            {/* Assigned — editable for day-to-day categories only */}
+            {fromPayments ? (
+              <span
+                title="Worked out from this category's payments"
+                style={{
+                  padding: "8px 10px",
+                  font: "600 14.5px var(--font-sans)",
+                  color: "var(--text-strong)",
+                  fontVariantNumeric: "tabular-nums",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {euroCents(c.assigned_cents)}
+              </span>
+            ) : (
+            <>
+            <div className="assign-edit-desktop">
+              <AmountInput
+                valueCents={c.assigned_cents}
+                draft={isDraft}
+                ariaLabel={`Assigned to ${c.name}`}
+                onCommit={(cents) => onAssign(c.id, cents)}
+              />
+            </div>
+            <button
+              className="assign-edit-mobile"
+              onClick={() => setSheetOpen(true)}
+              aria-label={`Assigned to ${c.name}: ${euroCents(c.assigned_cents)}. Edit`}
+              style={{
+                border: `1.5px solid ${isDraft ? "var(--violet-200)" : "transparent"}`,
+                background: isDraft ? "var(--violet-50)" : "var(--surface-sunk)",
+                borderRadius: "var(--r-sm)",
+                padding: "8px 10px",
+                font: "600 14.5px var(--font-sans)",
+                color: "var(--text-strong)",
+                cursor: "pointer",
+                fontVariantNumeric: "tabular-nums",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {euroCents(c.assigned_cents)}
+            </button>
+            </>
             )}
+            {carry.map((line) => (
+              <span key={line} data-testid={`carry-${c.name}`} style={carryStyle}>
+                {line}
+              </span>
+            ))}
+          </div>
+          <div className="budget-cell">
+            <span className="budget-cell-label ol-eyebrow" style={cellLabel}>{spentLabel}</span>
+            <span data-testid={`spent-${c.name}`} style={spentStyle}>
+              {euroCents(c.spent_cents)}
+            </span>
+          </div>
+          <div className="budget-cell">
+            <span className="budget-cell-label ol-eyebrow" style={cellLabel}>Available</span>
+            <span
+              className="budget-available"
+              style={{
+                flex: "none",
+                minWidth: 88,
+                display: "inline-block",
+                textAlign: "right",
+                background: availBg,
+                color: availColor,
+                borderRadius: "var(--r-full)",
+                padding: "6px 11px",
+                font: "700 13.5px var(--font-sans)",
+                fontVariantNumeric: "tabular-nums",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {euroCents(available)}
+            </span>
           </div>
         </div>
-
-        {/* Assigned — editable for day-to-day categories only */}
-        {fromPayments ? (
-          <span
-            title="Worked out from this category's payments"
-            style={{
-              padding: "8px 10px",
-              font: "600 14.5px var(--font-sans)",
-              color: "var(--text-strong)",
-              fontVariantNumeric: "tabular-nums",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {euroCents(c.assigned_cents)}
-          </span>
-        ) : (
-        <>
-        <div className="assign-edit-desktop">
-          <AmountInput
-            valueCents={c.assigned_cents}
-            draft={isDraft}
-            ariaLabel={`Assigned to ${c.name}`}
-            onCommit={(cents) => onAssign(c.id, cents)}
-          />
-        </div>
-        <button
-          className="assign-edit-mobile"
-          onClick={() => setSheetOpen(true)}
-          aria-label={`Assigned to ${c.name}: ${euroCents(c.assigned_cents)}. Edit`}
-          style={{
-            border: `1.5px solid ${isDraft ? "var(--violet-200)" : "transparent"}`,
-            background: isDraft ? "var(--violet-50)" : "var(--surface-sunk)",
-            borderRadius: "var(--r-sm)",
-            padding: "8px 10px",
-            font: "600 14.5px var(--font-sans)",
-            color: "var(--text-strong)",
-            cursor: "pointer",
-            fontVariantNumeric: "tabular-nums",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {euroCents(c.assigned_cents)}
-        </button>
-        </>
-        )}
-
-        <span
-          style={{
-            flex: "none",
-            minWidth: 88,
-            textAlign: "right",
-            background: availBg,
-            color: availColor,
-            borderRadius: "var(--r-full)",
-            padding: "6px 11px",
-            font: "700 13.5px var(--font-sans)",
-            fontVariantNumeric: "tabular-nums",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {euroCents(available)}
-        </span>
 
         <button
           onClick={() => setExpanded((e) => !e)}

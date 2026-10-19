@@ -95,7 +95,15 @@ The big number at the top is the money that doesn't have a job yet. Your goal is
 
 ### Assigning money
 
-Each category row shows what you assigned, what you spent and what's available. Tap a category to set how much it gets this month. For day-to-day categories (groceries, restaurants, fuel), Olmenta suggests an amount based on last month.
+Each category row shows three amounts, in this order:
+
+- **Assigned**: what you gave it this month.
+- **Spent**: what you spent from it this month. For a card's payment category it says **Paid**: what you paid to the card.
+- **Available**: what's left.
+
+When money carried over from last month, it shows under Assigned ("+32,00 € from last month"), so the amounts add up: assigned, plus what carried over, minus what you spent, is what's available. On a computer the labels sit at the top of each group, with the group's totals; on a phone each row carries its own labels.
+
+Tap a category's assigned amount to set how much it gets this month. For day-to-day categories (groceries, restaurants, fuel), Olmenta suggests an amount based on last month.
 
 ### Categories with payments
 
@@ -304,6 +312,7 @@ If your card already carried a balance when you started, that old balance is a d
 
 - **Ready to assign**: money that has arrived and doesn't have a job yet.
 - **Assigned**: what you gave a category this month.
+- **Spent**: what you spent from a category this month (refunds take it back down).
 - **Available**: what's left in a category to spend.
 - **Carried over**: what stays in a category, or in Ready to assign, from last month.
 - **Payment**: a cost with a date (rent, school, insurance), described once with its rule.

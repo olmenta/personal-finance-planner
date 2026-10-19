@@ -86,6 +86,16 @@ export class Api {
     await this.send("POST", "/transactions", { amount_cents: amountCents, category_id: categoryId, date, payee });
   }
 
+  /** Money between own accounts — into a card, it's a payment to the card. */
+  async transfer(fromAccountId: string, toAccountId: string, amountCents: number, date: string): Promise<void> {
+    await this.send("POST", "/transfers", {
+      from_account_id: fromAccountId,
+      to_account_id: toAccountId,
+      amount_cents: amountCents,
+      date,
+    });
+  }
+
   async schedule(categoryId: string, body: Record<string, unknown>): Promise<void> {
     await this.send("POST", `/categories/${categoryId}/schedules`, body);
   }
